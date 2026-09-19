@@ -52,8 +52,87 @@ PLAYABLE = (
     "video",
 )
 
+# Maximum number of entries shown in one Kodi directory page.
+DIRECTORY_PAGE_SIZE = 200
+
 
 # Build a Kodi plugin URL containing the action and any required IDs.
+def paginate_directory(items, page):
+    """Return one 200-item slice and whether another page exists."""
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    start = (page_number - 1) * DIRECTORY_PAGE_SIZE
+    end = start + DIRECTORY_PAGE_SIZE
+
+    return items[start:end], page_number > 1, end < len(items)
+
+
+def add_previous_page(library_id=None, series_id=None, season_number=None,
+                      action=None, page=1):
+    """Add a Previous Page folder when the current directory is past page 1."""
+    try:
+        page_number = int(page or 1)
+    except (TypeError, ValueError):
+        page_number = 1
+
+    if page_number <= 1:
+        return
+
+    params = {
+        "action": action,
+        "page": page_number - 1,
+    }
+
+    if library_id:
+        params["library_id"] = library_id
+    if series_id:
+        params["series_id"] = series_id
+    if season_number is not None:
+        params["season_number"] = season_number
+
+    item = xbmcgui.ListItem(label="Previous Page")
+    item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(**params),
+        item,
+        True,
+    )
+
+
+def add_next_page(library_id=None, series_id=None, season_number=None,
+                  action=None, page=1):
+    """Add a Next Page folder when another 200-item slice exists."""
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    params = {
+        "action": action,
+        "page": page_number + 1,
+    }
+
+    if library_id:
+        params["library_id"] = library_id
+    if series_id:
+        params["series_id"] = series_id
+    if season_number is not None:
+        params["season_number"] = season_number
+
+    item = xbmcgui.ListItem(label="Next Page")
+    item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(**params),
+        item,
+        True,
+    )
+
+
 def build_url(**params):
     return BASE_URL + "?" + urlencode(params)
 
@@ -902,7 +981,7 @@ def add_catalog_item(client, item, library_id):
     )
 
 
-def list_root(client):
+def list_root(client, page=None):
     """Display the initial screen or the logged-in Silo libraries.
 
     The addon deliberately does not start the login dialogue automatically.
@@ -933,8 +1012,17 @@ def list_root(client):
     # LOGGED IN
     # --------------------------------------------------------------
     libraries = client.libraries()
+    page_items, has_previous, has_next = paginate_directory(
+        libraries,
+        page,
+    )
 
-    for library in libraries:
+    add_previous_page(
+        action="root",
+        page=page,
+    )
+
+    for library in page_items:
         library_id = library.get("id")
         if not library_id:
             continue
@@ -966,6 +1054,12 @@ def list_root(client):
         logout_item,
         False,
     )
+
+    if has_next:
+        add_next_page(
+            action="root",
+            page=page,
+        )
 
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
@@ -1129,15 +1223,27 @@ def list_library(client, library_id, cursor=None):
 
     xbmcplugin.endOfDirectory(HANDLE)
 
-def list_seasons(client, series_id, library_id):
+def list_seasons(client, series_id, library_id, page=None):
     """Display all seasons belonging to a series."""
     if not series_id:
         raise SiloError("No series ID was supplied.")
 
     seasons = client.seasons(series_id, library_id)
+    page_items, has_previous, has_next = paginate_directory(
+        seasons,
+        page,
+    )
+
     xbmcplugin.setContent(HANDLE, "seasons")
 
-    for season in seasons:
+    add_previous_page(
+        series_id=series_id,
+        library_id=library_id,
+        action="seasons",
+        page=page,
+    )
+
+    for season in page_items:
         season_number = season.get("season_number", season.get("number"))
         if season_number is None:
             continue
@@ -1157,10 +1263,18 @@ def list_seasons(client, series_id, library_id):
             True,
         )
 
+    if has_next:
+        add_next_page(
+            series_id=series_id,
+            library_id=library_id,
+            action="seasons",
+            page=page,
+        )
+
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_episodes(client, series_id, season_number, library_id):
+def list_episodes(client, series_id, season_number, library_id, page=None):
     """Display all episodes for a season and apply their current watched state."""
     if not series_id:
         raise SiloError("No series ID was supplied.")
@@ -1168,7 +1282,11 @@ def list_episodes(client, series_id, season_number, library_id):
     if season_number is None:
         raise SiloError("No season number was supplied.")
 
-    episodes = client.episodes(series_id, season_number, library_id)
+    all_episodes = client.episodes(series_id, season_number, library_id)
+    episodes, has_previous, has_next = paginate_directory(
+        all_episodes,
+        page,
+    )
 
     # Fetch only currently in-progress records for accurate episode resume
     # markers. Completed state comes from each catalog item's user_state.played
@@ -1185,6 +1303,14 @@ def list_episodes(client, series_id, season_number, library_id):
         in_progress_map = {}
 
     xbmcplugin.setContent(HANDLE, "episodes")
+
+    add_previous_page(
+        series_id=series_id,
+        season_number=season_number,
+        library_id=library_id,
+        action="season",
+        page=page,
+    )
 
     # Fetch extended episode metadata concurrently before Kodi receives the list.
     detail_map = fetch_detail_metadata(
@@ -1300,6 +1426,15 @@ def list_episodes(client, series_id, season_number, library_id):
             HANDLE,
             batch,
             totalItems=len(episodes),
+        )
+
+    if has_next:
+        add_next_page(
+            series_id=series_id,
+            season_number=season_number,
+            library_id=library_id,
+            action="season",
+            page=page,
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
@@ -1657,7 +1792,14 @@ def router(client):
     action = params.get("action")
 
     if not action:
-        list_root(client)
+        list_root(client, params.get("page"))
+        return
+
+    if action == "root":
+        list_root(
+            client,
+            params.get("page"),
+        )
         return
 
     if action == "login":
@@ -1681,6 +1823,7 @@ def router(client):
             client,
             params.get("series_id"),
             params.get("library_id"),
+            params.get("page"),
         )
         return
 
@@ -1690,6 +1833,7 @@ def router(client):
             params.get("series_id"),
             params.get("season_number"),
             params.get("library_id"),
+            params.get("page"),
         )
         return
 
