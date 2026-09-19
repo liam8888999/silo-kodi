@@ -225,6 +225,11 @@ def set_watch_state(list_item, progress, content_type=None):
     position, duration = get_progress_position(progress)
     tag = list_item.getVideoInfoTag()
 
+    # Runtime is independent of resume state. Silo supplies duration_seconds
+    # for catalog items even when they have never been watched.
+    if duration > 0:
+        tag.setDuration(int(round(duration)))
+
     if completed:
         # Silo says the item is fully watched.
         tag.setPlaycount(1)
@@ -495,6 +500,7 @@ def list_library(client, library_id):
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
+                duration_seconds=catalog_item.get("duration_seconds") or "",
             )
             batch.append((url, list_item, False))
         else:
@@ -660,6 +666,9 @@ def list_episodes(client, series_id, season_number, library_id):
             if file_id:
                 params["file_id"] = file_id
 
+        if episode.get("duration_seconds") is not None:
+            params["duration_seconds"] = episode.get("duration_seconds")
+
         batch.append((
             build_url(**params),
             item,
@@ -714,7 +723,7 @@ def choose_file(client, content_id, library_id):
     return version.get("id") or version.get("file_id")
 
 
-def apply_fresh_resume_to_resolved_item(list_item, progress):
+def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0.0):
     """Put the freshly retrieved Silo resume state onto the resolved item.
 
     Kodi itself owns the resume dialog. We deliberately do not show our own
@@ -727,15 +736,31 @@ def apply_fresh_resume_to_resolved_item(list_item, progress):
     """
     tag = list_item.getVideoInfoTag()
 
+    try:
+        fallback_duration = max(0.0, float(fallback_duration or 0))
+    except (TypeError, ValueError):
+        fallback_duration = 0.0
+
     if not progress:
-        # There is no Silo resume state. Make the resolved item explicitly
-        # start with no resume point.
+        # An unwatched item may have no progress record, but the catalog still
+        # supplies its runtime. Pass that runtime to Kodi independently.
+        if fallback_duration > 0:
+            tag.setDuration(int(round(fallback_duration)))
+
         tag.setPlaycount(0)
         tag.setResumePoint(0.0, 0.0)
         return
 
     completed = bool(progress.get("completed", False))
     position, duration = get_progress_position(progress)
+
+    # Prefer the fresh progress duration when available; otherwise use the
+    # catalog duration carried through the plugin URL.
+    if duration <= 0:
+        duration = fallback_duration
+
+    if duration > 0:
+        tag.setDuration(int(round(duration)))
 
     if completed:
         # A completed item must not be offered as resumable.
@@ -754,7 +779,7 @@ def apply_fresh_resume_to_resolved_item(list_item, progress):
         tag.setResumePoint(0.0, 0.0)
 
 
-def play(client, content_id, file_id, library_id):
+def play(client, content_id, file_id, library_id, duration_seconds=None):
     """Play media using one fresh Silo resume check and Kodi's native prompt.
 
     Playback order:
@@ -843,6 +868,7 @@ def play(client, content_id, file_id, library_id):
     apply_fresh_resume_to_resolved_item(
         resolved_item,
         latest_progress,
+        fallback_duration=duration_seconds,
     )
 
     # Keep the resolved item playable.
@@ -1017,6 +1043,7 @@ def router(client):
             params.get("content_id"),
             params.get("file_id"),
             params.get("library_id"),
+            params.get("duration_seconds"),
         )
         return
 
