@@ -790,12 +790,6 @@ def set_stream_details(list_item, version):
                     str(value),
                 )
 
-        if info:
-            try:
-                list_item.addStreamInfo("video", info)
-            except Exception:
-                pass
-
         # Kodi skins commonly read these stream infolabels directly.
         try:
             stream = xbmc.VideoStreamDetail(
@@ -888,12 +882,6 @@ def set_stream_details(list_item, version):
                     str(value),
                 )
 
-        if info:
-            try:
-                list_item.addStreamInfo("audio", info)
-            except Exception:
-                pass
-
         try:
             tag.addAudioStream(
                 xbmc.AudioStreamDetail(
@@ -913,14 +901,6 @@ def set_stream_details(list_item, version):
         )
 
         if language:
-            try:
-                list_item.addStreamInfo(
-                    "subtitle",
-                    {"language": language},
-                )
-            except Exception:
-                pass
-
             try:
                 tag.addSubtitleStream(
                     xbmc.SubtitleStreamDetail(language)
@@ -1211,8 +1191,8 @@ def set_watch_state(list_item, progress, content_type=None):
     position, duration = get_progress_position(progress)
     tag = list_item.getVideoInfoTag()
 
-    # Runtime is independent of resume state. Use setInfo() as well as
-    # VideoInfoTag.setDuration() so Kodi's directory views receive the duration.
+    # Runtime is independent of resume state. Use Kodi's native
+    # VideoInfoTag duration field so directory views receive the duration.
     if duration > 0:
         duration_int = int(round(duration))
         tag.setDuration(duration_int)
@@ -1828,7 +1808,6 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         if fallback_duration > 0:
             duration_int = int(round(fallback_duration))
             tag.setDuration(duration_int)
-            list_item.setInfo("video", {"duration": duration_int})
 
         tag.setPlaycount(0)
         tag.setResumePoint(0.0, 0.0)
@@ -1845,7 +1824,6 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
     if duration > 0:
         duration_int = int(round(duration))
         tag.setDuration(duration_int)
-        list_item.setInfo("video", {"duration": duration_int})
 
     if completed:
         # A completed item must not be offered as resumable.
