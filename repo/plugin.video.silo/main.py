@@ -432,10 +432,9 @@ def set_catalog_metadata(list_item, item, client):
                     break
 
     if year > 0:
-        # Set both the modern InfoTag field and the traditional directory
-        # infolabel. Some Kodi skins/views read ListItem.Year from the latter.
+        # Use Kodi's native year field. setInfo("video", {"year": ...}) can
+        # cause Kodi/skins to treat the value as a date rather than a year.
         tag.setYear(year)
-        list_item.setInfo("video", {"year": year})
 
     genres = [str(value) for value in (item.get("genres") or []) if value]
     if genres:
@@ -1317,9 +1316,7 @@ def list_library(client, library_id, cursor=None):
 
         if catalog_item.get("year"):
             try:
-                year = int(catalog_item["year"])
-                tag.setYear(year)
-                list_item.setInfo("video", {"year": year})
+                tag.setYear(int(catalog_item["year"]))
             except (TypeError, ValueError):
                 pass
 
