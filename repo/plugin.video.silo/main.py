@@ -1,0 +1,1075 @@
+"""Kodi plugin entry point for Silo Server.
+
+Responsibilities in this file:
+    * Build Kodi's directory UI.
+    * Browse Silo libraries, series, seasons and episodes.
+    * Select a playable Silo file/version.
+    * Ask Silo for the freshest resume position when Play is selected.
+    * Start Silo playback at that server position.
+    * Report Kodi's live playback position back to Silo.
+
+Important resume behaviour:
+    Silo is the source of truth. The catalog supplies the watched flag, while a
+    lightweight status=in_progress progress request supplies detailed partial
+    positions. This avoids downloading the full progress history every time a
+    library is opened while keeping Kodi's partial-watch indicators accurate.
+
+    When Play is selected, play() still performs a SECOND fresh /api/v2/progress
+    lookup immediately before playback. That fresh server value is put on the
+    resolved Kodi ListItem, allowing Kodi to show its normal single Resume/Play
+    prompt using the current Silo position.
+
+    Kodi -> Silo progress reporting is unchanged, so partial playback is still
+    stored on the Silo server for other clients to see.
+
+Large Kodi directory lists are sent with xbmcplugin.addDirectoryItems(), which
+Kodi documents as more efficient for large lists than one addDirectoryItem() call
+at a time. Pagination is handled internally by SiloClient and is never shown
+to the user.
+"""
+
+import sys
+from urllib.parse import parse_qsl, urlencode
+
+import xbmc
+import xbmcgui
+import xbmcplugin
+
+from resources.lib.silo import SiloClient, SiloError, log
+
+
+# Kodi supplies a numeric handle for the current plugin directory.
+HANDLE = int(sys.argv[1])
+
+# Base plugin URL supplied by Kodi.
+BASE_URL = sys.argv[0]
+
+# Media types that this addon can send directly to Kodi's VideoPlayer.
+PLAYABLE = (
+    "movie",
+    "episode",
+    "video",
+)
+
+
+# Build a Kodi plugin URL containing the action and any required IDs.
+def build_url(**params):
+    return BASE_URL + "?" + urlencode(params)
+
+
+# Display a short informational notification in Kodi.
+def notify(message):
+    xbmcgui.Dialog().notification(
+        "Silo",
+        message,
+        xbmcgui.NOTIFICATION_INFO,
+        3000,
+    )
+
+
+def format_position(seconds):
+    """Convert a number of seconds into a simple human-readable timestamp."""
+    try:
+        total = max(0, int(round(float(seconds))))
+    except (TypeError, ValueError):
+        total = 0
+
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, seconds)
+
+    return "%d:%02d" % (minutes, seconds)
+
+
+def get_progress_position(progress):
+    """Safely read a Silo progress position and duration."""
+    if not progress:
+        return 0.0, 0.0
+
+    try:
+        position = float(progress.get("position_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        position = 0.0
+
+    try:
+        duration = float(progress.get("duration_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+
+    position = max(0.0, position)
+    duration = max(0.0, duration)
+
+    # Protect against malformed data where Silo reports a position beyond duration.
+    if duration > 0:
+        position = min(position, duration)
+
+    return position, duration
+
+
+def _art_url(client, value):
+    """Return an artwork URL from either a string or a small artwork dict."""
+    if not value:
+        return ""
+
+    if isinstance(value, dict):
+        value = (
+            value.get("url")
+            or value.get("src")
+            or value.get("path")
+        )
+
+    if not value:
+        return ""
+
+    return client.abs_url(str(value))
+
+
+def set_art(list_item, client, poster=None, backdrop=None, logo=None, still=None):
+    """Apply Silo artwork to the Kodi ListItem.
+
+    Current Silo CatalogItem responses expose poster_url, backdrop_url and
+    logo_url. Older field names and dictionary-style artwork values are also
+    accepted as fallbacks so artwork remains compatible with older servers.
+    """
+    poster_url = _art_url(client, poster)
+    backdrop_url = _art_url(client, backdrop)
+    logo_url = _art_url(client, logo)
+    still_url = _art_url(client, still)
+
+    art = {}
+
+    if poster_url:
+        art.update({
+            "thumb": poster_url,
+            "poster": poster_url,
+            "icon": poster_url,
+        })
+
+    if backdrop_url:
+        art["fanart"] = backdrop_url
+
+    if logo_url:
+        art["clearlogo"] = logo_url
+
+    # Episode stills are useful as thumbnails when no poster is available.
+    if still_url and not poster_url:
+        art.update({
+            "thumb": still_url,
+            "icon": still_url,
+        })
+
+    if art:
+        list_item.setArt(art)
+
+
+def catalog_progress(item):
+    """Convert Silo's catalog-level viewer state into our common progress shape.
+
+    The Silo CatalogItem schema contains:
+        user_state.played
+        position_seconds
+        duration_seconds
+
+    Using these fields avoids a full /api/v2/progress download just to draw
+    watched/resume markers in the library. The detailed progress endpoint is
+    still queried fresh when the user actually starts playback.
+    """
+    if not item:
+        return None
+
+    user_state = item.get("user_state") or {}
+
+    # A profile-scoped catalog should normally contain user_state. If it is
+    # absent, return None rather than guessing the watch state.
+    if not isinstance(user_state, dict) or not user_state:
+        return None
+
+    # Silo's catalog exposes the current resume position directly.
+    position = item.get("position_seconds", 0)
+    duration = item.get("duration_seconds", 0)
+
+    try:
+        position = max(0.0, float(position or 0))
+    except (TypeError, ValueError):
+        position = 0.0
+
+    try:
+        duration = max(0.0, float(duration or 0))
+    except (TypeError, ValueError):
+        duration = 0.0
+
+    return {
+        "completed": bool(user_state.get("played", False)),
+        "position_seconds": position,
+        "duration_seconds": duration,
+        "updated_at": item.get("progress_updated_at") or "",
+    }
+
+
+def set_watch_state(list_item, progress, content_type=None):
+    """Apply Silo's current watched/resume state to a Kodi ListItem.
+
+    Kodi uses the VideoInfoTag methods setPlaycount() and setResumePoint().
+    The exact capitalization matters: it is setPlaycount, not setPlayCount.
+
+    This state is primarily for Kodi's library UI. play() still performs a
+    fresh server lookup immediately before playback, so the displayed value is
+    never trusted as the final resume position.
+    """
+    if not progress:
+        return
+
+    completed = bool(progress.get("completed", False))
+    position, duration = get_progress_position(progress)
+    tag = list_item.getVideoInfoTag()
+
+    if completed:
+        # Silo says the item is fully watched.
+        tag.setPlaycount(1)
+        return
+
+    # Anything incomplete is explicitly unwatched/in progress.
+    tag.setPlaycount(0)
+
+    # Store the server resume marker so Kodi/skins can show the item as
+    # partially played. Kodi documents setResumePoint(time, totalTime) for this.
+    if position > 0 and duration > 0:
+        tag.setResumePoint(position, duration)
+
+
+def get_content_id(item):
+    """Return a Silo catalog item's content ID."""
+    return item.get("content_id") or item.get("id")
+
+
+def add_catalog_item(client, item, library_id):
+    """Convert one Silo catalog object into a Kodi ListItem."""
+    content_id = get_content_id(item)
+
+    if not content_id:
+        log("Skipping catalog item with no content ID", xbmc.LOGWARNING)
+        return
+
+    title = item.get("title") or item.get("name") or "Unknown"
+    media_type = (item.get("type") or item.get("media_type") or "").lower()
+
+    list_item = xbmcgui.ListItem(label=title)
+    tag = list_item.getVideoInfoTag()
+    tag.setTitle(title)
+
+    # Copy basic metadata that Kodi can display.
+    if item.get("year"):
+        try:
+            tag.setYear(int(item["year"]))
+        except (TypeError, ValueError):
+            pass
+
+    if item.get("plot"):
+        tag.setPlot(item["plot"])
+
+    set_art(
+        list_item,
+        client,
+        # Current Silo v2 artwork fields.
+        poster=(
+            item.get("poster_url")
+            or item.get("poster")
+            or item.get("image")
+            or item.get("artwork")
+            or item.get("thumbnail")
+        ),
+        backdrop=item.get("backdrop_url"),
+        logo=item.get("logo_url"),
+    )
+
+    # Use the watched/resume state already included in the catalog response.
+    # This avoids an extra full progress-table request for every library load.
+    set_watch_state(
+        list_item,
+        catalog_progress(item),
+        media_type,
+    )
+
+    is_playable = media_type in PLAYABLE
+    play_content_id = item.get("play_content_id") or content_id
+
+    if is_playable:
+        list_item.setProperty("IsPlayable", "true")
+
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="play",
+                content_id=play_content_id,
+                library_id=library_id,
+            ),
+            list_item,
+            False,
+        )
+        return
+
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(
+            action="seasons",
+            series_id=content_id,
+            library_id=library_id,
+        ),
+        list_item,
+        True,
+    )
+
+
+def list_root(client):
+    """Display the initial screen or the logged-in Silo libraries.
+
+    The addon deliberately does not start the login dialogue automatically.
+    When no account is authenticated, Kodi shows a simple Login button and the
+    user must select it before any server/account information is requested.
+    """
+
+    # --------------------------------------------------------------
+    # NOT LOGGED IN
+    # --------------------------------------------------------------
+    # This restores the original addon behaviour: merely opening the addon
+    # does not immediately ask for credentials.
+    if not client.cfg.get("token"):
+        login_item = xbmcgui.ListItem(label="Login")
+
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="login"),
+            login_item,
+            False,
+        )
+
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    # --------------------------------------------------------------
+    # LOGGED IN
+    # --------------------------------------------------------------
+    libraries = client.libraries()
+
+    for library in libraries:
+        library_id = library.get("id")
+        if not library_id:
+            continue
+
+        title = library.get("name") or library.get("title") or "Library"
+        item = xbmcgui.ListItem(label=title)
+
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="library", library_id=library_id),
+            item,
+            True,
+        )
+
+    # Let the user change the active Silo household profile.
+    profile_item = xbmcgui.ListItem(label="Switch Profile")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="switch_profile"),
+        profile_item,
+        False,
+    )
+
+    # Clear local authentication/profile state and require a fresh login next time.
+    logout_item = xbmcgui.ListItem(label="Logout")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="logout"),
+        logout_item,
+        False,
+    )
+
+    xbmcplugin.setContent(HANDLE, "files")
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_library(client, library_id):
+    """Display every item in a Silo library as efficiently as possible.
+
+    The catalog supplies the viewer's watched flag. A small in-progress-only
+    progress request supplies detailed partial positions; the full progress
+    history remains reserved for the fresh playback check when Play is pressed.
+
+    Kodi's addDirectoryItems() is used in batches because Kodi documents it as
+    more efficient for large lists than repeatedly calling addDirectoryItem().
+    """
+    if not library_id:
+        raise SiloError("No library ID was supplied.")
+
+    # SiloClient combines every API catalog page internally. There is still no
+    # pagination item exposed in Kodi.
+    items = client.catalog(library_id)
+
+    # The normal catalog tells us whether an item is played, but the detailed
+    # partial position is not guaranteed to be present on every catalog row.
+    # Fetch ONLY currently in-progress records so Kodi can display accurate
+    # resume bars without downloading the user's entire progress history.
+    try:
+        in_progress_map = client.in_progress_map(
+            library_id=library_id
+        )
+    except SiloError as exc:
+        # A progress-display failure must never stop the library from loading.
+        log(
+            "Unable to retrieve in-progress Silo records: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+        in_progress_map = {}
+
+    xbmcplugin.setContent(HANDLE, "movies")
+
+    # Build Kodi entries first, then send them in batches. A batch size keeps
+    # memory usage reasonable for very large libraries while still avoiding
+    # thousands of individual Kodi plugin calls.
+    batch = []
+    batch_size = 500
+
+    for catalog_item in items:
+        content_id = get_content_id(catalog_item)
+        if not content_id:
+            log("Skipping catalog item with no content ID", xbmc.LOGWARNING)
+            continue
+
+        title = catalog_item.get("title") or catalog_item.get("name") or "Unknown"
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+
+        list_item = xbmcgui.ListItem(label=title)
+        tag = list_item.getVideoInfoTag()
+        tag.setTitle(title)
+
+        if catalog_item.get("year"):
+            try:
+                tag.setYear(int(catalog_item["year"]))
+            except (TypeError, ValueError):
+                pass
+
+        if catalog_item.get("plot") or catalog_item.get("overview"):
+            tag.setPlot(catalog_item.get("plot") or catalog_item.get("overview"))
+
+        # Silo's current CatalogItem fields are poster_url/backdrop_url/logo_url.
+        # Older names remain as fallbacks.
+        set_art(
+            list_item,
+            client,
+            poster=(
+                catalog_item.get("poster_url")
+                or catalog_item.get("poster")
+                or catalog_item.get("image")
+                or catalog_item.get("artwork")
+                or catalog_item.get("thumbnail")
+            ),
+            backdrop=catalog_item.get("backdrop_url"),
+            logo=catalog_item.get("logo_url"),
+        )
+
+        # Start with the fast catalog snapshot. For an in-progress item, use
+        # the dedicated server progress record because it contains the detailed
+        # position and duration required for Kodi's partial-watch indicator.
+        display_progress = catalog_progress(catalog_item)
+        server_progress = in_progress_map.get(str(content_id))
+
+        if server_progress:
+            display_progress = server_progress
+
+        set_watch_state(
+            list_item,
+            display_progress,
+            media_type,
+        )
+
+        if media_type in PLAYABLE:
+            list_item.setProperty("IsPlayable", "true")
+            url = build_url(
+                action="play",
+                content_id=catalog_item.get("play_content_id") or content_id,
+                library_id=library_id,
+            )
+            batch.append((url, list_item, False))
+        else:
+            url = build_url(
+                action="seasons",
+                series_id=content_id,
+                library_id=library_id,
+            )
+            batch.append((url, list_item, True))
+
+        # Flush a batch so extremely large libraries do not require the entire
+        # Kodi list to remain in one Python tuple list at once.
+        if len(batch) >= batch_size:
+            xbmcplugin.addDirectoryItems(
+                HANDLE,
+                batch,
+                totalItems=len(items),
+            )
+            batch = []
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(items),
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_seasons(client, series_id, library_id):
+    """Display all seasons belonging to a series."""
+    if not series_id:
+        raise SiloError("No series ID was supplied.")
+
+    seasons = client.seasons(series_id, library_id)
+    xbmcplugin.setContent(HANDLE, "seasons")
+
+    for season in seasons:
+        season_number = season.get("season_number", season.get("number"))
+        if season_number is None:
+            continue
+
+        title = season.get("title") or "Season %s" % season_number
+        item = xbmcgui.ListItem(label=title)
+
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="season",
+                series_id=series_id,
+                season_number=season_number,
+                library_id=library_id,
+            ),
+            item,
+            True,
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_episodes(client, series_id, season_number, library_id):
+    """Display all episodes for a season and apply their current watched state."""
+    if not series_id:
+        raise SiloError("No series ID was supplied.")
+
+    if season_number is None:
+        raise SiloError("No season number was supplied.")
+
+    episodes = client.episodes(series_id, season_number, library_id)
+
+    # Fetch only currently in-progress records for accurate episode resume
+    # markers. Completed state comes from each catalog item's user_state.played
+    # field, so we do not need the full progress history here.
+    try:
+        in_progress_map = client.in_progress_map(
+            library_id=library_id
+        )
+    except SiloError as exc:
+        log(
+            "Unable to retrieve in-progress Silo records: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+        in_progress_map = {}
+
+    xbmcplugin.setContent(HANDLE, "episodes")
+
+    # The episode endpoint returns CatalogItem objects as well, including the
+    # viewer's watched flag. The in-progress map supplies detailed positions.
+    batch = []
+    batch_size = 500
+
+    for episode in episodes:
+        content_id = get_content_id(episode)
+        if not content_id:
+            continue
+
+        title = episode.get("title") or episode.get("name") or "Episode"
+        item = xbmcgui.ListItem(label=title)
+        tag = item.getVideoInfoTag()
+        tag.setTitle(title)
+
+        if episode.get("episode_number") is not None:
+            try:
+                tag.setEpisode(int(episode["episode_number"]))
+            except (TypeError, ValueError):
+                pass
+
+        if episode.get("season_number") is not None:
+            try:
+                tag.setSeason(int(episode["season_number"]))
+            except (TypeError, ValueError):
+                pass
+
+        if episode.get("plot"):
+            tag.setPlot(episode["plot"])
+
+        set_art(
+            item,
+            client,
+            # Current Silo v2 artwork fields.
+            poster=(
+                episode.get("poster_url")
+                or episode.get("poster")
+                or episode.get("image")
+                or episode.get("thumbnail")
+            ),
+            backdrop=episode.get("backdrop_url"),
+            logo=episode.get("logo_url"),
+            # Episode still is retained as a thumbnail fallback.
+            still=(
+                episode.get("still_url")
+                or episode.get("still")
+            ),
+        )
+
+        # Start with the catalog snapshot and prefer the dedicated in-progress
+        # server record when Silo has one for this episode.
+        display_progress = catalog_progress(episode)
+        server_progress = in_progress_map.get(str(content_id))
+
+        if server_progress:
+            display_progress = server_progress
+
+        set_watch_state(
+            item,
+            display_progress,
+            "episode",
+        )
+
+        item.setProperty("IsPlayable", "true")
+
+        # Reuse an already-known single file when the episode exposes one.
+        files = episode.get("files") or []
+        params = {
+            "action": "play",
+            "content_id": content_id,
+            "library_id": library_id,
+        }
+
+        if len(files) == 1:
+            file_id = files[0].get("id") or files[0].get("file_id")
+            if file_id:
+                params["file_id"] = file_id
+
+        batch.append((
+            build_url(**params),
+            item,
+            False,
+        ))
+
+        if len(batch) >= batch_size:
+            xbmcplugin.addDirectoryItems(
+                HANDLE,
+                batch,
+                totalItems=len(episodes),
+            )
+            batch = []
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(episodes),
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def choose_file(client, content_id, library_id):
+    """Return the file/version selected by the user."""
+    versions = client.versions(content_id, library_id)
+
+    if not versions:
+        raise SiloError("Silo returned no playable versions.")
+
+    if len(versions) == 1:
+        return versions[0].get("id") or versions[0].get("file_id")
+
+    labels = []
+
+    for version in versions:
+        labels.append(
+            version.get("name")
+            or version.get("title")
+            or version.get("filename")
+            or version.get("file_name")
+            or str(version.get("id") or version.get("file_id"))
+        )
+
+    selected = xbmcgui.Dialog().select("Select version", labels)
+
+    if selected < 0:
+        return None
+
+    version = versions[selected]
+    return version.get("id") or version.get("file_id")
+
+
+def apply_fresh_resume_to_resolved_item(list_item, progress):
+    """Put the freshly retrieved Silo resume state onto the resolved item.
+
+    Kodi itself owns the resume dialog. We deliberately do not show our own
+    yes/no dialog because Kodi will ask once using this freshly supplied
+    resume point when its normal "Ask if resumable" behaviour is enabled.
+
+    We also do not use StartOffset here. StartOffset would bypass the normal
+    Kodi resume decision. The native Kodi resume system should perform the
+    seek after the user chooses Resume.
+    """
+    tag = list_item.getVideoInfoTag()
+
+    if not progress:
+        # There is no Silo resume state. Make the resolved item explicitly
+        # start with no resume point.
+        tag.setPlaycount(0)
+        tag.setResumePoint(0.0, 0.0)
+        return
+
+    completed = bool(progress.get("completed", False))
+    position, duration = get_progress_position(progress)
+
+    if completed:
+        # A completed item must not be offered as resumable.
+        tag.setPlaycount(1)
+        tag.setResumePoint(0.0, 0.0)
+        return
+
+    tag.setPlaycount(0)
+
+    if position > 0 and duration > 0:
+        # This is the fresh server position. Kodi's own resume prompt will use
+        # this value and perform the seek if the user selects Resume.
+        tag.setResumePoint(position, duration)
+    else:
+        # Incomplete but with no usable resume position.
+        tag.setResumePoint(0.0, 0.0)
+
+
+def play(client, content_id, file_id, library_id):
+    """Play media using one fresh Silo resume check and Kodi's native prompt.
+
+    Playback order:
+        1. Resolve the file/version.
+        2. Query Silo progress again immediately before playback.
+        3. Ask Silo for the normal stream/session at position zero.
+        4. Put the fresh Silo resume point on the resolved Kodi ListItem.
+        5. Use setResolvedUrl(), letting Kodi show its normal single Resume/Play
+           prompt and perform the seek itself.
+        6. Report Kodi's actual playback position back to Silo.
+
+    There is intentionally NO custom resume dialog here.
+    """
+    if not content_id:
+        raise SiloError("No content ID was supplied for playback.")
+
+    # Resolve the exact file/version to play.
+    if not file_id:
+        file_id = choose_file(client, content_id, library_id)
+
+    if not file_id:
+        return
+
+    # --------------------------------------------------------------
+    # FRESH SERVER PROGRESS CHECK
+    # --------------------------------------------------------------
+    # This is deliberately performed after the user selects Play, rather than
+    # trusting the progress snapshot that was used to build the directory.
+    latest_progress = None
+
+    try:
+        latest_progress = client.get_progress(
+            content_id,
+            library_id,
+        )
+    except SiloError as exc:
+        # Playback should still work if Silo's progress endpoint is temporarily
+        # unavailable. In that case Kodi receives no resume point.
+        log(
+            "Fresh progress lookup failed; continuing without Silo resume: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+
+    if latest_progress:
+        fresh_position, fresh_duration = get_progress_position(latest_progress)
+        log(
+            "Fresh Silo state before playback: content=%s position=%.3f duration=%.3f completed=%s"
+            % (
+                content_id,
+                fresh_position,
+                fresh_duration,
+                latest_progress.get("completed", False),
+            )
+        )
+    else:
+        log(
+            "No Silo progress record found immediately before playback for content %s"
+            % content_id
+        )
+
+    # --------------------------------------------------------------
+    # START THE SILO PLAYBACK SESSION
+    # --------------------------------------------------------------
+    # Silo provides the stream URL/session here, but Kodi is responsible for
+    # performing the actual resume seek after its native Resume/Play choice.
+    # Therefore start_position MUST remain zero to avoid a double seek.
+    info = client.start_playback(
+        file_id,
+        start_position=0.0,
+    )
+
+    if not info.get("url"):
+        raise SiloError("Silo did not provide a playback URL.")
+
+    # --------------------------------------------------------------
+    # RESOLVED KODI LIST ITEM
+    # --------------------------------------------------------------
+    # setResolvedUrl() is important here. Kodi can use the original directory
+    # item's metadata/artwork while replacing its path with this resolved URL.
+    # This also lets Kodi's normal native resume mechanism handle the ONE resume
+    # prompt instead of us running a second dialog ourselves.
+    resolved_item = xbmcgui.ListItem(path=info["url"])
+
+    # Apply the freshly retrieved Silo resume point to the resolved item.
+    # Do not set StartOffset: Kodi should decide whether to resume or start over.
+    apply_fresh_resume_to_resolved_item(
+        resolved_item,
+        latest_progress,
+    )
+
+    # Keep the resolved item playable.
+    resolved_item.setProperty("IsPlayable", "true")
+
+    # Tell Kodi that the plugin URL has been resolved to the actual Silo stream.
+    # Kodi now handles the normal single Resume/Play prompt itself.
+    xbmcplugin.setResolvedUrl(
+        HANDLE,
+        True,
+        resolved_item,
+    )
+
+    # --------------------------------------------------------------
+    # KODI -> SILO LIVE PROGRESS REPORTING
+    # --------------------------------------------------------------
+    session_id = info.get("session_id")
+
+    if session_id:
+        track_progress(
+            client,
+            session_id,
+        )
+    else:
+        log(
+            "Silo playback started without a session ID; "
+            "playback progress cannot be reported.",
+            xbmc.LOGWARNING,
+        )
+
+
+def track_progress(client, session_id):
+    """Monitor Kodi playback and periodically report its position to Silo."""
+    player = xbmc.Player()
+    monitor = xbmc.Monitor()
+
+    # Wait for Kodi to actually begin playing the resolved stream.
+    for _ in range(60):
+        if player.isPlaying():
+            break
+
+        if monitor.abortRequested():
+            return
+
+        xbmc.sleep(500)
+
+    if not player.isPlaying():
+        log(
+            "Kodi playback did not start; Silo playback session will not be tracked.",
+            xbmc.LOGWARNING,
+        )
+        return
+
+    sequence = 0
+    last_position = 0.0
+
+    # Report roughly every ten seconds while Kodi is playing.
+    while player.isPlaying():
+        if monitor.abortRequested():
+            break
+
+        try:
+            position = float(player.getTime())
+        except Exception:
+            position = last_position
+
+        last_position = max(0.0, position)
+
+        paused = xbmc.getCondVisibility("Player.Paused")
+
+        sequence += 1
+
+        try:
+            client.report_progress(
+                session_id,
+                sequence,
+                last_position,
+                paused,
+            )
+        except SiloError as exc:
+            # Never interrupt the video because a progress update failed.
+            log(
+                "Unable to report playback progress: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+
+        # Sleep in small chunks so playback can stop/abort without making the
+        # addon wait a full five seconds before noticing it.
+        for _ in range(50):
+            if not player.isPlaying() or monitor.abortRequested():
+                break
+            xbmc.sleep(100)
+
+    # Try one final position read while Kodi still has player state available.
+    try:
+        if player.isPlaying():
+            last_position = max(0.0, float(player.getTime()))
+    except Exception:
+        pass
+
+    # The final DELETE gets its own sequence number.
+    sequence += 1
+
+    try:
+        client.stop_playback(
+            session_id,
+            sequence,
+            last_position,
+        )
+    except SiloError as exc:
+        log(
+            "Unable to stop Silo playback session: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+
+
+def router(client):
+    """Route Kodi's current plugin request to the appropriate addon action."""
+    query = sys.argv[2]
+
+    if query.startswith("?"):
+        query = query[1:]
+
+    params = dict(
+        parse_qsl(
+            query,
+            keep_blank_values=True,
+        )
+    )
+
+    action = params.get("action")
+
+    if not action:
+        list_root(client)
+        return
+
+    if action == "login":
+        # A Login button starts the complete authentication flow.
+        # This asks for server, username and password, then selects/verifies
+        # the Silo profile before returning to the library screen.
+        client.login_full()
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if action == "library":
+        list_library(
+            client,
+            params.get("library_id"),
+        )
+        return
+
+    if action == "seasons":
+        list_seasons(
+            client,
+            params.get("series_id"),
+            params.get("library_id"),
+        )
+        return
+
+    if action == "season":
+        list_episodes(
+            client,
+            params.get("series_id"),
+            params.get("season_number"),
+            params.get("library_id"),
+        )
+        return
+
+    if action == "play":
+        play(
+            client,
+            params.get("content_id"),
+            params.get("file_id"),
+            params.get("library_id"),
+        )
+        return
+
+    if action == "switch_profile":
+        client.select_profile()
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if action == "logout":
+        client.logout()
+        notify("Logged out of Silo")
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    log(
+        "Unknown Kodi plugin action: %s" % action,
+        xbmc.LOGWARNING,
+    )
+
+
+def main():
+    """Create the Silo client and process Kodi's current plugin request."""
+    client = SiloClient()
+
+    try:
+        router(client)
+
+    except SiloError as exc:
+        log(
+            "Silo error: %s" % exc,
+            xbmc.LOGERROR,
+        )
+
+        xbmcgui.Dialog().notification(
+            "Silo",
+            str(exc),
+            xbmcgui.NOTIFICATION_ERROR,
+            5000,
+        )
+
+    except Exception as exc:
+        log(
+            "Unexpected addon error: %s" % exc,
+            xbmc.LOGERROR,
+        )
+
+        xbmcgui.Dialog().notification(
+            "Silo",
+            "Unexpected error: %s" % exc,
+            xbmcgui.NOTIFICATION_ERROR,
+            5000,
+        )
+
+
+# Kodi executes main.py as the addon entry point.
+main()
