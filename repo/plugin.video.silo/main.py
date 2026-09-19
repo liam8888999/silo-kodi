@@ -28,6 +28,7 @@ at a time. Pagination is handled internally by SiloClient and is never shown
 to the user.
 """
 
+import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
