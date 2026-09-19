@@ -76,10 +76,11 @@ def save_config(cfg):
 
 # Custom exception used for errors that should be shown/logged by Kodi.
 class SiloError(Exception):
-    def __init__(self, msg, status=None, problem=None):
+    def __init__(self, msg, status=None, problem=None, retry_after=None):
         super().__init__(msg)
         self.status = status
         self.problem = problem or {}
+        self.retry_after = retry_after
 
 
 # Playback-start fields whose accepted strings are not fully described by the
@@ -268,7 +269,13 @@ class SiloClient:
             except ValueError:
                 problem = {}
 
-            raise SiloError(self._problem(r), r.status_code, problem)
+            retry_after = r.headers.get("Retry-After")
+            raise SiloError(
+                self._problem(r),
+                r.status_code,
+                problem,
+                retry_after,
+            )
 
         return r
 
