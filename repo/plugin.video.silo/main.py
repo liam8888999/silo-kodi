@@ -83,6 +83,19 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
+def get_runtime_seconds(item):
+    """Convert Silo's catalog runtime (minutes) into Kodi seconds."""
+    if not item:
+        return 0.0
+
+    try:
+        runtime = float(item.get("runtime", 0) or 0)
+    except (TypeError, ValueError):
+        runtime = 0.0
+
+    return max(0.0, runtime * 60.0)
+
+
 def get_progress_position(progress):
     """Safely read a Silo progress position and duration."""
     if not progress:
@@ -200,6 +213,12 @@ def catalog_progress(item):
     except (TypeError, ValueError):
         duration = 0.0
 
+    # Catalog runtime is in minutes; progress duration is in seconds.
+    # Unwatched items may not have a progress duration, so use the catalog
+    # runtime as the Kodi duration in that case.
+    if duration <= 0:
+        duration = get_runtime_seconds(item)
+
     return {
         "completed": bool(user_state.get("played", False)),
         "position_seconds": position,
@@ -225,10 +244,16 @@ def set_watch_state(list_item, progress, content_type=None):
     position, duration = get_progress_position(progress)
     tag = list_item.getVideoInfoTag()
 
-    # Runtime is independent of resume state. Silo supplies duration_seconds
-    # for catalog items even when they have never been watched.
+    # Runtime is independent of resume state. Use setInfo() as well as
+    # VideoInfoTag.setDuration() so Kodi's directory views receive the duration.
     if duration > 0:
-        tag.setDuration(int(round(duration)))
+        duration_int = int(round(duration))
+        tag.setDuration(duration_int)
+
+        info = {"duration": duration_int}
+        if content_type:
+            info["mediatype"] = str(content_type)
+        list_item.setInfo("video", info)
 
     if completed:
         # Silo says the item is fully watched.
@@ -745,7 +770,9 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         # An unwatched item may have no progress record, but the catalog still
         # supplies its runtime. Pass that runtime to Kodi independently.
         if fallback_duration > 0:
-            tag.setDuration(int(round(fallback_duration)))
+            duration_int = int(round(fallback_duration))
+            tag.setDuration(duration_int)
+            list_item.setInfo("video", {"duration": duration_int})
 
         tag.setPlaycount(0)
         tag.setResumePoint(0.0, 0.0)
@@ -760,7 +787,9 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         duration = fallback_duration
 
     if duration > 0:
-        tag.setDuration(int(round(duration)))
+        duration_int = int(round(duration))
+        tag.setDuration(duration_int)
+        list_item.setInfo("video", {"duration": duration_int})
 
     if completed:
         # A completed item must not be offered as resumable.
