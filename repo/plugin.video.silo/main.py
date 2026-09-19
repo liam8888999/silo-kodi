@@ -427,6 +427,260 @@ def set_catalog_metadata(list_item, item, client):
                 )
 
 
+def _detail_version(detail, file_id=None):
+    """Select the Silo file version whose stream metadata should be shown."""
+    versions = detail.get("versions") or []
+
+    if file_id is not None:
+        wanted = str(file_id)
+        for version in versions:
+            if str(version.get("file_id") or version.get("id")) == wanted:
+                return version
+
+    return versions[0] if versions else {}
+
+
+def set_stream_details(list_item, version):
+    """Populate Kodi's pre-playback video/audio stream details.
+
+    Silo stores the actual probed stream information on FileVersion. Kodi's
+    native ListItem stream details are separate from VideoInfoTag metadata,
+    so setting resolution/codec as arbitrary properties is not enough.
+    """
+    if not version:
+        return
+
+    video_tracks = version.get("video_tracks") or []
+    audio_tracks = version.get("audio_tracks") or []
+
+    # Keep the simple ListItem API populated as well. This is what Kodi skins
+    # and directory views commonly use for flagging before playback.
+    for track in video_tracks:
+        info = {}
+        if track.get("codec"):
+            info["codec"] = track["codec"]
+        if track.get("width"):
+            info["width"] = int(track["width"])
+        if track.get("height"):
+            info["height"] = int(track["height"])
+        if track.get("aspect_ratio"):
+            try:
+                info["aspect"] = float(track["aspect_ratio"])
+            except (TypeError, ValueError):
+                pass
+        if version.get("duration"):
+            info["duration"] = int(version["duration"])
+        if track.get("language"):
+            info["language"] = track["language"]
+
+        hdr = (
+            track.get("dolby_vision")
+            or ("dolbyvision" if track.get("dv_profile") else "")
+            or (
+                "hdr10"
+                if str(track.get("video_range_type", "")).upper().startswith("HDR10")
+                else ""
+            )
+        )
+        if hdr:
+            info["hdrtype"] = hdr
+
+        if info:
+            try:
+                list_item.addStreamInfo("video", info)
+            except Exception:
+                pass
+
+        # Kodi 20+ also exposes the typed VideoStreamDetail API.
+        try:
+            stream = xbmc.VideoStreamDetail(
+                int(track.get("width") or 0),
+                int(track.get("height") or 0),
+                float(track.get("aspect_ratio") or 0),
+                int(version.get("duration") or 0),
+                str(track.get("codec") or ""),
+                "",
+                str(track.get("language") or ""),
+                str(hdr or ""),
+            )
+            list_item.getVideoInfoTag().addVideoStream(stream)
+        except Exception:
+            pass
+
+    # Some older Silo files may have no track array but still expose the
+    # compact version-level codec/resolution fields.
+    if not video_tracks and (
+        version.get("codec_video") or version.get("resolution")
+    ):
+        resolution = str(version.get("resolution") or "")
+        width = height = 0
+        if "x" in resolution:
+            try:
+                width, height = [int(v) for v in resolution.lower().split("x", 1)]
+            except (TypeError, ValueError):
+                pass
+        elif resolution.endswith("p"):
+            try:
+                height = int(resolution[:-1])
+            except ValueError:
+                pass
+
+        info = {
+            "codec": version.get("codec_video") or "",
+            "duration": int(version.get("duration") or 0),
+        }
+        if width:
+            info["width"] = width
+        if height:
+            info["height"] = height
+
+        try:
+            list_item.addStreamInfo("video", info)
+        except Exception:
+            pass
+
+    for track in audio_tracks:
+        info = {}
+        if track.get("codec"):
+            info["codec"] = track["codec"]
+        if track.get("language"):
+            info["language"] = track["language"]
+        if track.get("channels"):
+            info["channels"] = int(track["channels"])
+
+        if info:
+            try:
+                list_item.addStreamInfo("audio", info)
+            except Exception:
+                pass
+
+        try:
+            stream = xbmc.AudioStreamDetail(
+                int(track.get("channels") or 0),
+                str(track.get("codec") or ""),
+                str(track.get("language") or ""),
+            )
+            list_item.getVideoInfoTag().addAudioStream(stream)
+        except Exception:
+            pass
+
+
+def set_detail_metadata(list_item, detail, client, file_id=None):
+    """Apply Silo detail-only metadata such as cast, crew and stream tracks."""
+    if not detail:
+        return
+
+    tag = list_item.getVideoInfoTag()
+
+    if detail.get("sort_title"):
+        try:
+            tag.setSortTitle(detail["sort_title"])
+        except Exception:
+            pass
+
+    if detail.get("original_title"):
+        try:
+            tag.setOriginalTitle(detail["original_title"])
+        except Exception:
+            pass
+
+    if detail.get("first_air_date"):
+        try:
+            tag.setFirstAired(str(detail["first_air_date"]))
+        except Exception:
+            pass
+
+    if detail.get("air_date"):
+        try:
+            tag.setPremiered(str(detail["air_date"]))
+        except Exception:
+            pass
+
+    cast = []
+    for person in detail.get("cast") or []:
+        name = person.get("name")
+        if not name:
+            continue
+
+        actor = {"name": str(name)}
+        if person.get("character"):
+            actor["role"] = str(person["character"])
+        if person.get("photo_url"):
+            actor["thumbnail"] = client.abs_url(person["photo_url"])
+        if person.get("order") is not None:
+            try:
+                actor["order"] = int(person["order"])
+            except (TypeError, ValueError):
+                pass
+        cast.append(actor)
+
+    if cast:
+        try:
+            tag.setCast(cast)
+        except Exception:
+            try:
+                list_item.setInfo("video", {"cast": cast})
+            except Exception:
+                pass
+
+    directors = []
+    writers = []
+    credits = []
+
+    for person in detail.get("crew") or []:
+        name = person.get("name")
+        job = str(person.get("job") or "").strip()
+        if not name:
+            continue
+
+        name = str(name)
+        if job:
+            credits.append(name)
+
+        job_lower = job.lower()
+        if job_lower == "director" or job_lower == "directors":
+            directors.append(name)
+
+        if any(word in job_lower for word in (
+            "writer",
+            "screenplay",
+            "screenwriter",
+            "story",
+        )):
+            writers.append(name)
+
+    try:
+        if directors:
+            tag.setDirectors(directors)
+        if writers:
+            tag.setWriters(writers)
+        if credits:
+            tag.setCredits(credits)
+    except Exception:
+        # Older Kodi builds may expose singular setters instead.
+        try:
+            if directors:
+                tag.setDirector(directors)
+            if writers:
+                tag.setWriter(writers)
+            if credits:
+                tag.setCredits(credits)
+        except Exception:
+            pass
+
+    version = _detail_version(detail, file_id)
+    set_stream_details(list_item, version)
+
+    # Full-detail runtime is the actual selected file duration in seconds.
+    if version.get("duration"):
+        try:
+            duration = int(version["duration"])
+            tag.setDuration(duration)
+            list_item.setInfo("video", {"duration": duration})
+        except (TypeError, ValueError):
+            pass
+
+
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
 
@@ -708,6 +962,18 @@ def list_library(client, library_id):
             logo=catalog_item.get("logo_url"),
         )
 
+        # Fetch the detail document once so Kodi can display cast, crew and
+        # actual file stream details before playback. Silo's detail endpoint
+        # includes the full FileVersion track arrays.
+        try:
+            detail = client.item_detail(content_id, library_id)
+            set_detail_metadata(list_item, detail, client)
+        except SiloError as exc:
+            log(
+                "Unable to retrieve detail metadata for %s: %s" % (content_id, exc),
+                xbmc.LOGWARNING,
+            )
+
         # Start with the fast catalog snapshot. For an in-progress item, use
         # the dedicated server progress record because it contains the detailed
         # position and duration required for Kodi's partial-watch indicator.
@@ -867,6 +1133,17 @@ def list_episodes(client, series_id, season_number, library_id):
                 or episode.get("still")
             ),
         )
+
+        # Episode catalog rows do not carry cast/crew or the full track
+        # descriptors, so fetch the detail document before Kodi renders it.
+        try:
+            detail = client.item_detail(content_id, library_id)
+            set_detail_metadata(item, detail, client)
+        except SiloError as exc:
+            log(
+                "Unable to retrieve episode detail metadata for %s: %s" % (content_id, exc),
+                xbmc.LOGWARNING,
+            )
 
         # Start with the catalog snapshot and prefer the dedicated in-progress
         # server record when Silo has one for this episode.
