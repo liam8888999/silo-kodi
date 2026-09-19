@@ -1038,21 +1038,19 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
     # Keep Kodi's older ListItem representation as well. It is deprecated in
     # Kodi 20+, but remains supported and some skins/add-ons still consume it.
     if cast_info:
+        # Kodi's ListItem.setCast() supports actor thumbnails directly.
+        # Do not follow it with setInfo("video", ...) for cast: that legacy
+        # infolabel can replace the richer actor objects and drop thumbnails.
         try:
             list_item.setCast(cast_info)
         except Exception:
             pass
 
-        try:
-            list_item.setInfo(
-                "video",
-                {
-                    "cast": cast_names,
-                    "castandrole": cast_and_roles,
-                },
-            )
-        except Exception:
-            pass
+        # Keep a simple text-only property for skins that want just the names.
+        list_item.setProperty(
+            "Silo.CastNames",
+            " / ".join(cast_names),
+        )
 
     directors = []
     writers = []
@@ -1129,6 +1127,26 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         list_item.setProperty(
             "Silo.Crew",
             " / ".join(credits),
+        )
+
+    crew_details = []
+    for person in detail.get("crew") or []:
+        if not person.get("name"):
+            continue
+
+        crew_details.append({
+            "name": str(person.get("name")),
+            "job": str(person.get("job") or ""),
+            "thumbnail": client.abs_url(person.get("photo_url") or ""),
+        })
+
+    if crew_details:
+        list_item.setProperty(
+            "Silo.CrewDetails",
+            json.dumps(
+                crew_details,
+                separators=(",", ":"),
+            ),
         )
 
     # Detail-only viewer and series information.
