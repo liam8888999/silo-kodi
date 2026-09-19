@@ -227,6 +227,206 @@ def catalog_progress(item):
     }
 
 
+def set_catalog_metadata(list_item, item, client):
+    """Apply metadata that Silo includes directly in CatalogItem responses.
+
+    This deliberately uses only catalog data so opening a large library does
+    not trigger one detail request per movie or episode.
+    """
+    if not item:
+        return
+
+    tag = list_item.getVideoInfoTag()
+    media_type = (item.get("type") or item.get("media_type") or "").lower()
+
+    # Kodi media types map Silo's catalog types to the native video types.
+    kodi_media_type = {
+        "movie": "movie",
+        "series": "tvshow",
+        "season": "season",
+        "episode": "episode",
+        "video": "video",
+    }.get(media_type, "video")
+
+    tag.setMediaType(kodi_media_type)
+
+    title = item.get("title") or item.get("name")
+    if title:
+        tag.setTitle(title)
+
+    if item.get("year") is not None:
+        try:
+            tag.setYear(int(item["year"]))
+        except (TypeError, ValueError):
+            pass
+
+    genres = [str(value) for value in (item.get("genres") or []) if value]
+    if genres:
+        tag.setGenres(genres)
+
+    studios = [str(value) for value in (item.get("studios") or []) if value]
+    if studios:
+        tag.setStudios(studios)
+
+    countries = [str(value) for value in (item.get("countries") or []) if value]
+    if countries:
+        tag.setCountries(countries)
+
+    keywords = [str(value) for value in (item.get("keywords") or []) if value]
+    if keywords:
+        tag.setTags(keywords)
+
+    plot = item.get("overview") or item.get("plot")
+    if plot:
+        tag.setPlot(plot)
+        tag.setPlotOutline(plot)
+
+    if item.get("tagline"):
+        tag.setTagLine(item["tagline"])
+
+    if item.get("content_rating"):
+        tag.setMpaa(item["content_rating"])
+
+    if item.get("original_language"):
+        try:
+            tag.setOriginalLanguage(item["original_language"])
+        except Exception:
+            # Keep the catalog value available even when Kodi cannot recognise
+            # the language code supplied by the server.
+            list_item.setProperty(
+                "Silo.OriginalLanguage",
+                str(item["original_language"]),
+            )
+
+    if item.get("series_title"):
+        tag.setTvShowTitle(item["series_title"])
+
+    if item.get("show_status"):
+        tag.setTvShowStatus(item["show_status"])
+
+    if item.get("season_number") is not None:
+        try:
+            tag.setSeason(int(item["season_number"]))
+        except (TypeError, ValueError):
+            pass
+
+    if item.get("episode_number") is not None:
+        try:
+            tag.setEpisode(int(item["episode_number"]))
+        except (TypeError, ValueError):
+            pass
+
+    release_date = item.get("release_date")
+    if release_date:
+        if media_type == "episode":
+            tag.setFirstAired(str(release_date))
+        else:
+            tag.setPremiered(str(release_date))
+
+    if item.get("runtime"):
+        try:
+            duration_seconds = int(round(float(item["runtime"]) * 60))
+        except (TypeError, ValueError):
+            duration_seconds = 0
+
+        if duration_seconds > 0:
+            tag.setDuration(duration_seconds)
+
+    # Preserve every rating Silo exposes. Kodi supports multiple named rating
+    # types; IMDb is preferred as the default when it exists.
+    ratings = {}
+    rating_map = (
+        ("imdb", item.get("rating_imdb")),
+        ("tmdb", item.get("rating_tmdb")),
+        ("rotten_tomatoes_critic", item.get("rating_rt_critic")),
+        ("rotten_tomatoes_audience", item.get("rating_rt_audience")),
+    )
+
+    for rating_type, value in rating_map:
+        if value is None:
+            continue
+        try:
+            ratings[rating_type] = (float(value), 0)
+        except (TypeError, ValueError):
+            pass
+
+    if ratings:
+        default_rating = "imdb" if "imdb" in ratings else next(iter(ratings))
+        try:
+            tag.setRatings(ratings, default_rating)
+        except AttributeError:
+            # Kodi versions before the InfoTagVideo rating API can still
+            # receive named ratings through ListItem.
+            for rating_type, (value, votes) in ratings.items():
+                list_item.setRating(
+                    rating_type,
+                    value,
+                    votes,
+                    rating_type == default_rating,
+                )
+
+    # Store identifiers that are useful to Kodi and to skins/addons.
+    unique_ids = {}
+    for key in ("imdb_id", "tmdb_id", "tvdb_id"):
+        value = item.get(key)
+        if value:
+            unique_ids[key.replace("_id", "")] = str(value)
+
+    if unique_ids:
+        default_id = (
+            "imdb" if "imdb" in unique_ids
+            else "tmdb" if "tmdb" in unique_ids
+            else "tvdb"
+        )
+        try:
+            tag.setUniqueIDs(unique_ids, default_id)
+        except AttributeError:
+            list_item.setUniqueIDs(unique_ids, default_id)
+
+        for key, value in unique_ids.items():
+            list_item.setProperty("Silo.%sID" % key.upper(), value)
+
+    # The catalog has a few useful fields with no dedicated Kodi video-info
+    # field. Expose them as ListItem properties so skins can still access them.
+    if item.get("networks"):
+        list_item.setProperty(
+            "Silo.Networks",
+            " / ".join(str(value) for value in item["networks"] if value),
+        )
+
+    for key in (
+        "status",
+        "item_source",
+        "work_id",
+        "work_title",
+    ):
+        value = item.get(key)
+        if value:
+            list_item.setProperty("Silo.%s" % key.title(), str(value))
+
+    overlay = item.get("overlay_summary") or {}
+    if isinstance(overlay, dict):
+        for key in (
+            "resolution",
+            "hdr",
+            "audio",
+            "audio_channels",
+            "video_codec",
+            "container",
+            "aspect_ratio",
+            "release_type",
+            "edition",
+            "multi_audio",
+            "multi_sub",
+        ):
+            value = overlay.get(key)
+            if value not in (None, "", False):
+                list_item.setProperty(
+                    "Silo.%s" % "".join(part.title() for part in key.split("_")),
+                    str(value),
+                )
+
+
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
 
@@ -288,6 +488,8 @@ def add_catalog_item(client, item, library_id):
     list_item = xbmcgui.ListItem(label=title)
     tag = list_item.getVideoInfoTag()
     tag.setTitle(title)
+
+    set_catalog_metadata(list_item, item, client)
 
     # Copy basic metadata that Kodi can display.
     if item.get("year"):
@@ -479,6 +681,8 @@ def list_library(client, library_id):
         tag = list_item.getVideoInfoTag()
         tag.setTitle(title)
 
+        set_catalog_metadata(list_item, catalog_item, client)
+
         if catalog_item.get("year"):
             try:
                 tag.setYear(int(catalog_item["year"]))
@@ -627,6 +831,8 @@ def list_episodes(client, series_id, season_number, library_id):
         item = xbmcgui.ListItem(label=title)
         tag = item.getVideoInfoTag()
         tag.setTitle(title)
+
+        set_catalog_metadata(item, episode, client)
 
         if episode.get("episode_number") is not None:
             try:
