@@ -971,7 +971,7 @@ def list_root(client):
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_library(client, library_id):
+def list_library(client, library_id, cursor=None):
     """Display every item in a Silo library as efficiently as possible.
 
     The catalog supplies the viewer's watched flag. A small in-progress-only
@@ -984,9 +984,8 @@ def list_library(client, library_id):
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
-    # SiloClient combines every API catalog page internally. There is still no
-    # pagination item exposed in Kodi.
-    items = client.catalog(library_id)
+    # Load one 200-item Silo catalog page. Larger libraries use the cursor below.
+    items, next_cursor = client.catalog_page(library_id, cursor=cursor, limit=200)
 
     # The normal catalog tells us whether an item is played, but the detailed
     # partial position is not guaranteed to be present on every catalog row.
@@ -1115,8 +1114,18 @@ def list_library(client, library_id):
         xbmcplugin.addDirectoryItems(
             HANDLE,
             batch,
-            totalItems=len(items),
+            totalItems=len(items) + (1 if next_cursor else 0),
         )
+
+    if next_cursor:
+        next_url = build_url(
+            action="library",
+            library_id=library_id,
+            cursor=next_cursor,
+        )
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(HANDLE, next_url, next_item, True)
 
     xbmcplugin.endOfDirectory(HANDLE)
 
@@ -1663,6 +1672,7 @@ def router(client):
         list_library(
             client,
             params.get("library_id"),
+            params.get("cursor"),
         )
         return
 
