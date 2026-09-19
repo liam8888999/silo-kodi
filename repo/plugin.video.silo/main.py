@@ -28,9 +28,8 @@ at a time. Pagination is handled internally by SiloClient and is never shown
 to the user.
 """
 
-import hashlib
-import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -85,116 +84,67 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
-# Extended metadata is fetched by the add-on's background service.
-# Results are held temporarily in Kodi window properties, not written to disk.
-METADATA_REQUEST_PROPERTY = "Silo.MetadataRequest"
-METADATA_READY_PREFIX = "Silo.MetadataReady."
-METADATA_DATA_PREFIX = "Silo.MetadataData."
-METADATA_KEY_VERSION = "v1"
+def fetch_detail_metadata(client, items, library_id, max_workers=8):
+    """Fetch extended metadata concurrently before rendering Kodi items.
 
+    Catalog data is fast and contains most metadata. The detail endpoint adds
+    cast, crew and full file stream information. Each request runs in a worker
+    with its own SiloClient/session so Kodi only waits for the slowest detail
+    request rather than every request serially.
+    """
+    content_ids = []
+    seen = set()
 
-def _metadata_key(content_id, library_id):
-    """Create a compact property key for one library item."""
-    value = "%s:%s:%s" % (
-        METADATA_KEY_VERSION,
-        str(library_id or ""),
-        str(content_id or ""),
-    )
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()
+    for item in items:
+        content_id = get_content_id(item)
+        if not content_id:
+            continue
 
+        key = str(content_id)
+        if key not in seen:
+            seen.add(key)
+            content_ids.append(content_id)
 
-def _metadata_data_property(content_id, library_id):
-    return METADATA_DATA_PREFIX + _metadata_key(content_id, library_id)
-
-
-def _metadata_ready_property(library_id):
-    return METADATA_READY_PREFIX + str(library_id or "")
-
-
-def load_metadata_handoff(library_id):
-    """Read and consume one completed background metadata pass."""
-    window = xbmcgui.Window(10000)
-    manifest_name = _metadata_ready_property(library_id)
-    raw_manifest = window.getProperty(manifest_name)
-
-    if not raw_manifest:
+    if not content_ids:
         return {}
 
-    try:
-        content_ids = json.loads(raw_manifest)
-    except (TypeError, ValueError):
-        window.clearProperty(manifest_name)
-        return {}
+    def fetch_one(content_id):
+        try:
+            worker_client = SiloClient()
+            worker_client.cfg.update(client.cfg)
+
+            return content_id, worker_client.item_detail(
+                content_id,
+                library_id,
+            )
+        except SiloError as exc:
+            log(
+                "Unable to retrieve detail metadata for %s: %s" % (
+                    content_id,
+                    exc,
+                ),
+                xbmc.LOGWARNING,
+            )
+            return content_id, None
 
     details = {}
-
-    if not isinstance(content_ids, list):
-        window.clearProperty(manifest_name)
-        return details
-
-    for content_id in content_ids:
-        property_name = _metadata_data_property(
-            content_id,
-            library_id,
-        )
-        raw_detail = window.getProperty(property_name)
-
-        if raw_detail:
-            try:
-                detail = json.loads(raw_detail)
-            except (TypeError, ValueError):
-                detail = None
-
-            if isinstance(detail, dict):
-                details[str(content_id)] = detail
-
-        # The handoff is temporary. Once this directory request consumes it,
-        # the detail no longer remains in Kodi memory.
-        window.clearProperty(property_name)
-
-    window.clearProperty(manifest_name)
-    return details
-
-
-def request_background_metadata(library_id, content_ids):
-    """Ask the resident Kodi service to fetch extended metadata."""
-    if not library_id or not content_ids:
-        return
-
-    ids = list(
-        dict.fromkeys(
-            str(value)
-            for value in content_ids
-            if value
-        )
+    worker_count = max(
+        1,
+        min(int(max_workers or 8), len(content_ids)),
     )
 
-    if not ids:
-        return
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(fetch_one, content_id)
+            for content_id in content_ids
+        ]
 
-    window = xbmcgui.Window(10000)
+        for future in as_completed(futures):
+            content_id, detail = future.result()
+            if detail:
+                details[str(content_id)] = detail
 
-    # Do not replace an existing request. The service owns the request once
-    # it has started processing it.
-    if window.getProperty(METADATA_REQUEST_PROPERTY):
-        return
-
-    try:
-        window.setProperty(
-            METADATA_REQUEST_PROPERTY,
-            json.dumps(
-                {
-                    "library_id": str(library_id),
-                    "content_ids": ids,
-                },
-                separators=(",", ":"),
-            ),
-        )
-    except Exception as exc:
-        log(
-            "Unable to queue background metadata: %s" % exc,
-            xbmc.LOGWARNING,
-        )
+    return details
 
 
 def get_runtime_seconds(item):
@@ -1056,8 +1006,13 @@ def list_library(client, library_id):
 
     xbmcplugin.setContent(HANDLE, "movies")
 
-    # Consume any results prepared by the resident background service.
-    metadata_handoff = load_metadata_handoff(library_id)
+    # Fetch cast, crew and full stream details before Kodi receives the list.
+    # Requests run concurrently so the entire library still renders once.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        library_id,
+    )
 
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
@@ -1109,9 +1064,8 @@ def list_library(client, library_id):
             logo=catalog_item.get("logo_url"),
         )
 
-        # Apply cast/crew and detailed stream metadata when the
-        # background worker has completed its one-shot pass.
-        detail = metadata_handoff.get(str(content_id))
+        # Apply the extended metadata fetched concurrently above.
+        detail = detail_map.get(str(content_id))
         if detail:
             set_detail_metadata(list_item, detail, client)
 
@@ -1165,19 +1119,6 @@ def list_library(client, library_id):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
-
-    # Queue the current library's IDs only after Kodi has received the fast
-    # foreground list. The resident service can now do HTTP work independently.
-    if not metadata_handoff:
-        request_background_metadata(
-            library_id,
-            [
-                get_content_id(item)
-                for item in items
-                if get_content_id(item)
-            ],
-        )
-
 
 def list_seasons(client, series_id, library_id):
     """Display all seasons belonging to a series."""
@@ -1236,7 +1177,12 @@ def list_episodes(client, series_id, season_number, library_id):
 
     xbmcplugin.setContent(HANDLE, "episodes")
 
-    metadata_handoff = load_metadata_handoff(library_id)
+    # Fetch extended episode metadata concurrently before Kodi receives the list.
+    detail_map = fetch_detail_metadata(
+        client,
+        episodes,
+        library_id,
+    )
 
     # The episode endpoint returns CatalogItem objects as well, including the
     # viewer's watched flag. The in-progress map supplies detailed positions.
@@ -1289,9 +1235,8 @@ def list_episodes(client, series_id, season_number, library_id):
             ),
         )
 
-        # Apply one-shot extended metadata immediately when the background
-        # worker has completed.
-        detail = metadata_handoff.get(str(content_id))
+        # Apply the extended metadata fetched concurrently above.
+        detail = detail_map.get(str(content_id))
         if detail:
             set_detail_metadata(item, detail, client)
 
@@ -1349,17 +1294,6 @@ def list_episodes(client, series_id, season_number, library_id):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
-
-    if not metadata_handoff:
-        request_background_metadata(
-            library_id,
-            [
-                get_content_id(episode)
-                for episode in episodes
-                if get_content_id(episode)
-            ],
-        )
-
 
 def choose_file(client, content_id, library_id):
     """Return the file/version selected by the user."""
