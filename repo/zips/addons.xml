@@ -1,0 +1,35 @@
+<?xml version='1.0' encoding='utf-8'?>
+<addons><addon id="plugin.video.silo" name="Silo Media Server" version="0.1.4" provider-name="liam8888999">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0" />
+    <import addon="script.module.requests" version="2.31.0" />
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="main.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Browse and play videos from a Silo server</summary>
+    <description lang="en_GB">Native Silo client for Kodi.</description>
+    <platform>all</platform>
+    <license>GPL-3.0-or-later</license>
+    <news>I'm just new, please test me and provide feedback :)</news>
+  </extension>
+</addon><addon id="repository.silo-kodi" name="Silo-Kodi" version="1.0.0" provider-name="liam8888999">
+    <extension point="xbmc.addon.repository" name="Example Repository">
+      <dir>
+          <info compressed="false">https://raw.githubusercontent.com/liam8888999/repository.liam3/master/repo/zips/addons.xml</info>
+          <checksum>https://raw.githubusercontent.com/liam8888999/repository.liam3/master/repo/zips/addons.xml.md5</checksum>
+          <datadir zip="true">https://raw.githubusercontent.com/liam8888999/repository.liam3/master/repo/zips/</datadir>
+      </dir>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary>Liams Repo</summary>
+        <description>Mine</description>
+        <disclaimer />
+        <platform>all</platform>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.jpg</fanart>
+        </assets>
+    </extension>
+</addon></addons>

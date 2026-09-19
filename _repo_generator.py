@@ -1,4 +1,4 @@
-""" 
+"""
     Put this script in the root folder of your repo and it will
     zip up all addon folders, create a new zip in your zips folder
     and then update the md5 and addons.xml file
@@ -374,5 +374,12 @@ class Generator:
 
 
 if __name__ == "__main__":
-    for release in [r for r in KODI_VERSIONS if os.path.exists(r)]:
-        Generator(release)
+    # Always use the folder containing this script as the starting point.
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    for release in KODI_VERSIONS:
+        release_path = os.path.join(script_dir, release)
+
+        if os.path.exists(release_path):
+            print(f"Processing repository: {release_path}")
+            Generator(release_path)
