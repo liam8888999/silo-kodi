@@ -29,7 +29,6 @@ to the user.
 """
 
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -226,54 +225,6 @@ def catalog_progress(item):
         "duration_seconds": duration,
         "updated_at": item.get("progress_updated_at") or "",
     }
-
-
-def fetch_detail_metadata(client, items, library_id, max_workers=8):
-    """Fetch extended item metadata concurrently.
-
-    The normal catalog already contains the bulk of Kodi metadata. Only cast,
-    crew and detailed file-track information require the item-detail endpoint.
-    Requests are therefore made concurrently so a large library does not wait
-    for every HTTP request serially.
-    """
-    details = {}
-
-    def fetch_one(content_id):
-        try:
-            return content_id, client.item_detail(content_id, library_id)
-        except SiloError as exc:
-            log(
-                "Unable to retrieve detail metadata for %s: %s" % (
-                    content_id,
-                    exc,
-                ),
-                xbmc.LOGWARNING,
-            )
-            return content_id, None
-
-    content_ids = []
-    seen = set()
-
-    for item in items:
-        content_id = get_content_id(item)
-        if content_id and str(content_id) not in seen:
-            seen.add(str(content_id))
-            content_ids.append(content_id)
-
-    if not content_ids:
-        return details
-
-    worker_count = max(1, min(int(max_workers or 8), len(content_ids)))
-
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = [executor.submit(fetch_one, content_id) for content_id in content_ids]
-
-        for future in as_completed(futures):
-            content_id, detail = future.result()
-            if detail:
-                details[str(content_id)] = detail
-
-    return details
 
 
 def set_catalog_metadata(list_item, item, client):
@@ -991,11 +942,6 @@ def list_library(client, library_id):
 
     xbmcplugin.setContent(HANDLE, "movies")
 
-    # Fetch extended metadata concurrently. The regular catalog supplies
-    # genre/rating/runtime/etc. without extra requests; this only adds the
-    # detail data needed for cast, crew and file stream information.
-    detail_map = fetch_detail_metadata(client, items, library_id)
-
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
     # thousands of individual Kodi plugin calls.
@@ -1045,11 +991,6 @@ def list_library(client, library_id):
             backdrop=catalog_item.get("backdrop_url"),
             logo=catalog_item.get("logo_url"),
         )
-
-        # Extended metadata was prefetched concurrently above.
-        detail = detail_map.get(str(content_id))
-        if detail:
-            set_detail_metadata(list_item, detail, client)
 
         # Start with the fast catalog snapshot. For an in-progress item, use
         # the dedicated server progress record because it contains the detailed
@@ -1160,10 +1101,6 @@ def list_episodes(client, series_id, season_number, library_id):
 
     xbmcplugin.setContent(HANDLE, "episodes")
 
-    # Prefetch cast, crew and detailed track metadata concurrently rather than
-    # blocking on one HTTP request for every episode.
-    detail_map = fetch_detail_metadata(client, episodes, library_id)
-
     # The episode endpoint returns CatalogItem objects as well, including the
     # viewer's watched flag. The in-progress map supplies detailed positions.
     batch = []
@@ -1214,11 +1151,6 @@ def list_episodes(client, series_id, season_number, library_id):
                 or episode.get("still")
             ),
         )
-
-        # Extended episode metadata was prefetched concurrently above.
-        detail = detail_map.get(str(content_id))
-        if detail:
-            set_detail_metadata(item, detail, client)
 
         # Start with the catalog snapshot and prefer the dedicated in-progress
         # server record when Silo has one for this episode.
@@ -1390,6 +1322,26 @@ def play(client, content_id, file_id, library_id, duration_seconds=None):
     if not file_id:
         return
 
+    # Fetch the extended item detail only when the item is actually played.
+    # The library/episode listing remains fast because it uses CatalogItem
+    # metadata directly. The detail response contains cast, crew and complete
+    # video/audio/subtitle track descriptors.
+    try:
+        detail = client.item_detail(
+            content_id,
+            library_id,
+            file_id,
+        )
+    except SiloError as exc:
+        detail = None
+        log(
+            "Unable to retrieve extended metadata for %s: %s" % (
+                content_id,
+                exc,
+            ),
+            xbmc.LOGWARNING,
+        )
+
     # --------------------------------------------------------------
     # FRESH SERVER PROGRESS CHECK
     # --------------------------------------------------------------
@@ -1449,6 +1401,26 @@ def play(client, content_id, file_id, library_id, duration_seconds=None):
     # This also lets Kodi's normal native resume mechanism handle the ONE resume
     # prompt instead of us running a second dialog ourselves.
     resolved_item = xbmcgui.ListItem(path=info["url"])
+
+    # Reapply the same extended metadata to the resolved playback item so
+    # Kodi retains cast/crew and stream information after resolution.
+    if detail:
+        try:
+            set_catalog_metadata(resolved_item, detail, client)
+            set_detail_metadata(
+                resolved_item,
+                detail,
+                client,
+                file_id=file_id,
+            )
+        except Exception as exc:
+            log(
+                "Unable to apply extended playback metadata for %s: %s" % (
+                    content_id,
+                    exc,
+                ),
+                xbmc.LOGWARNING,
+            )
 
     # Apply the freshly retrieved Silo resume point to the resolved item.
     # Do not set StartOffset: Kodi should decide whether to resume or start over.
