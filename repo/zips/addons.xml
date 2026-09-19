@@ -14,12 +14,12 @@
     <license>GPL-3.0-or-later</license>
     <news>I'm just new, please test me and provide feedback :)</news>
   </extension>
-</addon><addon id="repository.silo-kodi" name="Silo-Kodi" version="1.0.2" provider-name="liam8888999">
-    <extension point="xbmc.addon.repository" name="Example Repository">
+</addon><addon id="repository.silo-kodi" name="Silo-Kodi" version="1.0" provider-name="liam8888999">
+    <extension point="xbmc.addon.repository" name="Silo Kodi">
       <dir>
           <info compressed="false">https://raw.githubusercontent.com/liam8888999/silo-kodi/master/repo/zips/addons.xml</info>
           <checksum>https://raw.githubusercontent.com/liam8888999/silo-kodi/master/repo/zips/addons.xml.md5</checksum>
-          <datadir zip="true">https://raw.githubusercontent.com/silo-kodi/silo-kodi/master/repo/zips/</datadir>
+          <datadir zip="true">https://raw.githubusercontent.com/silo-kodi/master/repo/zips/</datadir>
       </dir>
     </extension>
     <extension point="xbmc.addon.metadata">
