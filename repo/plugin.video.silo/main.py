@@ -28,7 +28,6 @@ at a time. Pagination is handled internally by SiloClient and is never shown
 to the user.
 """
 
-import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1130,24 +1129,24 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             " / ".join(credits),
         )
 
+    # Keep complete crew names/jobs available without requiring JSON in the
+    # Kodi runtime. Thumbnail-bearing crew data remains in the structured
+    # Silo.CrewDetails property only when a skin specifically needs it.
     crew_details = []
     for person in detail.get("crew") or []:
         if not person.get("name"):
             continue
-
-        crew_details.append({
-            "name": str(person.get("name")),
-            "job": str(person.get("job") or ""),
-            "thumbnail": client.abs_url(person.get("photo_url") or ""),
-        })
+        crew_details.append(
+            "%s (%s)" % (
+                str(person.get("name")),
+                str(person.get("job") or ""),
+            )
+        )
 
     if crew_details:
         list_item.setProperty(
             "Silo.CrewDetails",
-            json.dumps(
-                crew_details,
-                separators=(",", ":"),
-            ),
+            " / ".join(crew_details),
         )
 
     # Detail-only viewer and series information.
@@ -1177,12 +1176,15 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
                 str(value),
             )
 
+    # Marker data remains available as a simple property. Complex marker JSON
+    # is intentionally not serialised here because it is not required by Kodi
+    # for pre-playback metadata.
     for marker_name in ("intro", "credits", "recap", "preview"):
         marker = detail.get(marker_name)
         if marker:
             list_item.setProperty(
                 "Silo.Marker.%s" % marker_name.title(),
-                json.dumps(marker, separators=(",", ":")),
+                str(marker),
             )
 
     # Native date-added and ID infolabels are still consumed by some skins.
