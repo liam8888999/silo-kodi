@@ -29,6 +29,7 @@ to the user.
 """
 
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
@@ -164,12 +165,12 @@ def format_position(seconds):
 
 
 def fetch_detail_metadata(client, items, library_id, max_workers=8):
-    """Fetch extended metadata concurrently before rendering Kodi items.
+    """Fetch extended metadata concurrently and retry transient failures.
 
     Catalog data is fast and contains most metadata. The detail endpoint adds
-    cast, crew and full file stream information. Each request runs in a worker
-    with its own SiloClient/session so Kodi only waits for the slowest detail
-    request rather than every request serially.
+    cast, crew and full file stream information. Requests run concurrently,
+    while transient timeouts, connection failures and server throttling/errors
+    are retried before an item is considered unavailable.
     """
     content_ids = []
     seen = set()
@@ -188,23 +189,54 @@ def fetch_detail_metadata(client, items, library_id, max_workers=8):
         return {}
 
     def fetch_one(content_id):
-        try:
-            worker_client = SiloClient()
-            worker_client.cfg.update(client.cfg)
+        attempts = 3
 
-            return content_id, worker_client.item_detail(
-                content_id,
-                library_id,
-            )
-        except SiloError as exc:
-            log(
-                "Unable to retrieve detail metadata for %s: %s" % (
+        for attempt in range(attempts):
+            try:
+                # Use a separate session per worker. requests.Session should not
+                # be shared across concurrent requests.
+                worker_client = SiloClient()
+                worker_client.cfg.update(client.cfg)
+
+                detail = worker_client.item_detail(
                     content_id,
-                    exc,
-                ),
-                xbmc.LOGWARNING,
-            )
-            return content_id, None
+                    library_id,
+                )
+
+                if detail:
+                    return content_id, detail
+
+                # An empty document is unusual but should get one retry.
+                if attempt < attempts - 1:
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+
+                return content_id, None
+
+            except SiloError as exc:
+                status = getattr(exc, "status", None)
+
+                # Retry transient HTTP failures and network errors. Do not
+                # waste time retrying permanent 4xx responses.
+                transient = (
+                    status is None
+                    or status == 408
+                    or status == 429
+                    or status >= 500
+                )
+
+                if attempt < attempts - 1 and transient:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+
+                log(
+                    "Unable to retrieve detail metadata for %s: %s"
+                    % (content_id, exc),
+                    xbmc.LOGWARNING,
+                )
+                return content_id, None
+
+        return content_id, None
 
     details = {}
     worker_count = max(
@@ -220,6 +252,7 @@ def fetch_detail_metadata(client, items, library_id, max_workers=8):
 
         for future in as_completed(futures):
             content_id, detail = future.result()
+
             if detail:
                 details[str(content_id)] = detail
 
@@ -749,6 +782,21 @@ def set_stream_details(list_item, version):
             except Exception:
                 pass
 
+        # Kodi skins commonly read these stream infolabels directly.
+        legacy_video = {}
+        if track.get("codec"):
+            legacy_video["videocodec"] = str(track["codec"])
+        if track.get("width") and track.get("height"):
+            legacy_video["videoresolution"] = int(track["height"])
+        if aspect > 0:
+            legacy_video["videoaspect"] = aspect
+
+        if legacy_video:
+            try:
+                list_item.setInfo("video", legacy_video)
+            except Exception:
+                pass
+
         try:
             stream = xbmc.VideoStreamDetail(
                 int(track.get("width") or 0),
@@ -846,6 +894,18 @@ def set_stream_details(list_item, version):
             except Exception:
                 pass
 
+        legacy_audio = {}
+        if track.get("codec"):
+            legacy_audio["audiocodec"] = str(track["codec"])
+        if track.get("channels"):
+            legacy_audio["audiochannels"] = int(track["channels"])
+
+        if legacy_audio:
+            try:
+                list_item.setInfo("video", legacy_audio)
+            except Exception:
+                pass
+
         try:
             tag.addAudioStream(
                 xbmc.AudioStreamDetail(
@@ -923,26 +983,28 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
     cast = []
     cast_info = []
+    cast_names = []
+    cast_and_roles = []
 
     for person in detail.get("cast") or []:
         name = person.get("name")
         if not name:
             continue
 
+        name = str(name)
         role = str(person.get("character") or "")
         thumbnail = client.abs_url(person.get("photo_url") or "")
+
         try:
             order = int(person.get("order") or 0)
         except (TypeError, ValueError):
             order = 0
 
-        # Kodi 20+ InfoTagVideo.setCast() expects xbmc.Actor objects.
-        # Keep the older dictionary representation as a fallback for Kodi
-        # builds/skins that still use ListItem.setCast().
+        # Kodi 20+ uses xbmc.Actor objects for InfoTagVideo.setCast().
         try:
             cast.append(
                 xbmc.Actor(
-                    str(name),
+                    name,
                     role,
                     order,
                     thumbnail,
@@ -951,14 +1013,21 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         except Exception:
             pass
 
-        actor_info = {"name": str(name)}
+        actor_info = {"name": name}
         if role:
             actor_info["role"] = role
         if thumbnail:
             actor_info["thumbnail"] = thumbnail
         if order:
             actor_info["order"] = order
+
         cast_info.append(actor_info)
+        cast_names.append(name)
+
+        if role:
+            cast_and_roles.append((name, role))
+        else:
+            cast_and_roles.append((name, ""))
 
     if cast:
         try:
@@ -966,9 +1035,22 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         except Exception:
             pass
 
-    if cast_info and not cast:
+    # Keep Kodi's older ListItem representation as well. It is deprecated in
+    # Kodi 20+, but remains supported and some skins/add-ons still consume it.
+    if cast_info:
         try:
             list_item.setCast(cast_info)
+        except Exception:
+            pass
+
+        try:
+            list_item.setInfo(
+                "video",
+                {
+                    "cast": cast_names,
+                    "castandrole": cast_and_roles,
+                },
+            )
         except Exception:
             pass
 
@@ -979,49 +1061,135 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
     for person in detail.get("crew") or []:
         name = person.get("name")
         job = str(person.get("job") or "").strip()
+
         if not name:
             continue
 
         name = str(name)
+        job_lower = job.lower()
+
         if job:
             credits.append(name)
 
-        job_lower = job.lower()
-        if job_lower == "director" or job_lower == "directors":
+        # Silo can return detailed crew job labels, not only the bare "Director"
+        # or "Writer" values.
+        if (
+            job_lower == "director"
+            or job_lower.endswith(" director")
+            or "director" in job_lower
+        ):
             directors.append(name)
 
-        if any(word in job_lower for word in (
-            "writer",
-            "screenplay",
-            "screenwriter",
-            "story",
-        )):
+        if any(
+            word in job_lower
+            for word in (
+                "writer",
+                "screenplay",
+                "screenwriter",
+                "story",
+                "novel",
+            )
+        ):
             writers.append(name)
+
+    # Remove duplicates while preserving Silo's order.
+    directors = list(dict.fromkeys(directors))
+    writers = list(dict.fromkeys(writers))
+    credits = list(dict.fromkeys(credits))
 
     try:
         if directors:
             tag.setDirectors(directors)
+    except Exception:
+        pass
+
+    try:
         if writers:
             tag.setWriters(writers)
     except Exception:
-        # Keep each crew category independent so a single unsupported setter
-        # cannot prevent the other metadata from being stored.
+        pass
+
+    # Also populate the legacy native video infolabels. This keeps director,
+    # writer and credits available to Kodi skins that still read those fields.
+    legacy_info = {}
+    if directors:
+        legacy_info["director"] = directors
+    if writers:
+        legacy_info["writer"] = writers
+    if credits:
+        legacy_info["credits"] = credits
+
+    if legacy_info:
         try:
-            if directors:
-                tag.setDirectors(directors)
-        except Exception:
-            pass
-        try:
-            if writers:
-                tag.setWriters(writers)
+            list_item.setInfo("video", legacy_info)
         except Exception:
             pass
 
-    # Kodi does not expose a separate native "all crew" field through the
-    # current InfoTagVideo setter API. Writers/directors are the useful native
-    # categories; preserve the complete role/name list as a Silo property.
     if credits:
-        list_item.setProperty("Silo.Crew", " / ".join(credits))
+        list_item.setProperty(
+            "Silo.Crew",
+            " / ".join(credits),
+        )
+
+    # Detail-only viewer and series information.
+    if detail.get("user_rating") is not None:
+        try:
+            tag.setUserRating(int(detail["user_rating"]))
+        except (TypeError, ValueError):
+            pass
+
+    for key in (
+        "season_count",
+        "episode_count",
+        "air_time",
+        "air_timezone",
+        "effective_subtitle_language",
+        "effective_subtitle_mode",
+        "effective_version_resolution",
+        "effective_version_codec_video",
+        "effective_version_edition_key",
+    ):
+        value = detail.get(key)
+        if value not in (None, ""):
+            list_item.setProperty(
+                "Silo.%s" % "".join(
+                    part.title() for part in key.split("_")
+                ),
+                str(value),
+            )
+
+    for marker_name in ("intro", "credits", "recap", "preview"):
+        marker = detail.get(marker_name)
+        if marker:
+            list_item.setProperty(
+                "Silo.Marker.%s" % marker_name.title(),
+                json.dumps(marker, separators=(",", ":")),
+            )
+
+    # Native date-added and ID infolabels are still consumed by some skins.
+    added_at = detail.get("added_at")
+    if added_at:
+        try:
+            tag.setDateAdded(str(added_at))
+        except Exception:
+            pass
+
+    legacy_detail_info = {}
+    if detail.get("imdb_id"):
+        legacy_detail_info["imdbnumber"] = str(detail["imdb_id"])
+    if detail.get("tmdb_id"):
+        list_item.setProperty("Silo.TMDBID", str(detail["tmdb_id"]))
+    if detail.get("tvdb_id"):
+        list_item.setProperty("Silo.TVDBID", str(detail["tvdb_id"]))
+
+    if detail.get("imdb_id"):
+        try:
+            list_item.setInfo(
+                "video",
+                {"imdbnumber": str(detail["imdb_id"])},
+            )
+        except Exception:
+            pass
 
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
