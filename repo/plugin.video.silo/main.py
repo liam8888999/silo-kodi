@@ -397,11 +397,42 @@ def set_catalog_metadata(list_item, item, client):
     if title:
         tag.setTitle(title)
 
-    if item.get("year") is not None:
-        try:
-            tag.setYear(int(item["year"]))
-        except (TypeError, ValueError):
-            pass
+    # Silo normally supplies year on CatalogItem, but some TV series
+    # can have a missing/zero year while their first-air/release date exists.
+    # Derive the year from that date so Kodi does not lose it.
+    year = item.get("year")
+
+    try:
+        year = int(year or 0)
+    except (TypeError, ValueError):
+        year = 0
+
+    if year <= 0:
+        date_candidates = []
+
+        if media_type == "series":
+            date_candidates.extend([
+                item.get("first_air_date"),
+            ])
+
+        date_candidates.extend([
+            item.get("release_date"),
+            item.get("first_air_date"),
+            item.get("air_date"),
+        ])
+
+        for date_value in date_candidates:
+            if date_value:
+                try:
+                    year = int(str(date_value)[:4])
+                except (TypeError, ValueError):
+                    year = 0
+
+                if year > 0:
+                    break
+
+    if year > 0:
+        tag.setYear(year)
 
     genres = [str(value) for value in (item.get("genres") or []) if value]
     if genres:
