@@ -28,7 +28,11 @@ at a time. Pagination is handled internally by SiloClient and is never shown
 to the user.
 """
 
+import json
+import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -81,6 +85,221 @@ def format_position(seconds):
         return "%d:%02d:%02d" % (hours, minutes, seconds)
 
     return "%d:%02d" % (minutes, seconds)
+
+
+METADATA_CACHE_PATH = os.path.join(PROFILE_DIR, "metadata-cache.json")
+METADATA_WORKER_LOCK_PATH = os.path.join(PROFILE_DIR, "metadata-worker.lock")
+METADATA_CACHE_TTL = 12 * 60 * 60
+
+
+def _metadata_cache_key(content_id, library_id):
+    """Build a stable cache key for one content item in one library."""
+    return "%s:%s" % (str(library_id or ""), str(content_id or ""))
+
+
+def load_metadata_cache():
+    """Load the persistent extended-metadata cache."""
+    try:
+        with open(METADATA_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return {}
+
+    return data if isinstance(data, dict) else {}
+
+
+def save_metadata_cache(cache):
+    """Atomically save the extended-metadata cache."""
+    xbmcvfs.mkdirs(PROFILE_DIR)
+    temp_path = METADATA_CACHE_PATH + ".tmp"
+
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(cache, f, separators=(",", ":"))
+        os.replace(temp_path, METADATA_CACHE_PATH)
+    except OSError as exc:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        log("Unable to save metadata cache: %s" % exc, xbmc.LOGWARNING)
+
+
+def cached_detail(cache, content_id, library_id):
+    """Return recent cached extended metadata, or None when stale/missing."""
+    entry = cache.get(_metadata_cache_key(content_id, library_id))
+
+    if not isinstance(entry, dict):
+        return None
+
+    try:
+        age = time.time() - float(entry.get("updated_at", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    if age < 0 or age > METADATA_CACHE_TTL:
+        return None
+
+    detail = entry.get("detail")
+    return detail if isinstance(detail, dict) else None
+
+
+def cache_detail(cache, content_id, library_id, detail):
+    """Store one successful detail response in the persistent cache."""
+    if not isinstance(detail, dict):
+        return
+
+    # Person image URLs can be short-lived, so don't persist them. Names,
+    # roles and the rest of the extended metadata are durable.
+    detail = json.loads(json.dumps(detail))
+
+    for group in ("cast", "crew"):
+        for person in detail.get(group) or []:
+            if isinstance(person, dict):
+                person.pop("photo_url", None)
+
+    cache[_metadata_cache_key(content_id, library_id)] = {
+        "updated_at": time.time(),
+        "detail": detail,
+    }
+
+
+def start_metadata_worker(library_id, content_ids=None):
+    """Start the extended metadata worker without blocking this directory."""
+    params = {
+        "action": "background_metadata",
+        "library_id": library_id,
+    }
+
+    if content_ids:
+        params["content_ids"] = ",".join(
+            str(value) for value in content_ids if value
+        )
+
+    try:
+        xbmc.executebuiltin("RunPlugin(%s)" % build_url(**params))
+    except Exception as exc:
+        log(
+            "Unable to start background metadata worker: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+
+
+def acquire_metadata_worker_lock():
+    """Prevent duplicate background workers when Kodi refreshes quickly."""
+    xbmcvfs.mkdirs(PROFILE_DIR)
+
+    try:
+        if os.path.exists(METADATA_WORKER_LOCK_PATH):
+            try:
+                age = time.time() - os.path.getmtime(METADATA_WORKER_LOCK_PATH)
+            except OSError:
+                age = 0
+
+            if age < 15 * 60:
+                return False
+
+            try:
+                os.remove(METADATA_WORKER_LOCK_PATH)
+            except OSError:
+                return False
+
+        fd = os.open(
+            METADATA_WORKER_LOCK_PATH,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+        )
+        os.close(fd)
+        return True
+    except OSError:
+        return False
+
+
+def release_metadata_worker_lock():
+    """Release the background metadata worker lock."""
+    try:
+        os.remove(METADATA_WORKER_LOCK_PATH)
+    except OSError:
+        pass
+
+
+def run_background_metadata(client, library_id, content_ids=None):
+    """Populate the metadata cache without blocking the visible directory."""
+    if not library_id or not acquire_metadata_worker_lock():
+        return
+
+    try:
+        if not content_ids:
+            items = client.catalog(library_id)
+            content_ids = [
+                get_content_id(item)
+                for item in items
+                if get_content_id(item)
+            ]
+
+        content_ids = list(
+            dict.fromkeys(
+                str(value) for value in content_ids if value
+            )
+        )
+
+        cache = load_metadata_cache()
+
+        pending = [
+            content_id
+            for content_id in content_ids
+            if cached_detail(cache, content_id, library_id) is None
+        ]
+
+        if not pending:
+            return
+
+        def fetch_one(content_id):
+            try:
+                return content_id, client.item_detail(content_id, library_id)
+            except SiloError as exc:
+                log(
+                    "Background metadata lookup failed for %s: %s" % (
+                        content_id,
+                        exc,
+                    ),
+                    xbmc.LOGWARNING,
+                )
+                return content_id, None
+
+        updated = 0
+        worker_count = max(1, min(8, len(pending)))
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(fetch_one, content_id)
+                for content_id in pending
+            ]
+
+            for future in as_completed(futures):
+                content_id, detail = future.result()
+
+                if detail:
+                    cache_detail(
+                        cache,
+                        content_id,
+                        library_id,
+                        detail,
+                    )
+                    updated += 1
+
+                if updated and updated % 10 == 0:
+                    save_metadata_cache(cache)
+
+        save_metadata_cache(cache)
+
+        if updated:
+            log(
+                "Background metadata worker cached %d item(s)" % updated
+            )
+            xbmc.executebuiltin("Container.Refresh")
+    finally:
+        release_metadata_worker_lock()
 
 
 def get_runtime_seconds(item):
@@ -942,6 +1161,9 @@ def list_library(client, library_id):
 
     xbmcplugin.setContent(HANDLE, "movies")
 
+    # Apply any extended metadata already cached by a previous background pass.
+    metadata_cache = load_metadata_cache()
+
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
     # thousands of individual Kodi plugin calls.
@@ -991,6 +1213,16 @@ def list_library(client, library_id):
             backdrop=catalog_item.get("backdrop_url"),
             logo=catalog_item.get("logo_url"),
         )
+
+        # Apply cast/crew and detailed stream metadata when the
+        # background worker has already cached it.
+        detail = cached_detail(
+            metadata_cache,
+            content_id,
+            library_id,
+        )
+        if detail:
+            set_detail_metadata(list_item, detail, client)
 
         # Start with the fast catalog snapshot. For an in-progress item, use
         # the dedicated server progress record because it contains the detailed
@@ -1042,6 +1274,9 @@ def list_library(client, library_id):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
+
+    # Populate uncached cast/crew and stream details in the background.
+    start_metadata_worker(library_id)
 
 
 def list_seasons(client, series_id, library_id):
@@ -1101,6 +1336,8 @@ def list_episodes(client, series_id, season_number, library_id):
 
     xbmcplugin.setContent(HANDLE, "episodes")
 
+    metadata_cache = load_metadata_cache()
+
     # The episode endpoint returns CatalogItem objects as well, including the
     # viewer's watched flag. The in-progress map supplies detailed positions.
     batch = []
@@ -1151,6 +1388,15 @@ def list_episodes(client, series_id, season_number, library_id):
                 or episode.get("still")
             ),
         )
+
+        # Apply cached extended metadata immediately when available.
+        detail = cached_detail(
+            metadata_cache,
+            content_id,
+            library_id,
+        )
+        if detail:
+            set_detail_metadata(item, detail, client)
 
         # Start with the catalog snapshot and prefer the dedicated in-progress
         # server record when Silo has one for this episode.
@@ -1206,6 +1452,17 @@ def list_episodes(client, series_id, season_number, library_id):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
+
+    # Episodes pass their current IDs directly so the background worker does
+    # not need another catalog request.
+    start_metadata_worker(
+        library_id,
+        [
+            get_content_id(episode)
+            for episode in episodes
+            if get_content_id(episode)
+        ],
+    )
 
 
 def choose_file(client, content_id, library_id):
@@ -1593,6 +1850,19 @@ def router(client):
             params.get("series_id"),
             params.get("season_number"),
             params.get("library_id"),
+        )
+        return
+
+    if action == "background_metadata":
+        content_ids = [
+            value
+            for value in (params.get("content_ids") or "").split(",")
+            if value
+        ]
+        run_background_metadata(
+            client,
+            params.get("library_id"),
+            content_ids,
         )
         return
 
