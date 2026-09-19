@@ -6,6 +6,12 @@ Silo acts as the media server, while this add-on provides a Kodi interface for a
 
 ---
 
+## Kodi Repository Address
+
+https://liam8888999.github.io/silo-kodi/
+
+---
+
 ## ✨ Features
 
 * 🎬 Browse movies and TV shows through Silo
