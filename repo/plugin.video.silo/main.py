@@ -164,7 +164,7 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
-def fetch_detail_metadata(client, items, library_id, max_workers=8):
+def fetch_detail_metadata(client, items, library_id, max_workers=4):
     """Fetch extended metadata concurrently and retry transient failures.
 
     Catalog data is fast and contains most metadata. The detail endpoint adds
@@ -216,8 +216,8 @@ def fetch_detail_metadata(client, items, library_id, max_workers=8):
             except SiloError as exc:
                 status = getattr(exc, "status", None)
 
-                # Retry transient HTTP failures and network errors. Do not
-                # waste time retrying permanent 4xx responses.
+                # Retry transient HTTP failures and network errors. For 429,
+                # Silo supplies the authoritative Retry-After delay.
                 transient = (
                     status is None
                     or status == 408
@@ -226,7 +226,21 @@ def fetch_detail_metadata(client, items, library_id, max_workers=8):
                 )
 
                 if attempt < attempts - 1 and transient:
-                    time.sleep(0.5 * (attempt + 1))
+                    retry_after = getattr(exc, "retry_after", None)
+
+                    try:
+                        delay = float(retry_after)
+                    except (TypeError, ValueError):
+                        delay = 0.0
+
+                    if status == 429 and delay <= 0:
+                        delay = 2.0
+                    elif delay <= 0:
+                        delay = 0.5 * (attempt + 1)
+
+                    # Give the server a little breathing room before the next
+                    # attempt, especially after a rate-limit response.
+                    time.sleep(max(0.25, delay))
                     continue
 
                 log(
@@ -241,7 +255,7 @@ def fetch_detail_metadata(client, items, library_id, max_workers=8):
     details = {}
     worker_count = max(
         1,
-        min(int(max_workers or 8), len(content_ids)),
+        min(int(max_workers or 4), len(content_ids)),
     )
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -783,20 +797,6 @@ def set_stream_details(list_item, version):
                 pass
 
         # Kodi skins commonly read these stream infolabels directly.
-        legacy_video = {}
-        if track.get("codec"):
-            legacy_video["videocodec"] = str(track["codec"])
-        if track.get("width") and track.get("height"):
-            legacy_video["videoresolution"] = int(track["height"])
-        if aspect > 0:
-            legacy_video["videoaspect"] = aspect
-
-        if legacy_video:
-            try:
-                list_item.setInfo("video", legacy_video)
-            except Exception:
-                pass
-
         try:
             stream = xbmc.VideoStreamDetail(
                 int(track.get("width") or 0),
@@ -891,18 +891,6 @@ def set_stream_details(list_item, version):
         if info:
             try:
                 list_item.addStreamInfo("audio", info)
-            except Exception:
-                pass
-
-        legacy_audio = {}
-        if track.get("codec"):
-            legacy_audio["audiocodec"] = str(track["codec"])
-        if track.get("channels"):
-            legacy_audio["audiochannels"] = int(track["channels"])
-
-        if legacy_audio:
-            try:
-                list_item.setInfo("video", legacy_audio)
             except Exception:
                 pass
 
@@ -1038,15 +1026,8 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
     # Keep Kodi's older ListItem representation as well. It is deprecated in
     # Kodi 20+, but remains supported and some skins/add-ons still consume it.
     if cast_info:
-        # Kodi's ListItem.setCast() supports actor thumbnails directly.
-        # Do not follow it with setInfo("video", ...) for cast: that legacy
-        # infolabel can replace the richer actor objects and drop thumbnails.
-        try:
-            list_item.setCast(cast_info)
-        except Exception:
-            pass
-
-        # Keep a simple text-only property for skins that want just the names.
+        # InfoTagVideo.setCast() above is the current Kodi API and retains the
+        # actor thumbnail supplied by Silo.
         list_item.setProperty(
             "Silo.CastNames",
             " / ".join(cast_names),
@@ -1106,22 +1087,6 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             tag.setWriters(writers)
     except Exception:
         pass
-
-    # Also populate the legacy native video infolabels. This keeps director,
-    # writer and credits available to Kodi skins that still read those fields.
-    legacy_info = {}
-    if directors:
-        legacy_info["director"] = directors
-    if writers:
-        legacy_info["writer"] = writers
-    if credits:
-        legacy_info["credits"] = credits
-
-    if legacy_info:
-        try:
-            list_item.setInfo("video", legacy_info)
-        except Exception:
-            pass
 
     if credits:
         list_item.setProperty(
@@ -1195,22 +1160,27 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         except Exception:
             pass
 
-    legacy_detail_info = {}
+    unique_ids = {}
     if detail.get("imdb_id"):
-        legacy_detail_info["imdbnumber"] = str(detail["imdb_id"])
+        unique_ids["imdb"] = str(detail["imdb_id"])
     if detail.get("tmdb_id"):
-        list_item.setProperty("Silo.TMDBID", str(detail["tmdb_id"]))
+        unique_ids["tmdb"] = str(detail["tmdb_id"])
     if detail.get("tvdb_id"):
-        list_item.setProperty("Silo.TVDBID", str(detail["tvdb_id"]))
+        unique_ids["tvdb"] = str(detail["tvdb_id"])
 
-    if detail.get("imdb_id"):
+    if unique_ids:
         try:
-            list_item.setInfo(
-                "video",
-                {"imdbnumber": str(detail["imdb_id"])},
+            default_id = "imdb" if "imdb" in unique_ids else next(iter(unique_ids))
+            tag.setUniqueIDs(
+                unique_ids,
+                default_id,
             )
         except Exception:
-            pass
+            for key, value in unique_ids.items():
+                try:
+                    tag.setUniqueID(value, key, key == "imdb")
+                except Exception:
+                    pass
 
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
@@ -1220,7 +1190,6 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         try:
             duration = int(version["duration"])
             tag.setDuration(duration)
-            list_item.setInfo("video", {"duration": duration})
         except (TypeError, ValueError):
             pass
 
@@ -1247,11 +1216,6 @@ def set_watch_state(list_item, progress, content_type=None):
     if duration > 0:
         duration_int = int(round(duration))
         tag.setDuration(duration_int)
-
-        info = {"duration": duration_int}
-        if content_type:
-            info["mediatype"] = str(content_type)
-        list_item.setInfo("video", info)
 
     if completed:
         # Silo says the item is fully watched.
