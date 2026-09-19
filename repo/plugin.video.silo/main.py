@@ -230,6 +230,10 @@ def run_background_metadata(client, library_id, content_ids=None):
 
     try:
         if not content_ids:
+            # This catalog request intentionally runs in parallel with the
+            # foreground library request. The foreground request can render
+            # immediately while this worker discovers IDs and starts the
+            # extended detail lookups.
             items = client.catalog(library_id)
             content_ids = [
                 get_content_id(item)
@@ -1139,6 +1143,11 @@ def list_library(client, library_id):
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
+    # Start the extended-metadata worker immediately. It fetches the same
+    # lightweight catalog in its own plugin invocation, so its detail requests
+    # can begin while this foreground request is still building the fast list.
+    start_metadata_worker(library_id)
+
     # SiloClient combines every API catalog page internally. There is still no
     # pagination item exposed in Kodi.
     items = client.catalog(library_id)
@@ -1274,9 +1283,6 @@ def list_library(client, library_id):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
-
-    # Populate uncached cast/crew and stream details in the background.
-    start_metadata_worker(library_id)
 
 
 def list_seasons(client, series_id, library_id):
