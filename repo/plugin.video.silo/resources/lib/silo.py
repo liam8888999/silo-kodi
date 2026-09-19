@@ -502,32 +502,52 @@ class SiloClient:
     # Return every catalog item in a library while handling pagination internally.
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
+    def catalog_page(self, library_id, cursor=None, limit=200):
+        """Return one Silo catalog page and its continuation cursor.
+
+        Silo's shared catalog limit supports up to 200 items per request.
+        Pagination is exposed to the Kodi UI so large libraries do not force
+        every item and its extended metadata to load before the first page.
+        """
+        limit = max(1, min(int(limit or 200), 200))
+
+        params = {
+            "library_id": library_id,
+            "limit": limit,
+            "skip_total": "true",
+            # Use practical library artwork sizes while keeping responses small.
+            "image_size": "medium",
+        }
+
+        if cursor:
+            params["cursor"] = cursor
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params=params,
+        ) or {}
+
+        return (
+            data.get("items", []),
+            self._next(data),
+        )
+
+    # Return every library item. Kept for callers that explicitly need the
+    # complete collection; normal Kodi library browsing uses catalog_page().
     def catalog(self, library_id, limit=200):
         items = []
         cursor = None
 
         while True:
-            params = {
-                "library_id": library_id,
-                "limit": limit,
-                "skip_total": "true",
-                # Ask Silo for a practical library thumbnail size rather than
-                # making Kodi load unnecessarily large poster images.
-                "image_size": "medium",
-            }
+            page_items, cursor = self.catalog_page(
+                library_id,
+                cursor=cursor,
+                limit=limit,
+            )
 
-            if cursor:
-                params["cursor"] = cursor
+            items.extend(page_items)
 
-            data = self._json(
-                "GET",
-                "/api/v2/catalog",
-                params=params,
-            ) or {}
-
-            items.extend(data.get("items", []))
-
-            cursor = self._next(data)
             if not cursor:
                 return items
 
