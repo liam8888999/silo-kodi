@@ -479,8 +479,6 @@ def set_catalog_metadata(list_item, item, client):
                     break
 
     if year > 0:
-        # Use Kodi's native year field. setInfo("video", {"year": ...}) can
-        # cause Kodi/skins to treat the value as a date rather than a year.
         tag.setYear(year)
 
     genres = [str(value) for value in (item.get("genres") or []) if value]
@@ -790,7 +788,6 @@ def set_stream_details(list_item, version):
                     str(value),
                 )
 
-        # Kodi skins commonly read these stream infolabels directly.
         try:
             stream = xbmc.VideoStreamDetail(
                 int(track.get("width") or 0),
@@ -836,11 +833,6 @@ def set_stream_details(list_item, version):
             info["width"] = width
         if height:
             info["height"] = height
-
-        try:
-            list_item.addStreamInfo("video", info)
-        except Exception:
-            pass
 
         try:
             tag.addVideoStream(
