@@ -1,108 +1,384 @@
-Tutorial and example repository for setting up a GitHub-hosted Kodi repo. For an example of a repo created using this method (including submodules), see https://www.github.com/jurialmunkey/repository.jurialmunkey/.
+# Silo for Kodi
 
-# BASIC - How to setup for hosting on GitHub Pages
+A Kodi add-on for browsing and playing media from a [Silo Server](https://github.com/Silo-Server/silo-server) instance.
 
-In order to follow this tutorial, first [use this repository as a template](https://github.com/drinfernoo/repository.example/generate) for a new repository, and then clone your newly created repository locally. For the simplest file manager source URL, it is recommended to name your newly created repository as `YOUR_USERNAME_HERE.github.io`.
+Silo acts as the media server, while this add-on provides a Kodi interface for accessing the media available through it.
 
-### Creating your repository add-on
 ---
-First, you'll need to edit the `addon.xml` file within the `/repo/repository.example` folder with your chosen add-on ID, a version number, and your username (or whatever you'd like) for `provider`, as seen on line 2:
 
-```XML
-<addon id="ADDON_ID_HERE" name="REPO_NAME_HERE" version="VERSION_NUMBER_HERE" provider-name="YOUR_USERNAME_HERE">
-```
+## ✨ Features
 
-You also need to replace `YOUR_USERNAME_HERE`, `REPOSITORY_NAME_HERE`, and `BRANCH_NAME_HERE` with your GitHub username, this repository's name, and the name of the branch (it's recommended to use the default branch, ususally `master` or `main`) respectively, as seen on lines 4-8:
+* 🎬 Browse movies and TV shows through Silo
+* 📺 Browse TV series and episodes
+* ▶️ Play media directly through Kodi
+* 🔌 Connect to a Silo Server instance
+* 🌐 Access media from your Silo Server directly through Kodi
 
-```XML
-<dir>
-    <info compressed="false">https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/BRANCH_NAME_HERE/repo/zips/addons.xml</info>
-    <checksum>https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/BRANCH_NAME_HERE/repo/zips/addons.xml.md5</checksum>
-    <datadir zip="true">https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/BRANCH_NAME_HERE/repo/zips/</datadir>
-</dir>
-```
-
-You should also change the summary and description of your repository, as seen on lines 11-12:
-
-```XML
-<summary>REPO_NAME_HERE</summary>
-<description>DESCRIPTION OF YOUR REPO HERE</description>
-```
-
-While not required, it is also recommended to replace `icon.png` and `fanart.jpg` in the `repository.example` folder with art relevant to your repository or the add-ons contained within. `icon.png` should be 512x512 px, and `fanart.jpg` should be 1920x1080 px, or a similar ratio.
-
-Finally, rename the `repository.example` folder to match whatever add-on ID you chose earlier.
-
-### Adding add-ons to your repository
 ---
-To build the repository, first place the add-on source folders for whichever add-ons you'd like to be contained in your Kodi repo inside this repository. For ease of updating included add-ons, the recommended method of doing this is via [Git Submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules), which are supported by many Git clients, as well as the Git terminal. If you choose not to use submodules, you'll need to simply copy the source folders directly into this repository.
 
-The `_repo_xml_generator.py` script included in this repository with build `.zip` files for each included add-on, as well as generating the necessary `addons.xml` and `addons.xml.md5` files, so that Kodi can infer the contents of the repo. It is designed to handle multiple versions of Kodi (for example, to serve different add-ons to Leia than are served to Matrix), and single repositories that serve the same add-ons to all Kodi versions.
+## 📋 Requirements
 
-##### Same add-ons to all versions (default)
+You will need:
+
+* [Kodi](https://kodi.tv/) installed on your device
+* A running **Silo Server** instance
+* Network connectivity between Kodi and Silo Server
+
+Silo Server is available here:
+
+https://github.com/Silo-Server/silo-server
+
 ---
-Place your add-on source folders in the `repo` folder of this repository.
-##### Different add-ons to different versions (advanced)
----
-Place your add-on source folders into a folder named after the version of Kodi you wish to serve from it, instead of `/repo`. For example, `/leia` for a Leia-focused repo, or `/matrix` for a Matrix-focused one. In order for your repository to be able to differentiate which add-ons to serve, you'll need to add a new `dir` section to your `addon.xml`, that defines which versions should be served.
 
-For example, to serve Leia only:
-```XML
-<dir minversion="18.0.0" maxversion="18.9.9">
-    <info compressed="false">https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/DEFAULT_BRANCH_NAME_HERE/leia/zips/addons.xml</info>
-    <checksum>https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/DEFAULT_BRANCH_NAME_HERE/leia/zips/addons.xml.md5</checksum>
-    <datadir zip="true">https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/DEFAULT_BRANCH_NAME_HERE/leia/zips/</datadir>
-</dir>
-```
-And for Matrix and up:
-```XML
-<dir minversion="19.0.0">
-    <info compressed="false">https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/DEFAULT_BRANCH_NAME_HERE/matrix/zips/addons.xml</info>
-    <checksum>https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/DEFAULT_BRANCH_NAME_HERE/matrix/zips/addons.xml.md5</checksum>
-    <datadir zip="true">https://raw.githubusercontent.com/YOUR_USERNAME_HERE/REPOSITORY_NAME_HERE/DEFAULT_BRANCH_NAME_HERE/matrix/zips/</datadir>
-</dir>
-```
----
-After adding your source folders, simply run `_repo_generator.py`. This will create `.zip`s of all of the desired add-ons, and place them in subfolders called `zips`, along with the generated `addons.xml` and `addons.xml.md5`. As of version 3, this script can create distributions for Krypton, Leia, Matrix, and Nexus, as well as the generic "repo", which is intended to serve to any version (like for the repository itself, or any cross-version libraries and dependencies).
+# 🚀 Installation
 
-### Make your repository zip installable inside Kodi
----
-Copy the zip file of your repository, located at `REPO_FOLDER/zips/ADDON_ID_HERE/ADDON_ID_HERE-VERSION_NUMBER_HERE.zip`,
-and paste it into the root folder.
+The Silo repository can be installed directly from Kodi without manually downloading the repository ZIP.
 
-Edit the link inside `index.html` to reflect your add-on's filename, as seen on line 1:
+## 1. Enable Unknown Sources
 
-```HTML
-<a href="ADDON_ID_HERE-VERSION_NUMBER_HERE.zip">ADDON_ID_HERE-VERSION_NUMBER_HERE.zip</a>
+Kodi needs permission to install add-ons from ZIP files.
+
+From the Kodi home screen, go to:
+
+```text
+Settings
+  → System
+    → Add-ons
+      → Unknown sources
 ```
 
-After committing and pushing these changes to your repo, go to the "Settings" section for this repository on GitHub. In the first box, labeled "Repository name", change your repository's name. Generally, GitHub Pages repositories are named `YOUR_USERNAME_HERE.github.io`,  but it can be whatever you'd like.
-Next, scroll down to the "GitHub Pages" section, choose the default branch (or whichever you chose when modifying your `addon.xml`) as the source, and click "Save".
+Enable **Unknown sources** and confirm the warning.
 
-After that, you should be all done!
+You only need to do this once.
 
-If you named this repository `YOUR_USERNAME_HERE.github.io` (as recommended), your file manager source will be:
+---
 
-`https://YOUR_USERNAME_HERE.github.io/`
+## 2. Add the Silo Repository to Kodi's File Manager
 
-If you named it something else, it will be:
+Open:
 
-`https://YOUR_USERNAME_HERE.github.io/REPOSITORY_NAME_HERE/`
-
-# ADVANCED - How to set up for hosting without GitHub Pages
-
-If you want to host your Kodi repo on a different host besides GitHub Pages, simply download this repository as a `.zip`, and unzip it, rather than using it as a template. Continue to follow the rest of the setup procedure, except for the setting up of GitHub Pages. The only differences will be in your `addon.xml` file, as it will need to reference your host, rather than GitHub:
-
-```XML
-<dir>
-    <info compressed="false">https://YOUR_HOST_URL_HERE/repo/zips/addons.xml</info>
-    <checksum>https://YOUR_HOST_URL_HERE/repo/zips/addons.xml.md5</checksum>
-    <datadir zip="true">https://YOUR_HOST_URL_HERE/repo/zips/</datadir>
-</dir>
+```text
+Settings
+  → File Manager
 ```
 
-And upload the contents of this repository to your host. It is **very important** that `YOUR_HOST_URL_HERE` is the URL to the *root* folder of this repository.
+Select:
 
-After doing so, your file manager source will be:
+```text
+Add source
+```
 
-`https://YOUR_HOST_URL_HERE/`
+Enter the following address:
+
+```text
+https://liam8888999.github.io/silo-kodi/
+```
+
+For the name, enter:
+
+```text
+Silo Repository
+```
+
+Then select **OK**.
+
+You should now have a file source called:
+
+```text
+Silo Repository
+```
+
+in Kodi's File Manager.
+
+---
+
+## 3. Install the Repository ZIP
+
+Return to:
+
+```text
+Add-ons
+  → Add-on browser
+  → Install from zip file
+```
+
+Select:
+
+```text
+Silo Repository
+```
+
+You should see the repository ZIP file.
+
+Select the ZIP file, for example:
+
+```text
+repository.silo-kodi-1.0.2.zip
+```
+
+Kodi will install the **Silo Kodi Repository** directly from the hosted repository.
+
+> **You do not need to download or extract the ZIP file manually.**
+
+---
+
+## 4. Install the Silo Add-on
+
+Once the repository has been installed, go to:
+
+```text
+Add-ons
+  → Add-on browser
+  → Install from repository
+```
+
+Select:
+
+```text
+Silo Kodi Repository
+```
+
+Then select the **Silo** add-on and choose:
+
+```text
+Install
+```
+
+Kodi will install the Silo add-on and any required dependencies.
+
+---
+
+# ⚙️ Configuration
+
+After installing the add-on, open the Silo and login. 
+
+First it will ask for your server address
+
+For example:
+
+```text
+http://192.168.1.100:8080
+```
+
+Replace this with the address and port of your own Silo Server.
+
+### Local Silo installation
+
+If Silo Server is running on the same device as Kodi, you may be able to use:
+
+```text
+http://localhost:8080
+```
+
+If Silo is running on another device, use that device's IP address or hostname instead.
+
+For example:
+
+```text
+http://192.168.1.50:8080
+```
+
+You will then need to put in your username and password
+
+---
+
+# 🎬 Using Silo
+
+Once configured, open **Silo** from Kodi's add-ons.
+
+The add-on communicates with your Silo Server and displays the media available through it.
+
+Browse your available media and select a movie or episode to begin playback.
+
+The basic architecture is:
+
+```text
+                    ┌─────────────────┐
+                    │      Kodi       │
+                    │                 │
+                    │   Silo Add-on   │
+                    └────────┬────────┘
+                             │
+                             │ API
+                             ▼
+                    ┌─────────────────┐
+                    │   Silo Server   │
+                    │                 │
+                    │  Media Server   │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │  Media Sources  │
+                    └─────────────────┘
+```
+
+Kodi provides the interface and playback, while Silo provides access to the media.
+
+---
+
+# 🔄 Updates
+
+The Silo add-on is distributed through a Kodi repository, allowing new versions to be delivered through Kodi without manually reinstalling the add-on.
+
+To manually check for updates:
+
+```text
+Add-ons
+  → My add-ons
+  → Silo
+  → Check for updates
+```
+
+If automatic add-on updates are enabled in Kodi, updates may be installed automatically.
+
+The repository is hosted at:
+
+https://liam8888999.github.io/silo-kodi/
+
+---
+
+# 🛠️ Troubleshooting
+
+## Repository will not install
+
+Make sure the File Manager source was added correctly:
+
+```text
+https://liam8888999.github.io/silo-kodi/
+```
+
+The source should be named:
+
+```text
+Silo Repository
+```
+
+Then check:
+
+```text
+Add-ons
+  → Add-on browser
+  → Install from zip file
+  → Silo Repository
+```
+
+The repository ZIP should be visible there.
+
+---
+
+## Silo does not appear in the repository
+
+Check that:
+
+1. The Silo repository installed successfully.
+2. You selected **Install from repository** after installing it.
+3. Kodi has network access.
+4. The repository ZIP is the current version.
+
+Restarting Kodi can also force Kodi to refresh its add-on information.
+
+---
+
+## Kodi cannot connect to Silo Server
+
+Check that Silo Server is running and accessible from the Kodi device.
+
+For example, if Silo is running at:
+
+```text
+http://192.168.1.100:8080
+```
+
+make sure the Kodi device can reach that address.
+
+Common causes include:
+
+* Incorrect Silo Server address
+* Incorrect port
+* Silo Server is not running
+* Firewall blocking the connection
+* Kodi and Silo being on isolated networks
+* Incorrect hostname or IP address
+
+---
+
+## Media appears but will not play
+
+If the library can be browsed but playback fails, first verify that the media can be accessed successfully through Silo Server.
+
+Then check the Kodi log for additional information.
+
+When reporting a playback problem, include the relevant Kodi log output where possible.
+
+---
+
+# 🧑‍💻 Development
+
+The Silo Kodi add-on is contained in:
+
+```text
+plugin.video.silo/
+```
+
+A typical add-on structure is:
+
+```text
+plugin.video.silo/
+├── addon.xml
+├── addon.py
+└── ...
+```
+
+The repository contains the metadata required for Kodi to discover and install the add-on.
+
+---
+
+# 📦 Kodi Repository
+
+The repository is hosted using GitHub Pages:
+
+**https://liam8888999.github.io/silo-kodi/**
+
+Kodi uses the repository to:
+
+* Discover the Silo add-on
+* Determine the available version
+* Download the add-on
+* Download required dependencies
+* Receive future updates
+
+---
+
+# 🐛 Issues & Feature Requests
+
+If you encounter a bug or have an idea for improving the add-on, please open an issue on GitHub.
+
+When reporting a problem, include as much useful information as possible:
+
+* Kodi version
+* Operating system
+* Silo Server version
+* Silo add-on version
+* Description of the problem
+* Relevant Kodi log output
+
+Please remove passwords, API keys, private URLs and other sensitive information before posting logs.
+
+---
+
+# 🔗 Related Projects
+
+### Silo Server
+
+The server used by this add-on to provide access to your media.
+
+https://github.com/Silo-Server/silo-server
+
+---
+
+## ⭐ Support the Project
+
+If you find the Silo Kodi add-on useful, consider giving the project a ⭐ on GitHub.
+
+Bug reports, feature requests and contributions are welcome.
