@@ -567,7 +567,11 @@ class SiloClient:
         if key in self._details:
             return self._details[key]
 
-        params = {}
+        # The detail endpoint also prepares cast/crew artwork. Kodi only
+        # needs small thumbnails for these person images, which keeps the
+        # metadata response substantially smaller for large libraries.
+        params = {"image_size": "small"}
+
         if library_id:
             params["library_id"] = library_id
         if file_id:
