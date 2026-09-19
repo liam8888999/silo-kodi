@@ -6,6 +6,14 @@ Silo acts as the media server, while this add-on provides a Kodi interface for a
 
 ---
 
+Discord Server
+
+join for help or feedback
+
+https://discord.gg/fNrAH8BG6
+
+---
+
 ## Kodi Repository Address
 
 https://liam8888999.github.io/silo-kodi/
