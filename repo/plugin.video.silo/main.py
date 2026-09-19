@@ -28,10 +28,9 @@ at a time. Pagination is handled internally by SiloClient and is never shown
 to the user.
 """
 
+import hashlib
 import json
-import os
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
@@ -87,86 +86,124 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
-METADATA_CACHE_PATH = os.path.join(PROFILE_DIR, "metadata-cache.json")
-METADATA_WORKER_LOCK_PATH = os.path.join(PROFILE_DIR, "metadata-worker.lock")
-METADATA_CACHE_TTL = 12 * 60 * 60
+# Background metadata is passed through temporary Kodi window properties.
+# Nothing is written to disk and completed metadata is consumed after one refresh.
+METADATA_PROPERTY_PREFIX = "Silo.Metadata."
+METADATA_READY_PREFIX = "Silo.MetadataReady."
+METADATA_WORKER_PREFIX = "Silo.MetadataWorker."
 
 
-def _metadata_cache_key(content_id, library_id):
-    """Build a stable cache key for one content item in one library."""
-    return "%s:%s" % (str(library_id or ""), str(content_id or ""))
+def _metadata_key(content_id, library_id):
+    """Create a safe, compact property key for one library item."""
+    value = "%s:%s" % (str(library_id or ""), str(content_id or ""))
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()
 
 
-def load_metadata_cache():
-    """Load the persistent extended-metadata cache."""
-    try:
-        with open(METADATA_CACHE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError, TypeError):
+def _metadata_property(content_id, library_id):
+    return METADATA_PROPERTY_PREFIX + _metadata_key(content_id, library_id)
+
+
+def _metadata_ready_property(library_id):
+    return METADATA_READY_PREFIX + str(library_id or "")
+
+
+def _metadata_worker_property(library_id):
+    return METADATA_WORKER_PREFIX + str(library_id or "")
+
+
+def load_metadata_handoff(library_id):
+    """Read and consume the one-shot metadata handoff from Kodi."""
+    window = xbmcgui.Window(10000)
+    manifest_name = _metadata_ready_property(library_id)
+    raw_manifest = window.getProperty(manifest_name)
+
+    if not raw_manifest:
         return {}
 
-    return data if isinstance(data, dict) else {}
-
-
-def save_metadata_cache(cache):
-    """Atomically save the extended-metadata cache."""
-    xbmcvfs.mkdirs(PROFILE_DIR)
-    temp_path = METADATA_CACHE_PATH + ".tmp"
-
     try:
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(cache, f, separators=(",", ":"))
-        os.replace(temp_path, METADATA_CACHE_PATH)
-    except OSError as exc:
-        try:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        except OSError:
-            pass
-        log("Unable to save metadata cache: %s" % exc, xbmc.LOGWARNING)
-
-
-def cached_detail(cache, content_id, library_id):
-    """Return recent cached extended metadata, or None when stale/missing."""
-    entry = cache.get(_metadata_cache_key(content_id, library_id))
-
-    if not isinstance(entry, dict):
-        return None
-
-    try:
-        age = time.time() - float(entry.get("updated_at", 0) or 0)
+        content_ids = json.loads(raw_manifest)
     except (TypeError, ValueError):
-        return None
+        window.clearProperty(manifest_name)
+        return {}
 
-    if age < 0 or age > METADATA_CACHE_TTL:
-        return None
+    details = {}
 
-    detail = entry.get("detail")
-    return detail if isinstance(detail, dict) else None
+    for content_id in content_ids if isinstance(content_ids, list) else []:
+        property_name = _metadata_property(content_id, library_id)
+        raw_detail = window.getProperty(property_name)
+
+        if raw_detail:
+            try:
+                detail = json.loads(raw_detail)
+            except (TypeError, ValueError):
+                detail = None
+
+            if isinstance(detail, dict):
+                details[str(content_id)] = detail
+
+        # This is deliberately one-shot: once the refreshed directory has
+        # consumed a detail response, it no longer exists in Kodi memory.
+        window.clearProperty(property_name)
+
+    window.clearProperty(manifest_name)
+    return details
 
 
-def cache_detail(cache, content_id, library_id, detail):
-    """Store one successful detail response in the persistent cache."""
-    if not isinstance(detail, dict):
+def save_metadata_handoff(library_id, details):
+    """Store background results temporarily so the refreshed directory can use them."""
+    if not details:
+        return 0
+
+    window = xbmcgui.Window(10000)
+    content_ids = []
+
+    for content_id, detail in details.items():
+        if not isinstance(detail, dict):
+            continue
+
+        try:
+            window.setProperty(
+                _metadata_property(content_id, library_id),
+                json.dumps(detail, separators=(",", ":")),
+            )
+            content_ids.append(str(content_id))
+        except Exception as exc:
+            log(
+                "Unable to hand off metadata for %s: %s" % (
+                    content_id,
+                    exc,
+                ),
+                xbmc.LOGWARNING,
+            )
+
+    if content_ids:
+        window.setProperty(
+            _metadata_ready_property(library_id),
+            json.dumps(content_ids, separators=(",", ":")),
+        )
+
+    return len(content_ids)
+
+
+def start_metadata_worker(
+    library_id,
+    content_ids=None,
+    series_id=None,
+    season_number=None,
+):
+    """Start a non-blocking background metadata worker."""
+    if not library_id:
         return
 
-    # Person image URLs can be short-lived, so don't persist them. Names,
-    # roles and the rest of the extended metadata are durable.
-    detail = json.loads(json.dumps(detail))
+    window = xbmcgui.Window(10000)
+    worker_property = _metadata_worker_property(library_id)
 
-    for group in ("cast", "crew"):
-        for person in detail.get(group) or []:
-            if isinstance(person, dict):
-                person.pop("photo_url", None)
+    # Never start two workers for the same library at the same time.
+    if window.getProperty(worker_property) == "running":
+        return
 
-    cache[_metadata_cache_key(content_id, library_id)] = {
-        "updated_at": time.time(),
-        "detail": detail,
-    }
+    window.setProperty(worker_property, "running")
 
-
-def start_metadata_worker(library_id, content_ids=None):
-    """Start the extended metadata worker without blocking this directory."""
     params = {
         "action": "background_metadata",
         "library_id": library_id,
@@ -177,64 +214,50 @@ def start_metadata_worker(library_id, content_ids=None):
             str(value) for value in content_ids if value
         )
 
+    if series_id:
+        params["series_id"] = series_id
+
+    if season_number is not None:
+        params["season_number"] = season_number
+
     try:
         xbmc.executebuiltin("RunPlugin(%s)" % build_url(**params))
     except Exception as exc:
+        window.clearProperty(worker_property)
         log(
             "Unable to start background metadata worker: %s" % exc,
             xbmc.LOGWARNING,
         )
 
 
-def acquire_metadata_worker_lock():
-    """Prevent duplicate background workers when Kodi refreshes quickly."""
-    xbmcvfs.mkdirs(PROFILE_DIR)
-
-    try:
-        if os.path.exists(METADATA_WORKER_LOCK_PATH):
-            try:
-                age = time.time() - os.path.getmtime(METADATA_WORKER_LOCK_PATH)
-            except OSError:
-                age = 0
-
-            if age < 15 * 60:
-                return False
-
-            try:
-                os.remove(METADATA_WORKER_LOCK_PATH)
-            except OSError:
-                return False
-
-        fd = os.open(
-            METADATA_WORKER_LOCK_PATH,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-        )
-        os.close(fd)
-        return True
-    except OSError:
-        return False
-
-
-def release_metadata_worker_lock():
-    """Release the background metadata worker lock."""
-    try:
-        os.remove(METADATA_WORKER_LOCK_PATH)
-    except OSError:
-        pass
-
-
-def run_background_metadata(client, library_id, content_ids=None):
-    """Populate the metadata cache without blocking the visible directory."""
-    if not library_id or not acquire_metadata_worker_lock():
+def run_background_metadata(
+    client,
+    library_id,
+    content_ids=None,
+    series_id=None,
+    season_number=None,
+):
+    """Fetch extended metadata and hand it back for one container refresh."""
+    if not library_id:
         return
+
+    window = xbmcgui.Window(10000)
 
     try:
         if not content_ids:
-            # This catalog request intentionally runs in parallel with the
-            # foreground library request. The foreground request can render
-            # immediately while this worker discovers IDs and starts the
-            # extended detail lookups.
-            items = client.catalog(library_id)
+            if series_id and season_number is not None:
+                # Episode browsing can discover its IDs in parallel with the
+                # foreground episode request.
+                items = client.episodes(
+                    series_id,
+                    season_number,
+                    library_id,
+                )
+            else:
+                # Library browsing discovers its IDs with a second lightweight
+                # catalog request running in parallel with the foreground one.
+                items = client.catalog(library_id)
+
             content_ids = [
                 get_content_id(item)
                 for item in items
@@ -247,15 +270,7 @@ def run_background_metadata(client, library_id, content_ids=None):
             )
         )
 
-        cache = load_metadata_cache()
-
-        pending = [
-            content_id
-            for content_id in content_ids
-            if cached_detail(cache, content_id, library_id) is None
-        ]
-
-        if not pending:
+        if not content_ids:
             return
 
         def fetch_one(content_id):
@@ -271,39 +286,33 @@ def run_background_metadata(client, library_id, content_ids=None):
                 )
                 return content_id, None
 
-        updated = 0
-        worker_count = max(1, min(8, len(pending)))
+        details = {}
+        worker_count = max(1, min(8, len(content_ids)))
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
                 executor.submit(fetch_one, content_id)
-                for content_id in pending
+                for content_id in content_ids
             ]
 
             for future in as_completed(futures):
                 content_id, detail = future.result()
-
                 if detail:
-                    cache_detail(
-                        cache,
-                        content_id,
-                        library_id,
-                        detail,
-                    )
-                    updated += 1
+                    details[str(content_id)] = detail
 
-                if updated and updated % 10 == 0:
-                    save_metadata_cache(cache)
-
-        save_metadata_cache(cache)
+        updated = save_metadata_handoff(
+            library_id,
+            details,
+        )
 
         if updated:
             log(
-                "Background metadata worker cached %d item(s)" % updated
+                "Background metadata worker prepared %d item(s)" % updated
             )
             xbmc.executebuiltin("Container.Refresh")
+
     finally:
-        release_metadata_worker_lock()
+        window.clearProperty(_metadata_worker_property(library_id))
 
 
 def get_runtime_seconds(item):
@@ -1143,11 +1152,6 @@ def list_library(client, library_id):
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
-    # Start the extended-metadata worker immediately. It fetches the same
-    # lightweight catalog in its own plugin invocation, so its detail requests
-    # can begin while this foreground request is still building the fast list.
-    start_metadata_worker(library_id)
-
     # SiloClient combines every API catalog page internally. There is still no
     # pagination item exposed in Kodi.
     items = client.catalog(library_id)
@@ -1170,8 +1174,13 @@ def list_library(client, library_id):
 
     xbmcplugin.setContent(HANDLE, "movies")
 
-    # Apply any extended metadata already cached by a previous background pass.
-    metadata_cache = load_metadata_cache()
+    # Consume any one-shot results from the background metadata pass.
+    metadata_handoff = load_metadata_handoff(library_id)
+
+    # Only start a new worker when this is not the refresh triggered by the
+    # previous worker. This prevents an endless refresh loop.
+    if not metadata_handoff:
+        start_metadata_worker(library_id)
 
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
@@ -1224,12 +1233,8 @@ def list_library(client, library_id):
         )
 
         # Apply cast/crew and detailed stream metadata when the
-        # background worker has already cached it.
-        detail = cached_detail(
-            metadata_cache,
-            content_id,
-            library_id,
-        )
+        # background worker has completed its one-shot pass.
+        detail = metadata_handoff.get(str(content_id))
         if detail:
             set_detail_metadata(list_item, detail, client)
 
@@ -1324,6 +1329,15 @@ def list_episodes(client, series_id, season_number, library_id):
     if season_number is None:
         raise SiloError("No season number was supplied.")
 
+    # Start the episode metadata worker at the same time as the fast episode
+    # request. The worker independently fetches the same lightweight episode
+    # list, then starts the detailed cast/crew requests.
+    start_metadata_worker(
+        library_id,
+        series_id=series_id,
+        season_number=season_number,
+    )
+
     episodes = client.episodes(series_id, season_number, library_id)
 
     # Fetch only currently in-progress records for accurate episode resume
@@ -1342,7 +1356,12 @@ def list_episodes(client, series_id, season_number, library_id):
 
     xbmcplugin.setContent(HANDLE, "episodes")
 
-    metadata_cache = load_metadata_cache()
+    metadata_handoff = load_metadata_handoff(library_id)
+
+    if metadata_handoff:
+        # This is the refresh triggered by the worker, so do not start another
+        # worker and cause a refresh loop.
+        pass
 
     # The episode endpoint returns CatalogItem objects as well, including the
     # viewer's watched flag. The in-progress map supplies detailed positions.
@@ -1395,12 +1414,9 @@ def list_episodes(client, series_id, season_number, library_id):
             ),
         )
 
-        # Apply cached extended metadata immediately when available.
-        detail = cached_detail(
-            metadata_cache,
-            content_id,
-            library_id,
-        )
+        # Apply one-shot extended metadata immediately when the background
+        # worker has completed.
+        detail = metadata_handoff.get(str(content_id))
         if detail:
             set_detail_metadata(item, detail, client)
 
@@ -1458,17 +1474,6 @@ def list_episodes(client, series_id, season_number, library_id):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
-
-    # Episodes pass their current IDs directly so the background worker does
-    # not need another catalog request.
-    start_metadata_worker(
-        library_id,
-        [
-            get_content_id(episode)
-            for episode in episodes
-            if get_content_id(episode)
-        ],
-    )
 
 
 def choose_file(client, content_id, library_id):
@@ -1869,6 +1874,8 @@ def router(client):
             client,
             params.get("library_id"),
             content_ids,
+            params.get("series_id"),
+            params.get("season_number"),
         )
         return
 
