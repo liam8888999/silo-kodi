@@ -29,6 +29,7 @@ to the user.
 """
 
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -225,6 +226,54 @@ def catalog_progress(item):
         "duration_seconds": duration,
         "updated_at": item.get("progress_updated_at") or "",
     }
+
+
+def fetch_detail_metadata(client, items, library_id, max_workers=8):
+    """Fetch extended item metadata concurrently.
+
+    The normal catalog already contains the bulk of Kodi metadata. Only cast,
+    crew and detailed file-track information require the item-detail endpoint.
+    Requests are therefore made concurrently so a large library does not wait
+    for every HTTP request serially.
+    """
+    details = {}
+
+    def fetch_one(content_id):
+        try:
+            return content_id, client.item_detail(content_id, library_id)
+        except SiloError as exc:
+            log(
+                "Unable to retrieve detail metadata for %s: %s" % (
+                    content_id,
+                    exc,
+                ),
+                xbmc.LOGWARNING,
+            )
+            return content_id, None
+
+    content_ids = []
+    seen = set()
+
+    for item in items:
+        content_id = get_content_id(item)
+        if content_id and str(content_id) not in seen:
+            seen.add(str(content_id))
+            content_ids.append(content_id)
+
+    if not content_ids:
+        return details
+
+    worker_count = max(1, min(int(max_workers or 8), len(content_ids)))
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(fetch_one, content_id) for content_id in content_ids]
+
+        for future in as_completed(futures):
+            content_id, detail = future.result()
+            if detail:
+                details[str(content_id)] = detail
+
+    return details
 
 
 def set_catalog_metadata(list_item, item, client):
@@ -942,6 +991,11 @@ def list_library(client, library_id):
 
     xbmcplugin.setContent(HANDLE, "movies")
 
+    # Fetch extended metadata concurrently. The regular catalog supplies
+    # genre/rating/runtime/etc. without extra requests; this only adds the
+    # detail data needed for cast, crew and file stream information.
+    detail_map = fetch_detail_metadata(client, items, library_id)
+
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
     # thousands of individual Kodi plugin calls.
@@ -992,17 +1046,10 @@ def list_library(client, library_id):
             logo=catalog_item.get("logo_url"),
         )
 
-        # Fetch the detail document once so Kodi can display cast, crew and
-        # actual file stream details before playback. Silo's detail endpoint
-        # includes the full FileVersion track arrays.
-        try:
-            detail = client.item_detail(content_id, library_id)
+        # Extended metadata was prefetched concurrently above.
+        detail = detail_map.get(str(content_id))
+        if detail:
             set_detail_metadata(list_item, detail, client)
-        except SiloError as exc:
-            log(
-                "Unable to retrieve detail metadata for %s: %s" % (content_id, exc),
-                xbmc.LOGWARNING,
-            )
 
         # Start with the fast catalog snapshot. For an in-progress item, use
         # the dedicated server progress record because it contains the detailed
@@ -1113,6 +1160,10 @@ def list_episodes(client, series_id, season_number, library_id):
 
     xbmcplugin.setContent(HANDLE, "episodes")
 
+    # Prefetch cast, crew and detailed track metadata concurrently rather than
+    # blocking on one HTTP request for every episode.
+    detail_map = fetch_detail_metadata(client, episodes, library_id)
+
     # The episode endpoint returns CatalogItem objects as well, including the
     # viewer's watched flag. The in-progress map supplies detailed positions.
     batch = []
@@ -1164,16 +1215,10 @@ def list_episodes(client, series_id, season_number, library_id):
             ),
         )
 
-        # Episode catalog rows do not carry cast/crew or the full track
-        # descriptors, so fetch the detail document before Kodi renders it.
-        try:
-            detail = client.item_detail(content_id, library_id)
+        # Extended episode metadata was prefetched concurrently above.
+        detail = detail_map.get(str(content_id))
+        if detail:
             set_detail_metadata(item, detail, client)
-        except SiloError as exc:
-            log(
-                "Unable to retrieve episode detail metadata for %s: %s" % (content_id, exc),
-                xbmc.LOGWARNING,
-            )
 
         # Start with the catalog snapshot and prefer the dedicated in-progress
         # server record when Silo has one for this episode.
