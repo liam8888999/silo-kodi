@@ -155,6 +155,8 @@ class SiloClient:
 
         self.session = requests.Session()
         self._caps = None
+        # Detail responses are reused when the same item is later played.
+        self._details = {}
 
     # ------------------------------------------------------------ helpers
 
@@ -549,6 +551,36 @@ class SiloClient:
         ) or {}
 
         return data.get("items", [])
+
+    # Return the complete detail document for one catalog item.
+    #
+    # Unlike the browse/catalog card, this endpoint includes cast, crew and
+    # full file-version track metadata. Results are cached for the lifetime of
+    # this Kodi directory request so play() can reuse the same detail document.
+    def item_detail(self, content_id, library_id=None, file_id=None):
+        key = (
+            str(content_id),
+            str(library_id) if library_id is not None else "",
+            str(file_id) if file_id is not None else "",
+        )
+
+        if key in self._details:
+            return self._details[key]
+
+        params = {}
+        if library_id:
+            params["library_id"] = library_id
+        if file_id:
+            params["file_id"] = file_id
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog/items/%s" % quote(content_id, safe=":"),
+            params=params or None,
+        ) or {}
+
+        self._details[key] = data
+        return data
 
     # Return the playable versions/files for one catalog item.
     def versions(self, content_id, library_id=None):
