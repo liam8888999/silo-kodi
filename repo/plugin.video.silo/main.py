@@ -571,34 +571,87 @@ def set_catalog_metadata(list_item, item, client):
 
 
 def _detail_version(detail, file_id=None):
-    """Select the Silo file version whose stream metadata should be shown."""
+    """Select the Silo file version Kodi should use for pre-play details."""
     versions = detail.get("versions") or []
 
     if file_id is not None:
         wanted = str(file_id)
+
         for version in versions:
             if str(version.get("file_id") or version.get("id")) == wanted:
                 return version
 
-    return versions[0] if versions else {}
+    # The detail endpoint tells us which version its library/playback
+    # presentation resolved to. Prefer that instead of assuming versions[0].
+    effective_resolution = detail.get("effective_version_resolution")
+    effective_hdr = detail.get("effective_version_hdr")
+    effective_codec = detail.get("effective_version_codec_video")
+    effective_edition = detail.get("effective_version_edition_key")
+
+    best = None
+    best_score = -1
+
+    for version in versions:
+        score = 0
+
+        if effective_resolution and str(version.get("resolution") or "") == str(effective_resolution):
+            score += 4
+
+        if effective_hdr is not None and bool(version.get("hdr")) == bool(effective_hdr):
+            score += 2
+
+        if effective_codec and str(version.get("codec_video") or "") == str(effective_codec):
+            score += 2
+
+        if effective_edition and str(version.get("edition_key") or "") == str(effective_edition):
+            score += 2
+
+        if score > best_score:
+            best = version
+            best_score = score
+
+    return best or (versions[0] if versions else {})
+
+
+def _aspect_ratio(value):
+    """Convert Silo's aspect ratio into Kodi's numeric float form."""
+    if value in (None, ""):
+        return 0.0
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+
+    text = str(value).strip()
+
+    if ":" in text:
+        parts = text.split(":", 1)
+        try:
+            width = float(parts[0])
+            height = float(parts[1])
+            if height:
+                return width / height
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+
+    return 0.0
 
 
 def set_stream_details(list_item, version):
-    """Populate Kodi's pre-playback video/audio stream details.
-
-    Silo stores the actual probed stream information on FileVersion. Kodi's
-    native ListItem stream details are separate from VideoInfoTag metadata,
-    so setting resolution/codec as arbitrary properties is not enough.
-    """
+    """Populate Kodi's pre-playback video, audio and subtitle stream details."""
     if not version:
         return
 
+    tag = list_item.getVideoInfoTag()
     video_tracks = version.get("video_tracks") or []
     audio_tracks = version.get("audio_tracks") or []
+    subtitle_tracks = version.get("subtitle_tracks") or []
+    duration = int(version.get("duration") or 0)
 
-    # Keep the simple ListItem API populated as well. This is what Kodi skins
-    # and directory views commonly use for flagging before playback.
     for track in video_tracks:
+        aspect = _aspect_ratio(track.get("aspect_ratio"))
+
         info = {}
         if track.get("codec"):
             info["codec"] = track["codec"]
@@ -606,13 +659,10 @@ def set_stream_details(list_item, version):
             info["width"] = int(track["width"])
         if track.get("height"):
             info["height"] = int(track["height"])
-        if track.get("aspect_ratio"):
-            try:
-                info["aspect"] = float(track["aspect_ratio"])
-            except (TypeError, ValueError):
-                pass
-        if version.get("duration"):
-            info["duration"] = int(version["duration"])
+        if aspect > 0:
+            info["aspect"] = aspect
+        if duration > 0:
+            info["duration"] = duration
         if track.get("language"):
             info["language"] = track["language"]
 
@@ -621,12 +671,44 @@ def set_stream_details(list_item, version):
             or ("dolbyvision" if track.get("dv_profile") else "")
             or (
                 "hdr10"
-                if str(track.get("video_range_type", "")).upper().startswith("HDR10")
+                if str(
+                    track.get("video_range_type", "")
+                ).upper().startswith("HDR10")
+                else ""
+            )
+            or (
+                "hlg"
+                if str(
+                    track.get("video_range_type", "")
+                ).upper().startswith("HLG")
                 else ""
             )
         )
+
         if hdr:
             info["hdrtype"] = hdr
+
+        # Preserve additional probed values for skins/addons even where Kodi's
+        # native stream API has no corresponding setter.
+        for key in (
+            "profile",
+            "level",
+            "bitrate",
+            "frame_rate",
+            "bit_depth",
+            "color_space",
+            "color_transfer",
+            "color_primaries",
+            "pixel_format",
+        ):
+            value = track.get(key)
+            if value not in (None, ""):
+                list_item.setProperty(
+                    "Silo.Video.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    str(value),
+                )
 
         if info:
             try:
@@ -634,35 +716,37 @@ def set_stream_details(list_item, version):
             except Exception:
                 pass
 
-        # Kodi 20+ also exposes the typed VideoStreamDetail API.
         try:
             stream = xbmc.VideoStreamDetail(
                 int(track.get("width") or 0),
                 int(track.get("height") or 0),
-                float(track.get("aspect_ratio") or 0),
-                int(version.get("duration") or 0),
+                aspect,
+                duration,
                 str(track.get("codec") or ""),
                 "",
                 str(track.get("language") or ""),
                 str(hdr or ""),
             )
-            list_item.getVideoInfoTag().addVideoStream(stream)
+            tag.addVideoStream(stream)
         except Exception:
             pass
 
-    # Some older Silo files may have no track array but still expose the
-    # compact version-level codec/resolution fields.
+    # Fallback for detail responses containing only version-level video data.
     if not video_tracks and (
         version.get("codec_video") or version.get("resolution")
     ):
         resolution = str(version.get("resolution") or "")
         width = height = 0
-        if "x" in resolution:
+
+        if "x" in resolution.lower():
             try:
-                width, height = [int(v) for v in resolution.lower().split("x", 1)]
+                width, height = [
+                    int(v)
+                    for v in resolution.lower().split("x", 1)
+                ]
             except (TypeError, ValueError):
                 pass
-        elif resolution.endswith("p"):
+        elif resolution.lower().endswith("p"):
             try:
                 height = int(resolution[:-1])
             except ValueError:
@@ -670,8 +754,9 @@ def set_stream_details(list_item, version):
 
         info = {
             "codec": version.get("codec_video") or "",
-            "duration": int(version.get("duration") or 0),
+            "duration": duration,
         }
+
         if width:
             info["width"] = width
         if height:
@@ -682,14 +767,45 @@ def set_stream_details(list_item, version):
         except Exception:
             pass
 
+        try:
+            tag.addVideoStream(
+                xbmc.VideoStreamDetail(
+                    width,
+                    height,
+                    _aspect_ratio(version.get("aspect_ratio")),
+                    duration,
+                    str(version.get("codec_video") or ""),
+                )
+            )
+        except Exception:
+            pass
+
     for track in audio_tracks:
         info = {}
+
         if track.get("codec"):
             info["codec"] = track["codec"]
         if track.get("language"):
             info["language"] = track["language"]
         if track.get("channels"):
             info["channels"] = int(track["channels"])
+
+        for key in (
+            "title",
+            "profile",
+            "layout",
+            "bitrate",
+            "sample_rate",
+            "bit_depth",
+        ):
+            value = track.get(key)
+            if value not in (None, ""):
+                list_item.setProperty(
+                    "Silo.Audio.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    str(value),
+                )
 
         if info:
             try:
@@ -698,20 +814,53 @@ def set_stream_details(list_item, version):
                 pass
 
         try:
-            stream = xbmc.AudioStreamDetail(
-                int(track.get("channels") or 0),
-                str(track.get("codec") or ""),
-                str(track.get("language") or ""),
+            tag.addAudioStream(
+                xbmc.AudioStreamDetail(
+                    int(track.get("channels") or 0),
+                    str(track.get("codec") or ""),
+                    str(track.get("language") or ""),
+                )
             )
-            list_item.getVideoInfoTag().addAudioStream(stream)
         except Exception:
             pass
+
+    for track in subtitle_tracks:
+        language = str(
+            track.get("language")
+            or track.get("title")
+            or ""
+        )
+
+        if language:
+            try:
+                list_item.addStreamInfo(
+                    "subtitle",
+                    {"language": language},
+                )
+            except Exception:
+                pass
+
+            try:
+                tag.addSubtitleStream(
+                    xbmc.SubtitleStreamDetail(language)
+                )
+            except Exception:
+                pass
 
 
 def set_detail_metadata(list_item, detail, client, file_id=None):
     """Apply Silo detail-only metadata such as cast, crew and stream tracks."""
     if not detail:
         return
+
+    # CatalogItemDetail embeds the complete CatalogItem. Apply those
+    # fields here too because detail-only responses contain IDs, countries and
+    # other values that are not present on the browse card.
+    set_catalog_metadata(
+        list_item,
+        detail,
+        client,
+    )
 
     tag = list_item.getVideoInfoTag()
 
