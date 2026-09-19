@@ -597,31 +597,55 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             pass
 
     cast = []
+    cast_info = []
+
     for person in detail.get("cast") or []:
         name = person.get("name")
         if not name:
             continue
 
-        actor = {"name": str(name)}
-        if person.get("character"):
-            actor["role"] = str(person["character"])
-        if person.get("photo_url"):
-            actor["thumbnail"] = client.abs_url(person["photo_url"])
-        if person.get("order") is not None:
-            try:
-                actor["order"] = int(person["order"])
-            except (TypeError, ValueError):
-                pass
-        cast.append(actor)
+        role = str(person.get("character") or "")
+        thumbnail = client.abs_url(person.get("photo_url") or "")
+        try:
+            order = int(person.get("order") or 0)
+        except (TypeError, ValueError):
+            order = 0
+
+        # Kodi 20+ InfoTagVideo.setCast() expects xbmc.Actor objects.
+        # Keep the older dictionary representation as a fallback for Kodi
+        # builds/skins that still use ListItem.setCast().
+        try:
+            cast.append(
+                xbmc.Actor(
+                    str(name),
+                    role,
+                    order,
+                    thumbnail,
+                )
+            )
+        except Exception:
+            pass
+
+        actor_info = {"name": str(name)}
+        if role:
+            actor_info["role"] = role
+        if thumbnail:
+            actor_info["thumbnail"] = thumbnail
+        if order:
+            actor_info["order"] = order
+        cast_info.append(actor_info)
 
     if cast:
         try:
             tag.setCast(cast)
         except Exception:
-            try:
-                list_item.setInfo("video", {"cast": cast})
-            except Exception:
-                pass
+            pass
+
+    if cast_info and not cast:
+        try:
+            list_item.setCast(cast_info)
+        except Exception:
+            pass
 
     directors = []
     writers = []
@@ -654,19 +678,25 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             tag.setDirectors(directors)
         if writers:
             tag.setWriters(writers)
-        if credits:
-            tag.setCredits(credits)
     except Exception:
-        # Older Kodi builds may expose singular setters instead.
+        # Keep each crew category independent so a single unsupported setter
+        # cannot prevent the other metadata from being stored.
         try:
             if directors:
-                tag.setDirector(directors)
-            if writers:
-                tag.setWriter(writers)
-            if credits:
-                tag.setCredits(credits)
+                tag.setDirectors(directors)
         except Exception:
             pass
+        try:
+            if writers:
+                tag.setWriters(writers)
+        except Exception:
+            pass
+
+    # Kodi does not expose a separate native "all crew" field through the
+    # current InfoTagVideo setter API. Writers/directors are the useful native
+    # categories; preserve the complete role/name list as a Silo property.
+    if credits:
+        list_item.setProperty("Silo.Crew", " / ".join(credits))
 
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
