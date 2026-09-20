@@ -56,6 +56,9 @@ PLAYABLE = (
 # Maximum number of entries shown in one Kodi directory page.
 DIRECTORY_PAGE_SIZE = 200
 
+# Maximum number of server-side search results shown in one Kodi page.
+SEARCH_PAGE_SIZE = 100
+
 
 # Build a Kodi plugin URL containing the action and any required IDs.
 def paginate_directory(items, page):
@@ -1288,6 +1291,186 @@ def add_catalog_item(client, item, library_id):
     )
 
 
+
+def search_silo(client):
+    """Prompt for a search term and display Silo's library-wide results."""
+    query = xbmcgui.Dialog().input(
+        "Search Silo",
+    ).strip()
+
+    if not query:
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    list_search_results(client, query, 1)
+
+
+def list_search_results(client, query, page=1):
+    """Display one page of Silo's server-side library-wide search results."""
+    query = str(query or "").strip()
+
+    if not query:
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    offset = (page_number - 1) * SEARCH_PAGE_SIZE
+
+    data = client.search_catalog(
+        query,
+        limit=SEARCH_PAGE_SIZE,
+        offset=offset,
+    ) or {}
+
+    items = data.get("items") or []
+    has_more = bool(data.get("has_more"))
+
+    xbmcplugin.setPluginCategory(
+        HANDLE,
+        "Search: %s" % query,
+    )
+    xbmcplugin.setContent(HANDLE, "videos")
+
+    if page_number > 1:
+        previous_item = xbmcgui.ListItem(label="Previous Page")
+        previous_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="search",
+                query=query,
+                page=page_number - 1,
+            ),
+            previous_item,
+            True,
+        )
+
+    # Use the same detail metadata pipeline as normal library pages so search
+    # results expose the same cast, crew, ratings and stream metadata.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        None,
+    )
+
+    batch = []
+
+    for catalog_item in items:
+        content_id = get_content_id(catalog_item)
+        if not content_id:
+            continue
+
+        title = (
+            catalog_item.get("title")
+            or catalog_item.get("name")
+            or "Unknown"
+        )
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+
+        item = xbmcgui.ListItem(label=title)
+        tag = item.getVideoInfoTag()
+        tag.setTitle(title)
+
+        set_catalog_metadata(item, catalog_item, client)
+
+        set_art(
+            item,
+            client,
+            poster=(
+                catalog_item.get("poster_url")
+                or catalog_item.get("poster")
+                or catalog_item.get("image")
+                or catalog_item.get("artwork")
+                or catalog_item.get("thumbnail")
+            ),
+            backdrop=catalog_item.get("backdrop_url"),
+            logo=catalog_item.get("logo_url"),
+            still=(
+                catalog_item.get("still_url")
+                or catalog_item.get("still")
+            ),
+        )
+
+        detail = detail_map.get(str(content_id))
+        if detail:
+            set_detail_metadata(
+                item,
+                detail,
+                client,
+            )
+
+        # Search results are already profile-scoped by Silo. Use the catalog
+        # watch state directly so this search does not download the full
+        # progress table spanning every library.
+        set_watch_state(
+            item,
+            catalog_progress(catalog_item),
+            media_type,
+        )
+
+        if media_type in PLAYABLE:
+            item.setProperty("IsPlayable", "true")
+            url = build_url(
+                action="play",
+                content_id=(
+                    catalog_item.get("play_content_id")
+                    or content_id
+                ),
+            )
+            batch.append((url, item, False))
+        elif media_type == "series":
+            url = build_url(
+                action="seasons",
+                series_id=content_id,
+            )
+            batch.append((url, item, True))
+        else:
+            # Keep unusual/non-playable results visible rather than creating a
+            # broken seasons URL.
+            url = build_url(
+                action="search",
+                query=query,
+                page=page_number,
+            )
+            batch.append((url, item, False))
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(items) + (1 if has_more else 0),
+        )
+
+    if has_more:
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="search",
+                query=query,
+                page=page_number + 1,
+            ),
+            next_item,
+            True,
+        )
+
+    if not items:
+        notify("No results found for: %s" % query)
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
 def list_root(client, page=None):
     """Display the initial screen or the logged-in Silo libraries.
 
@@ -1318,6 +1501,14 @@ def list_root(client, page=None):
     # --------------------------------------------------------------
     # LOGGED IN
     # --------------------------------------------------------------
+    search_item = xbmcgui.ListItem(label="Search")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="search"),
+        search_item,
+        False,
+    )
+
     libraries = client.libraries()
     page_items, has_previous, has_next = paginate_directory(
         libraries,
@@ -2105,6 +2296,18 @@ def router(client):
             client,
             params.get("page"),
         )
+        return
+
+    if action == "search":
+        query = params.get("query", "")
+        if query:
+            list_search_results(
+                client,
+                query,
+                params.get("page"),
+            )
+        else:
+            search_silo(client)
         return
 
     if action == "login":
