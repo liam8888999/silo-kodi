@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<settings version="1">
+  <section id="general">
+    <category id="connection" label="Connection">
+      <setting id="server" type="string" label="Server address" default="http://">
+        <level>0</level>
+      </setting>
+      <setting id="username" type="string" label="Username" default="">
+        <level>0</level>
+      </setting>
+      <setting id="profile" type="string" label="Profile name (optional)" default="">
+        <level>0</level>
+      </setting>
+      <setting id="items_per_page" type="integer" label="Items per page" default="200">
+        <level>0</level>
+        <constraints>
+          <minimum>20</minimum>
+          <maximum>200</maximum>
+          <step>10</step>
+        </constraints>
+      </setting>
+    </category>
+  </section>
+</settings>
