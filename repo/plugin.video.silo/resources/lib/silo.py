@@ -163,15 +163,38 @@ class SiloClient:
     # ------------------------------------------------------------ settings
 
     def sync_settings(self):
-        """Sync editable Kodi connection settings into the saved config."""
-        server = ADDON.getSetting("server").strip().rstrip("/")
-        username = ADDON.getSetting("username").strip()
-        profile = ADDON.getSetting("profile").strip()
+        """Sync editable Kodi connection settings into the saved config.
+
+        Existing config values are copied into Kodi settings the first time
+        the settings page is introduced. After that, non-empty setting values
+        are treated as user edits and invalidate stale authentication.
+        """
+        setting_server = ADDON.getSetting("server").strip().rstrip("/")
+        setting_username = ADDON.getSetting("username").strip()
+        setting_profile = ADDON.getSetting("profile").strip()
+
+        config_server = self.cfg.get("server", "").strip().rstrip("/")
+        config_username = self.cfg.get("username", "").strip()
+        config_profile = self.cfg.get("profile_name", "").strip()
+
+        # Migrate an existing installation into the new Kodi settings UI
+        # without logging the user out on first startup after the update.
+        if not setting_server and config_server:
+            ADDON.setSetting("server", config_server)
+            setting_server = config_server
+
+        if not setting_username and config_username:
+            ADDON.setSetting("username", config_username)
+            setting_username = config_username
+
+        if not setting_profile and config_profile:
+            ADDON.setSetting("profile", config_profile)
+            setting_profile = config_profile
 
         changed = (
-            server != self.cfg.get("server", "")
-            or username != self.cfg.get("username", "")
-            or profile != self.cfg.get("profile_name", "")
+            setting_server != config_server
+            or setting_username != config_username
+            or setting_profile != config_profile
         )
 
         if changed:
@@ -179,20 +202,23 @@ class SiloClient:
                 self.cfg.pop(key, None)
             self._caps = None
 
-        if server:
-            self.cfg["server"] = server
+        if setting_server:
+            self.cfg["server"] = setting_server
         else:
             self.cfg.pop("server", None)
-        if username:
-            self.cfg["username"] = username
+
+        if setting_username:
+            self.cfg["username"] = setting_username
         else:
             self.cfg.pop("username", None)
-        if profile:
-            self.cfg["profile_name"] = profile
+
+        if setting_profile:
+            self.cfg["profile_name"] = setting_profile
         else:
             self.cfg.pop("profile_name", None)
 
         save_config(self.cfg)
+
 
     # ------------------------------------------------------------ helpers
 
