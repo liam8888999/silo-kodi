@@ -2380,6 +2380,7 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
         track_progress(
             client,
             session_id,
+            playback_info=info,
         )
     else:
         log(
