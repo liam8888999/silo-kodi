@@ -36,6 +36,7 @@ from urllib.parse import parse_qsl, urlencode
 import xbmc
 import xbmcgui
 import xbmcplugin
+import xbmcaddon
 
 from resources.lib.silo import SiloClient, SiloError, log
 
@@ -59,6 +60,23 @@ DIRECTORY_PAGE_SIZE = 200
 # Maximum number of server-side search results shown in one Kodi page.
 SEARCH_PAGE_SIZE = 100
 
+# Kodi setting used to control normal directory page size. Silo search itself
+# is capped at 100 results per request, so search uses the smaller of the user
+# setting and the server search limit.
+MIN_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 200
+
+ADDON = xbmcaddon.Addon()
+
+
+def get_directory_page_size():
+    """Return the configured Kodi page size, clamped to 20-200."""
+    raw = ADDON.getSetting("items_per_page")
+    try:
+        return max(MIN_PAGE_SIZE, min(int(raw or MAX_PAGE_SIZE), MAX_PAGE_SIZE))
+    except (TypeError, ValueError):
+        return MAX_PAGE_SIZE
+
 
 # Build a Kodi plugin URL containing the action and any required IDs.
 def paginate_directory(items, page):
@@ -68,8 +86,9 @@ def paginate_directory(items, page):
     except (TypeError, ValueError):
         page_number = 1
 
-    start = (page_number - 1) * DIRECTORY_PAGE_SIZE
-    end = start + DIRECTORY_PAGE_SIZE
+    page_size = get_directory_page_size()
+    start = (page_number - 1) * page_size
+    end = start + page_size
 
     return items[start:end], page_number > 1, end < len(items)
 
@@ -1320,12 +1339,13 @@ def list_search_results(client, query, page=1):
     except (TypeError, ValueError):
         page_number = 1
 
-    offset = (page_number - 1) * SEARCH_PAGE_SIZE
+    search_page_size = min(get_directory_page_size(), SEARCH_PAGE_SIZE)
+    offset = (page_number - 1) * search_page_size
 
     try:
         data = client.search_catalog(
             query,
-            limit=SEARCH_PAGE_SIZE,
+            limit=search_page_size,
             offset=offset,
         ) or {}
     except SiloError as exc:
@@ -1564,6 +1584,13 @@ def list_search_results(client, query, page=1):
     xbmcplugin.endOfDirectory(HANDLE)
 
 
+def open_settings(client):
+    """Open this add-on's Kodi settings dialog."""
+    client.sync_settings()
+    ADDON.openSettings()
+    xbmc.executebuiltin("Container.Refresh")
+
+
 def list_root(client, page=None):
     """Display the initial screen or the logged-in Silo libraries.
 
@@ -1600,6 +1627,14 @@ def list_root(client, page=None):
         build_url(action="search"),
         search_item,
         True,
+    )
+
+    settings_item = xbmcgui.ListItem(label="Settings")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="settings"),
+        settings_item,
+        False,
     )
 
     libraries = client.libraries()
@@ -2401,6 +2436,10 @@ def router(client):
             )
         else:
             search_silo(client)
+        return
+
+    if action == "settings":
+        open_settings(client)
         return
 
     if action == "login":
