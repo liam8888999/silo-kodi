@@ -30,7 +30,7 @@ to the user.
 
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -287,51 +287,17 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2):
         min(int(max_workers or 2), len(content_ids)),
     )
 
-    # Do not let slow extended-metadata requests block the whole Kodi
-    # directory indefinitely. Catalog metadata is already available for every
-    # item, so the page can still be displayed when some detail requests are
-    # taking too long. Completed detail requests are applied normally.
-    executor = ThreadPoolExecutor(max_workers=worker_count)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(fetch_one, content_id)
+            for content_id in content_ids
+        ]
 
-    futures = [
-        executor.submit(fetch_one, content_id)
-        for content_id in content_ids
-    ]
-
-    metadata_wait_seconds = 10.0
-    done, not_done = wait(
-        futures,
-        timeout=metadata_wait_seconds,
-    )
-
-    for future in done:
-        try:
+        for future in as_completed(futures):
             content_id, detail = future.result()
-        except Exception as exc:
-            log(
-                "Extended metadata worker failed: %s" % exc,
-                xbmc.LOGWARNING,
-            )
-            continue
 
-        if detail:
-            details[str(content_id)] = detail
-
-    # Requests that are still running are no longer relevant to this directory
-    # render. Cancel anything that has not started and let in-flight requests
-    # finish independently without making Kodi wait for them.
-    for future in not_done:
-        future.cancel()
-
-    executor.shutdown(wait=False, cancel_futures=True)
-
-    if not_done:
-        log(
-            "Extended metadata timed out after %.1f seconds; "
-            "%d item(s) will use catalog metadata only."
-            % (metadata_wait_seconds, len(not_done)),
-            xbmc.LOGWARNING,
-        )
+            if detail:
+                details[str(content_id)] = detail
 
     return details
 
