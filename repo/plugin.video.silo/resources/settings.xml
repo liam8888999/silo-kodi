@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <settings version="1">
-  <section id="general">
+  <section id="plugin.video.silo" label="Silo Media Server">
     <category id="connection" label="Connection">
-      <setting id="server" type="string" label="Server address" default="http://">
-        <level>0</level>
-      </setting>
-      <setting id="username" type="string" label="Username" default="">
-        <level>0</level>
-      </setting>
-      <setting id="profile" type="string" label="Profile name (optional)" default="">
-        <level>0</level>
-      </setting>
-      <setting id="items_per_page" type="integer" label="Items per page" default="200">
-        <level>0</level>
-        <constraints>
-          <minimum>20</minimum>
-          <maximum>200</maximum>
-          <step>10</step>
-        </constraints>
-      </setting>
+      <group id="1" label="Server">
+        <setting id="server" type="string" label="Server address" help="The URL of your Silo server." default="http://">
+          <level>0</level>
+        </setting>
+        <setting id="username" type="string" label="Username" help="Silo username. Use username#profile to select a profile automatically." default="">
+          <level>0</level>
+        </setting>
+        <setting id="profile" type="string" label="Profile name" help="Optional profile name. Leave blank to use the normal profile selection dialog." default="">
+          <level>0</level>
+        </setting>
+      </group>
+      <group id="2" label="Pagination">
+        <setting id="items_per_page" type="integer" label="Items per page" help="Number of items shown before a Next Page entry is added." default="200">
+          <level>0</level>
+          <control type="slider" format="integer" delayed="false" />
+        </setting>
+      </group>
     </category>
   </section>
 </settings>
