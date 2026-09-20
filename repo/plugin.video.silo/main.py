@@ -2429,9 +2429,14 @@ def track_progress(client, session_id, playback_info=None):
     stall_started_at = None
     last_replan_at = 0.0
     replan_cooldown = 45.0
+    recovery_cooldown = 180.0
     stall_threshold = 8.0
-    max_adaptations = 3
+    healthy_recovery_threshold = 180.0
+    max_adaptations = 6
+    max_recovery_attempts = 3
     adaptations = 0
+    recovery_attempts = 0
+    healthy_since = time.time()
 
     while player.isPlaying():
         if monitor.abortRequested():
@@ -2449,11 +2454,16 @@ def track_progress(client, session_id, playback_info=None):
 
         if not paused:
             if last_progress_position is None or position > last_progress_position + 0.25:
+                if stall_started_at is not None:
+                    healthy_since = now
+                elif healthy_since <= 0:
+                    healthy_since = now
                 last_progress_position = position
                 last_progress_change_at = now
                 stall_started_at = None
             elif now - last_progress_change_at >= stall_threshold:
                 if stall_started_at is None:
+                    healthy_since = 0.0
                     stall_started_at = last_progress_change_at
 
                 stalled_for = now - stall_started_at
@@ -2537,6 +2547,96 @@ def track_progress(client, session_id, playback_info=None):
                     except Exception as exc:
                         last_replan_at = now
                         log("Unexpected adaptive playback error: %s" % exc, xbmc.LOGWARNING)
+
+        # After sustained healthy playback, ask Silo to reassess using auto.
+        # Recovery is deliberately much slower than downward adaptation.
+        if (
+            not paused
+            and stall_started_at is None
+            and healthy_since > 0
+            and now - healthy_since >= healthy_recovery_threshold
+            and now - last_replan_at >= recovery_cooldown
+            and recovery_attempts < max_recovery_attempts
+            and adaptations < max_adaptations
+        ):
+            try:
+                plan = playback_info.get("playback_plan") or {}
+                recipe = plan.get("effective_recipe") or {}
+                current_bitrate = int(recipe.get("bitrate_kbps") or 0)
+                estimated_bandwidth = max(
+                    1500,
+                    int(current_bitrate * 1.35) if current_bitrate > 0 else 8000,
+                )
+
+                new_info = client.replan_playback(
+                    playback_info,
+                    position,
+                    estimated_bandwidth,
+                    quality_preference="auto",
+                    operation="quality_change",
+                )
+
+                new_plan = new_info.get("playback_plan") or {}
+                new_recipe = new_plan.get("effective_recipe") or {}
+                old_quality = (
+                    int(recipe.get("height") or 0),
+                    int(recipe.get("bitrate_kbps") or 0),
+                )
+                new_quality = (
+                    int(new_recipe.get("height") or 0),
+                    int(new_recipe.get("bitrate_kbps") or 0),
+                )
+
+                # Never adopt a plan that is equal to or below the current one.
+                if (
+                    new_info.get("url")
+                    and (
+                        new_quality[0] > old_quality[0]
+                        or (new_quality[0] == old_quality[0] and new_quality[1] > old_quality[1])
+                    )
+                ):
+                    log(
+                        "Recovering playback quality after %.1fs healthy playback: %s -> %s"
+                        % (now - healthy_since, old_quality, new_quality),
+                    )
+                    player.play(new_info["url"])
+                    for _ in range(40):
+                        if monitor.abortRequested() or not player.isPlaying():
+                            break
+                        xbmc.sleep(250)
+                        try:
+                            if player.getTotalTime() > 0:
+                                break
+                        except Exception:
+                            pass
+                    try:
+                        player.seekTime(position)
+                    except Exception as exc:
+                        log("Unable to restore position after quality recovery: %s" % exc, xbmc.LOGWARNING)
+
+                    playback_info.clear()
+                    playback_info.update(new_info)
+                    playback_info["session_id"] = session_id
+                    adaptations += 1
+                    recovery_attempts += 1
+                    last_replan_at = time.time()
+                    healthy_since = last_replan_at
+                    last_progress_position = position
+                    last_progress_change_at = last_replan_at
+                else:
+                    last_replan_at = now
+                    recovery_attempts += 1
+                    healthy_since = now
+            except SiloError as exc:
+                last_replan_at = now
+                recovery_attempts += 1
+                healthy_since = now
+                log("Adaptive quality recovery failed: %s" % exc, xbmc.LOGWARNING)
+            except Exception as exc:
+                last_replan_at = now
+                recovery_attempts += 1
+                healthy_since = now
+                log("Unexpected adaptive quality recovery error: %s" % exc, xbmc.LOGWARNING)
 
         last_position = max(last_position, position)
         sequence += 1
