@@ -61,8 +61,16 @@ _LOGIN_LOADING_PROPERTY = "Silo.LoginLoading"
 
 
 def _show_login_loading():
-    """Show Kodi's native non-cancelable busy spinner for the login flow."""
-    xbmcgui.Window(10000).setProperty(_LOGIN_LOADING_PROPERTY, "true")
+    """Show Kodi's native non-cancelable busy spinner once for the login flow."""
+    window = xbmcgui.Window(10000)
+
+    # The login flow can pass through automatic profile selection, an explicit
+    # profile chooser, and a post-login Container.Refresh. Keep one continuous
+    # spinner instead of activating the busy dialog more than once.
+    if window.getProperty(_LOGIN_LOADING_PROPERTY) == "true":
+        return
+
+    window.setProperty(_LOGIN_LOADING_PROPERTY, "true")
 
     # DialogBusy was removed as a usable Python class in Kodi 18+. The
     # supported workaround is to activate the non-cancelable busy-dialog
