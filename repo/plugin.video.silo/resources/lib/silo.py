@@ -306,8 +306,26 @@ class SiloClient:
         if not user:
             raise SiloError("Login cancelled")
 
+        # A '#' is optional. Without it, retain the normal profile-selection
+        # dialog. With it, use the part before '#' as the account username and
+        # the part after '#' as the profile name.
+        if "#" in user:
+            username, profile_name = user.split("#", 1)
+            username = username.strip()
+            profile_name = profile_name.strip()
+
+            if not username or not profile_name:
+                raise SiloError(
+                    "Use username#profile, for example liam1#liam2"
+                )
+
+            self.cfg["username"] = username
+            self._requested_profile_name = profile_name
+        else:
+            self.cfg["username"] = user.strip()
+            self._requested_profile_name = ""
+
         self.cfg["server"] = server.rstrip("/")
-        self.cfg["username"] = user
         save_config(self.cfg)
 
     # Store the access/refresh token pair returned by Silo.
@@ -378,6 +396,7 @@ class SiloClient:
             self.cfg.pop(key, None)
 
         self._caps = None
+        self._requested_profile_name = ""
         save_config(self.cfg)
 
         try:
@@ -405,6 +424,7 @@ class SiloClient:
                 self.cfg.pop(key, None)
 
             self._caps = None
+            self._requested_profile_name = ""
             save_config(self.cfg)
             raise
 
@@ -475,7 +495,27 @@ class SiloClient:
         if not profiles:
             raise SiloError("This account has no profiles")
 
-        if len(profiles) == 1:
+        requested_name = str(
+            getattr(self, "_requested_profile_name", "") or ""
+        ).strip()
+
+        if requested_name:
+            chosen = next(
+                (
+                    profile
+                    for profile in profiles
+                    if str(profile.get("name", "")).strip().casefold()
+                    == requested_name.casefold()
+                ),
+                None,
+            )
+
+            if chosen is None:
+                raise SiloError(
+                    "Profile '%s' was not found. Use username#profile."
+                    % requested_name
+                )
+        elif len(profiles) == 1:
             chosen = profiles[0]
         else:
             idx = xbmcgui.Dialog().select(
