@@ -2587,11 +2587,12 @@ def track_progress(client, session_id, playback_info=None):
     caching_started_at = None
 
     # Downward changes happen relatively quickly once sustained buffering is
-    # detected. Upward changes require substantially longer healthy playback.
+    # detected. Upward changes require a sustained healthy period before trying
+    # the next higher published rung.
     last_down_replan_at = 0.0
     last_up_replan_at = 0.0
     down_cooldown = 10.0
-    up_cooldown = 180.0
+    up_cooldown = 90.0
     stall_threshold = 8.0
     healthy_recovery_threshold = 180.0
 
