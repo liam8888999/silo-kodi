@@ -1,16 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <settings>
-  <category label="Connection">
-    <setting id="server" type="text" label="Server address" default="" />
-    <setting id="username" type="text" label="Username" default="" />
-    <setting id="profile" type="text" label="Profile name (optional)" default="" />
-  </category>
-
   <category label="Pagination">
     <setting id="items_per_page" type="slider" label="Items per page" default="200" range="20,10,200" option="int" />
   </category>
 
-  <category label="Internal">
+  <category label="Connection">
+    <setting id="server" type="text" label="Server address" default="" enable="false" />
+    <setting id="username" type="text" label="Username" default="" enable="false" />
     <setting id="device_id" type="text" label="Device ID" default="" visible="true" enable="false" />
     <setting id="token" type="text" label="Access token" default="" visible="false" />
     <setting id="refresh_token" type="text" label="Refresh token" default="" visible="false" />
