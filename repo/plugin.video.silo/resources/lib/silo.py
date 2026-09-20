@@ -34,7 +34,6 @@ Endpoints used by this addon:
 
 # Standard library modules used for configuration, UUID generation and URL handling.
 import json
-import os
 import uuid
 from urllib.parse import quote
 
@@ -49,8 +48,6 @@ import xbmcvfs
 # Read addon metadata and determine where Kodi should store persistent configuration.
 ADDON = xbmcaddon.Addon()
 ADDON_VERSION = ADDON.getAddonInfo("version")
-PROFILE_DIR = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
-CONFIG_PATH = os.path.join(PROFILE_DIR, "config.json")
 
 
 # Central logging helper so every log line identifies this addon.
@@ -59,87 +56,103 @@ def log(msg, level=xbmc.LOGINFO):
 
 
 # Load saved server/login/device/profile settings from Kodi's addon profile.
+# Kodi's add-on settings are the persistent configuration store.
+# The cfg dictionary remains an in-memory convenience for the rest of the
+# client; it is never persisted to config.json.
+_INTERNAL_SETTINGS = (
+    "device_id",
+    "token",
+    "refresh_token",
+    "profile_id",
+    "profile_token",
+)
+
+
+def _setting(key, default=""):
+    value = ADDON.getSetting(key)
+    return value if value not in (None, "") else default
+
+
+def _set_setting(key, value):
+    ADDON.setSetting(key, "" if value is None else str(value))
+
+
+def _clear_account_settings():
+    """Clear editable login/profile settings and authentication state."""
+    for key in (
+        "server",
+        "username",
+        "profile",
+        "device_id",
+        "token",
+        "refresh_token",
+        "profile_id",
+        "profile_token",
+        "start_overrides",
+    ):
+        _set_setting(key, "")
+
+
 def load_config():
+    """Load all persistent add-on state from Kodi settings."""
+    cfg = {}
+
+    server = _setting("server").strip().rstrip("/")
+    username = _setting("username").strip()
+    profile = _setting("profile").strip()
+
+    # Support username#profile in the settings username field.
+    if "#" in username:
+        username, inline_profile = username.split("#", 1)
+        username = username.strip()
+        if not profile:
+            profile = inline_profile.strip()
+
+    if server:
+        cfg["server"] = server
+    if username:
+        cfg["username"] = username
+    if profile:
+        cfg["profile_name"] = profile
+
+    raw_items = _setting("items_per_page")
     try:
-        with open(CONFIG_PATH, "r") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+        cfg["items_per_page"] = max(20, min(int(raw_items or 200), 200))
+    except (TypeError, ValueError):
+        cfg["items_per_page"] = 200
+
+    for key in _INTERNAL_SETTINGS:
+        value = _setting(key)
+
+        if not value:
+            continue
+
+        cfg[key] = value
+
+    return cfg
 
 
-# Save configuration changes such as tokens, profile selection and playback settings.
 def save_config(cfg):
-    xbmcvfs.mkdirs(PROFILE_DIR)
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f)
+    """Persist only hidden/internal runtime state into Kodi settings.
+
+    Server, username, profile and pagination are user-facing settings and are
+    already persisted by Kodi itself. They are deliberately not written here.
+    """
+    for key in _INTERNAL_SETTINGS:
+        if key not in cfg:
+            _set_setting(key, "")
+            continue
+
+        _set_setting(key, cfg[key])
 
 
 # Custom exception used for errors that should be shown/logged by Kodi.
 class SiloError(Exception):
-    def __init__(self, msg, status=None, problem=None):
+    def __init__(self, msg, status=None, problem=None, retry_after=None):
         super().__init__(msg)
         self.status = status
         self.problem = problem or {}
-
-
-# Playback-start fields whose accepted strings are not fully described by the
-# OpenAPI schema. If Silo returns a validation error for one of these fields,
-# the addon tries the next known candidate automatically.
-_VOCAB = {
-    "subtitle_fidelity_preference": (
-        ("subtitle_fidelity_preference",),
-        [
-            "preserve", "auto", "prefer_fidelity", "fidelity", "native",
-            "prefer_native", "exact", "compatible", "compatibility", "balanced",
-            "best_effort", "any", "default", "none", "off", "sidecar", "text",
-            "convert", "original", "high", "strict", "lossless", ""
-        ]
-    ),
-    "quality_preference": (
-        ("quality_preference",),
-        ["original", "auto", "1080p", "2160p", "720p", "direct", ""]
-    ),
-    "video_evidence": (
-        ("client_capabilities", "video_evidence"),
-        [
-            "declared", "probed", "reported", "measured", "observed",
-            "platform", "api", "runtime", "static", "assumed", "heuristic",
-            "inferred", "unknown", "none", ""
-        ]
-    ),
-    "audio_evidence": (
-        ("client_capabilities", "audio_evidence"),
-        [
-            "declared", "probed", "reported", "measured", "observed",
-            "platform", "api", "runtime", "static", "assumed", "heuristic",
-            "inferred", "unknown", "none", ""
-        ]
-    ),
-    "form_factor": (
-        ("client_playback_context", "form_factor"),
-        [
-            "desktop", "tv", "phone", "tablet", "web", "laptop", "set_top_box",
-            "console", "other", "unknown", "stb", "htpc"
-        ]
-    ),
-}
-
-
-# Set a nested dictionary value, creating missing dictionaries along the way.
-def _set_path(obj, path, value):
-    for key in path[:-1]:
-        obj = obj.setdefault(key, {})
-    obj[path[-1]] = value
-
-
-# Merge nested playback overrides without replacing unrelated configuration fields.
-def _deep_merge(base, extra):
-    for k, v in (extra or {}).items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            _deep_merge(base[k], v)
-        else:
-            base[k] = v
-    return base
+        self.retry_after = retry_after
 
 
 class SiloClient:
@@ -151,10 +164,60 @@ class SiloClient:
 
         if not self.cfg.get("device_id"):
             self.cfg["device_id"] = "kodi-" + uuid.uuid4().hex[:16]
-            save_config(self.cfg)
+            _set_setting("device_id", self.cfg["device_id"])
 
         self.session = requests.Session()
         self._caps = None
+        self.sync_settings()
+        # Detail responses are reused when the same item is later played.
+        self._details = {}
+
+    # ------------------------------------------------------------ settings
+
+    def sync_settings(self):
+        """Refresh editable connection/profile settings from Kodi."""
+        raw_username = ADDON.getSetting("username").strip()
+        server = ADDON.getSetting("server").strip().rstrip("/")
+        profile = ADDON.getSetting("profile").strip()
+
+        username = raw_username
+
+        if "#" in raw_username:
+            username, inline_profile = raw_username.split("#", 1)
+            username = username.strip()
+            if not profile:
+                profile = inline_profile.strip()
+
+        old_identity = (
+            self.cfg.get("server", ""),
+            self.cfg.get("username", ""),
+            self.cfg.get("profile_name", ""),
+        )
+        new_identity = (
+            server,
+            username,
+            profile,
+        )
+
+        if new_identity != old_identity:
+            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+                self.cfg.pop(key, None)
+            self._caps = None
+
+        self.cfg["server"] = server if server else self.cfg.get("server", "")
+        self.cfg["username"] = username if username else self.cfg.get("username", "")
+
+        if profile:
+            self.cfg["profile_name"] = profile
+        else:
+            self.cfg.pop("profile_name", None)
+
+        # Server, username and profile are already persisted by Kodi's
+        # settings store. Do not call save_config() here: doing so could clear
+        # an internal token if Kodi has not yet exposed that setting value to
+        # this Addon instance.
+
+
 
     # ------------------------------------------------------------ helpers
 
@@ -171,22 +234,38 @@ class SiloClient:
 
     # Build authentication/client headers required by Silo API endpoints.
     def _headers(self):
+        # Kodi's settings store is authoritative. Read the live values
+        # directly instead of relying on a potentially stale in-memory cfg.
+        device_id = _setting("device_id")
+        token = _setting("token")
+        profile_id = _setting("profile_id")
+        profile_token = _setting("profile_token")
+
+        if not device_id:
+            device_id = "kodi-" + uuid.uuid4().hex[:16]
+            _set_setting("device_id", device_id)
+
+        self.cfg["device_id"] = device_id
+
         h = {
             "Accept": "application/json",
-            "X-Device-ID": self.cfg["device_id"],
+            "X-Device-ID": device_id,
             "X-Client-Name": "kodi-silo",
             "X-Client-Version": ADDON_VERSION,
             "X-Client-Platform": "kodi",
         }
 
-        if self.cfg.get("token"):
-            h["Authorization"] = "Bearer " + self.cfg["token"]
+        if token:
+            h["Authorization"] = "Bearer " + token
+            self.cfg["token"] = token
 
-        if self.cfg.get("profile_id"):
-            h["X-Profile-Id"] = str(self.cfg["profile_id"])
+        if profile_id:
+            h["X-Profile-Id"] = str(profile_id)
+            self.cfg["profile_id"] = str(profile_id)
 
-        if self.cfg.get("profile_token"):
-            h["X-Profile-Token"] = self.cfg["profile_token"]
+        if profile_token:
+            h["X-Profile-Token"] = str(profile_token)
+            self.cfg["profile_token"] = str(profile_token)
 
         return h
 
@@ -221,7 +300,8 @@ class SiloClient:
         if not self.base:
             self._prompt_account()
 
-        if not self.cfg.get("token"):
+        if not _setting("token"):
+            self.cfg.pop("token", None)
             self.login()
 
         if need_profile and not self.cfg.get("profile_id"):
@@ -266,7 +346,13 @@ class SiloClient:
             except ValueError:
                 problem = {}
 
-            raise SiloError(self._problem(r), r.status_code, problem)
+            retry_after = r.headers.get("Retry-After")
+            raise SiloError(
+                self._problem(r),
+                r.status_code,
+                problem,
+                retry_after,
+            )
 
         return r
 
@@ -283,25 +369,74 @@ class SiloClient:
 
         server = dlg.input(
             "Silo server URL (e.g. http://host:8090)",
-            defaultt=self.cfg.get("server", "http://"),
+            defaultt="http://",
         )
+
+        if not server:
+            raise SiloError("Login cancelled")
+
         user = dlg.input(
             "Silo username",
-            defaultt=self.cfg.get("username", ""),
+            defaultt="",
         )
 
-        if not server or not user:
-            raise SiloError("Server and username are required")
+        if not user:
+            raise SiloError("Login cancelled")
 
-        self.cfg["server"] = server.rstrip("/")
-        self.cfg["username"] = user
+        # A '#' is optional. Without it, retain the normal profile-selection
+        # dialog. With it, use the part before '#' as the account username and
+        # the part after '#' as the profile name.
+        server = server.rstrip("/")
+        user = user.strip()
+
+        ADDON.setSetting("server", server)
+        ADDON.setSetting("username", user)
+
+        if "#" in user:
+            username, profile_name = user.split("#", 1)
+            username = username.strip()
+            profile_name = profile_name.strip()
+
+            if not username or not profile_name:
+                ADDON.setSetting("server", "")
+                ADDON.setSetting("username", "")
+                ADDON.setSetting("profile", "")
+                raise SiloError(
+                    "Use username#profile, for example liam1#liam2"
+                )
+
+            ADDON.setSetting("username", username)
+            ADDON.setSetting("profile", profile_name)
+            self.cfg["username"] = username
+            self.cfg["profile_name"] = profile_name
+            self._requested_profile_name = profile_name
+        else:
+            ADDON.setSetting("profile", "")
+            self.cfg["username"] = user
+            self.cfg.pop("profile_name", None)
+            self._requested_profile_name = ""
+
+        self.cfg["server"] = server
         save_config(self.cfg)
+
+
 
     # Store the access/refresh token pair returned by Silo.
     def _store_tokens(self, data):
-        self.cfg["token"] = data["access_token"]
-        self.cfg["refresh_token"] = data["refresh_token"]
-        save_config(self.cfg)
+        access_token = str(data.get("access_token") or "")
+        refresh_token = str(data.get("refresh_token") or "")
+
+        if not access_token or not refresh_token:
+            raise SiloError("Silo login did not return authentication tokens")
+
+        self.cfg["token"] = access_token
+        self.cfg["refresh_token"] = refresh_token
+
+        # Persist authentication immediately in Kodi's settings store.
+        _set_setting("token", access_token)
+        _set_setting("refresh_token", refresh_token)
+
+        log("Silo authentication tokens saved to Kodi settings")
 
     # Authenticate directly with /auth/login.
     #
@@ -350,19 +485,60 @@ class SiloClient:
     # place: server/username/password, token storage, profile selection and
     # profile PIN verification when required.
     def login_full(self):
-        # A completely logged-out configuration has no server or username, so
-        # login() will show the server and username fields before asking for the
-        # password.
-        self.login()
+        # Every explicit Kodi login starts as a completely fresh attempt.
+        # Do not reuse a previously entered server, username, token or profile
+        # after a failed/cancelled login; this ensures the next attempt always
+        # starts at the server URL prompt.
+        for key in (
+            "server",
+            "username",
+            "token",
+            "refresh_token",
+            "profile_id",
+            "profile_token",
+        ):
+            self.cfg.pop(key, None)
 
-        # login() only authenticates the account. Select the household profile
-        # afterwards so subsequent profile-scoped API calls have everything they
-        # need.
-        self.select_profile()
+        self._caps = None
+        self._requested_profile_name = ""
+        for key in ("token", "refresh_token", "profile_id", "profile_token"):
+            _set_setting(key, "")
+        save_config(self.cfg)
+
+        try:
+            # login() now asks for server URL, username and password from
+            # scratch because no account fields were retained above.
+            self.login()
+
+            # login() only authenticates the account. Select the household
+            # profile afterwards so subsequent profile-scoped API calls have
+            # everything they need.
+            self.select_profile()
+
+        except SiloError:
+            # A bad password, unknown user/server, cancelled prompt, cancelled
+            # profile selection, or cancelled PIN must leave no partial login
+            # state behind. The next Login selection will start at server URL.
+            for key in (
+                "server",
+                "username",
+                "token",
+                "refresh_token",
+                "profile_id",
+                "profile_token",
+            ):
+                self.cfg.pop(key, None)
+
+            self._caps = None
+            self._requested_profile_name = ""
+            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+                _set_setting(key, "")
+            save_config(self.cfg)
+            raise
 
     # Exchange the saved refresh token for a new access token.
     def refresh(self):
-        rt = self.cfg.get("refresh_token")
+        rt = _setting("refresh_token") or self.cfg.get("refresh_token")
         if not rt or not self.base:
             return False
 
@@ -397,20 +573,28 @@ class SiloClient:
     # intentionally retained so Silo still recognises this Kodi installation
     # as the same device after logging into another account.
     def logout(self):
+        # Clear the editable account settings from Kodi itself as well as the
+        # in-memory client state. Keeping these values would cause the next
+        # addon launch to use the settings-first login path and ask only for
+        # the password.
         for key in (
             "server",
             "username",
+            "profile",
             "token",
             "refresh_token",
             "profile_id",
             "profile_token",
         ):
-            self.cfg.pop(key, None)
+            self.cfg.pop("server" if key == "server" else key, None)
+            _set_setting(key, "")
 
-        # Playback capabilities can be profile/account dependent, so discard
-        # the cached copy and fetch it again after the next login.
+        # Keep the stable device ID, but discard account/profile-specific state.
+        self.cfg.pop("profile_name", None)
         self._caps = None
-        save_config(self.cfg)
+        self._requested_profile_name = ""
+
+        log("Silo account settings and authentication state cleared")
 
     # ----------------------------------------------------------- profiles
 
@@ -427,7 +611,29 @@ class SiloClient:
         if not profiles:
             raise SiloError("This account has no profiles")
 
-        if len(profiles) == 1:
+        requested_name = str(
+            getattr(self, "_requested_profile_name", "")
+            or self.cfg.get("profile_name", "")
+            or ""
+        ).strip()
+
+        if requested_name:
+            chosen = next(
+                (
+                    profile
+                    for profile in profiles
+                    if str(profile.get("name", "")).strip().casefold()
+                    == requested_name.casefold()
+                ),
+                None,
+            )
+
+            if chosen is None:
+                raise SiloError(
+                    "Profile '%s' was not found. Use username#profile."
+                    % requested_name
+                )
+        elif len(profiles) == 1:
             chosen = profiles[0]
         else:
             idx = xbmcgui.Dialog().select(
@@ -442,7 +648,16 @@ class SiloClient:
 
         self.cfg["profile_id"] = str(chosen["id"])
         self.cfg.pop("profile_token", None)
-        save_config(self.cfg)
+
+        # Persist profile selection directly in Kodi's settings store so a
+        # new plugin invocation can immediately reuse the selected profile.
+        _set_setting("profile_id", self.cfg["profile_id"])
+        _set_setting("profile_token", "")
+
+        # Also remember the selected name for the Settings page. This does not
+        # force automatic selection unless the user has configured a profile.
+        if not getattr(self, "_requested_profile_name", ""):
+            _set_setting("profile", str(chosen.get("name") or ""))
 
         if chosen.get("has_pin"):
             self.verify_profile(chosen["id"])
@@ -469,7 +684,7 @@ class SiloClient:
             raise SiloError("Wrong PIN")
 
         self.cfg["profile_token"] = data.get("profile_token", "")
-        save_config(self.cfg)
+        _set_setting("profile_token", self.cfg["profile_token"])
 
     # ------------------------------------------------------------ browsing
 
@@ -497,35 +712,87 @@ class SiloClient:
             if not cursor:
                 return libraries
 
+
+    # Search the profile-visible catalog across all accessible libraries.
+    # Silo performs the search server-side, so the addon does not need to
+    # download and scan every library itself.
+    def search_catalog(self, query, limit=100, offset=0):
+        """Return one page of Silo's server-side catalog search results."""
+        query = str(query or "").strip()
+        if not query:
+            return {"items": [], "has_more": False, "total": 0}
+
+        try:
+            limit = max(1, min(int(limit or 100), 100))
+        except (TypeError, ValueError):
+            limit = 100
+
+        try:
+            offset = max(0, int(offset or 0))
+        except (TypeError, ValueError):
+            offset = 0
+
+        return self._json(
+            "GET",
+            "/api/v1/catalog",
+            params={
+                "source": "query",
+                "q": query,
+                "limit": limit,
+                "offset": offset,
+                "include_total": "false",
+            },
+        ) or {}
+
     # Return every catalog item in a library while handling pagination internally.
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
+    def catalog_page(self, library_id, cursor=None, limit=200):
+        """Return one Silo catalog page and its continuation cursor.
+
+        Silo's shared catalog limit supports up to 200 items per request.
+        Pagination is exposed to the Kodi UI so large libraries do not force
+        every item and its extended metadata to load before the first page.
+        """
+        limit = max(1, min(int(limit or 200), 200))
+
+        params = {
+            "library_id": library_id,
+            "limit": limit,
+            "skip_total": "true",
+            # Use practical library artwork sizes while keeping responses small.
+            "image_size": "medium",
+        }
+
+        if cursor:
+            params["cursor"] = cursor
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params=params,
+        ) or {}
+
+        return (
+            data.get("items", []),
+            self._next(data),
+        )
+
+    # Return every library item. Kept for callers that explicitly need the
+    # complete collection; normal Kodi library browsing uses catalog_page().
     def catalog(self, library_id, limit=200):
         items = []
         cursor = None
 
         while True:
-            params = {
-                "library_id": library_id,
-                "limit": limit,
-                "skip_total": "true",
-                # Ask Silo for a practical library thumbnail size rather than
-                # making Kodi load unnecessarily large poster images.
-                "image_size": "medium",
-            }
+            page_items, cursor = self.catalog_page(
+                library_id,
+                cursor=cursor,
+                limit=limit,
+            )
 
-            if cursor:
-                params["cursor"] = cursor
+            items.extend(page_items)
 
-            data = self._json(
-                "GET",
-                "/api/v2/catalog",
-                params=params,
-            ) or {}
-
-            items.extend(data.get("items", []))
-
-            cursor = self._next(data)
             if not cursor:
                 return items
 
@@ -549,6 +816,40 @@ class SiloClient:
         ) or {}
 
         return data.get("items", [])
+
+    # Return the complete detail document for one catalog item.
+    #
+    # Unlike the browse/catalog card, this endpoint includes cast, crew and
+    # full file-version track metadata. Results are cached for the lifetime of
+    # this Kodi directory request so play() can reuse the same detail document.
+    def item_detail(self, content_id, library_id=None, file_id=None):
+        key = (
+            str(content_id),
+            str(library_id) if library_id is not None else "",
+            str(file_id) if file_id is not None else "",
+        )
+
+        if key in self._details:
+            return self._details[key]
+
+        # The detail endpoint also prepares cast/crew artwork. Kodi only
+        # needs small thumbnails for these person images, which keeps the
+        # metadata response substantially smaller for large libraries.
+        params = {"image_size": "small"}
+
+        if library_id:
+            params["library_id"] = library_id
+        if file_id:
+            params["file_id"] = file_id
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog/items/%s" % quote(content_id, safe=":"),
+            params=params or None,
+        ) or {}
+
+        self._details[key] = data
+        return data
 
     # Return the playable versions/files for one catalog item.
     def versions(self, content_id, library_id=None):
@@ -742,15 +1043,11 @@ class SiloClient:
             "client_features": [],
             "file_id": str(file_id),
             "profile_id": str(self.cfg["profile_id"]),
+            "start_position": float(start_position),
             "playback_attempt_id": uuid.uuid4().hex,
             "quality_preference": "original",
-            # This field is required by the Silo v2 schema. Its actual accepted
-            # vocabulary is learned by the probing logic below when necessary.
             "subtitle_fidelity_preference": "preserve",
             "metered": False,
-            # This is the IMPORTANT server-side resume position. main.py fills
-            # this with the fresh position obtained immediately before playback.
-            "start_position": float(start_position),
             "progress_persistence": "server",
             "client_capabilities": {
                 "video_evidence": "declared",
@@ -797,87 +1094,13 @@ class SiloClient:
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
     def start_playback(self, file_id, start_position=0.0):
-        # A value learned on an earlier run can speed up playback-start.
-        saved_overrides = self.cfg.get("start_overrides") or {}
-        chosen = {}
+        body = self._start_body(file_id, start_position)
 
-        # Reset the local subtitle override if it is known to be one of the
-        # values that the current server rejected. The probing loop below will
-        # learn a valid value again and save it.
-        if isinstance(saved_overrides.get("subtitle_fidelity_preference"), str):
-            saved_subtitle = saved_overrides.get("subtitle_fidelity_preference")
-            if saved_subtitle not in _VOCAB["subtitle_fidelity_preference"][1]:
-                saved_overrides.pop("subtitle_fidelity_preference", None)
-                save_config(self.cfg)
-
-        last_error = None
-
-        for _ in range(60):
-            body = _deep_merge(
-                self._start_body(file_id, start_position),
-                saved_overrides,
-            )
-
-            # Values already discovered during this request have priority over
-            # values remembered from an earlier request.
-            for field, index in chosen.items():
-                path, candidates = _VOCAB[field]
-                _set_path(body, path, candidates[index])
-
-            try:
-                data = self._json(
-                    "POST",
-                    "/api/v2/playback/start",
-                    body=body,
-                )
-                break
-
-            except SiloError as exc:
-                last_error = exc
-
-                bad_fields = self._invalid_fields(exc) if exc.status == 422 else []
-
-                if not bad_fields:
-                    log(
-                        "playback/start body was: %s" % json.dumps(body)[:4000],
-                        xbmc.LOGWARNING,
-                    )
-                    raise
-
-                # Advance every rejected vocabulary field to the next candidate.
-                for field in bad_fields:
-                    next_index = chosen.get(field, -1) + 1
-                    candidates = _VOCAB[field][1]
-
-                    if next_index >= len(candidates):
-                        raise SiloError(
-                            "No accepted value found for '%s'. Set it under "
-                            "start_overrides in config.json." % field
-                        )
-
-                    chosen[field] = next_index
-
-                xbmc.sleep(150)
-
-        else:
-            raise last_error or SiloError("Gave up probing playback field values")
-
-        # Remember values accepted by this server so future starts can be immediate.
-        if chosen:
-            saved = self.cfg.setdefault("start_overrides", {})
-
-            for field, index in chosen.items():
-                path, candidates = _VOCAB[field]
-                _set_path(saved, path, candidates[index])
-
-            save_config(self.cfg)
-
-            log(
-                "learned playback values: %s" % {
-                    field: _VOCAB[field][1][index]
-                    for field, index in chosen.items()
-                }
-            )
+        data = self._json(
+            "POST",
+            "/api/v2/playback/start",
+            body=body,
+        )
 
         plan = data.get("playback_plan")
 

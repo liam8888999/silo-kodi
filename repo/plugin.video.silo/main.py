@@ -29,11 +29,15 @@ to the user.
 """
 
 import sys
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
 import xbmcgui
 import xbmcplugin
+import xbmcaddon
 
 from resources.lib.silo import SiloClient, SiloError, log
 
@@ -51,8 +55,115 @@ PLAYABLE = (
     "video",
 )
 
+# Maximum number of entries shown in one Kodi directory page.
+DIRECTORY_PAGE_SIZE = 200
+
+# Maximum number of server-side search results shown in one Kodi page.
+SEARCH_PAGE_SIZE = 100
+
+# Kodi setting used to control normal directory page size. Silo search itself
+# is capped at 100 results per request, so search uses the smaller of the user
+# setting and the server search limit.
+MIN_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 200
+
+ADDON = xbmcaddon.Addon()
+
+
+def get_directory_page_size():
+    """Return the configured Kodi page size, clamped to 20-200.
+
+    Kodi's legacy slider settings are stored as strings representing floating
+    point values even when option="int" is used, so parse the value as a float.
+    """
+    raw = ADDON.getSetting("items_per_page")
+
+    try:
+        value = int(round(float(raw))) if raw not in (None, "") else MAX_PAGE_SIZE
+    except (TypeError, ValueError):
+        value = MAX_PAGE_SIZE
+
+    return max(MIN_PAGE_SIZE, min(value, MAX_PAGE_SIZE))
+
 
 # Build a Kodi plugin URL containing the action and any required IDs.
+def paginate_directory(items, page):
+    """Return one 200-item slice and whether another page exists."""
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    page_size = get_directory_page_size()
+    start = (page_number - 1) * page_size
+    end = start + page_size
+
+    return items[start:end], page_number > 1, end < len(items)
+
+
+def add_previous_page(library_id=None, series_id=None, season_number=None,
+                      action=None, page=1):
+    """Add a Previous Page folder when the current directory is past page 1."""
+    try:
+        page_number = int(page or 1)
+    except (TypeError, ValueError):
+        page_number = 1
+
+    if page_number <= 1:
+        return
+
+    params = {
+        "action": action,
+        "page": page_number - 1,
+    }
+
+    if library_id:
+        params["library_id"] = library_id
+    if series_id:
+        params["series_id"] = series_id
+    if season_number is not None:
+        params["season_number"] = season_number
+
+    item = xbmcgui.ListItem(label="Previous Page")
+    item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(**params),
+        item,
+        True,
+    )
+
+
+def add_next_page(library_id=None, series_id=None, season_number=None,
+                  action=None, page=1):
+    """Add a Next Page folder when another 200-item slice exists."""
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    params = {
+        "action": action,
+        "page": page_number + 1,
+    }
+
+    if library_id:
+        params["library_id"] = library_id
+    if series_id:
+        params["series_id"] = series_id
+    if season_number is not None:
+        params["season_number"] = season_number
+
+    item = xbmcgui.ListItem(label="Next Page")
+    item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(**params),
+        item,
+        True,
+    )
+
+
 def build_url(**params):
     return BASE_URL + "?" + urlencode(params)
 
@@ -81,6 +192,128 @@ def format_position(seconds):
         return "%d:%02d:%02d" % (hours, minutes, seconds)
 
     return "%d:%02d" % (minutes, seconds)
+
+
+def fetch_detail_metadata(client, items, library_id, max_workers=2):
+    """Fetch extended metadata concurrently and retry transient failures.
+
+    Catalog data is fast and contains most metadata. The detail endpoint adds
+    cast, crew and full file stream information. Requests run concurrently,
+    while transient timeouts, connection failures and server throttling/errors
+    are retried before an item is considered unavailable.
+    """
+    content_ids = []
+    seen = set()
+
+    for item in items:
+        content_id = get_content_id(item)
+        if not content_id:
+            continue
+
+        key = str(content_id)
+        if key not in seen:
+            seen.add(key)
+            content_ids.append(content_id)
+
+    if not content_ids:
+        return {}
+
+    def fetch_one(content_id):
+        attempts = 3
+
+        for attempt in range(attempts):
+            try:
+                # Use a separate session per worker. requests.Session should not
+                # be shared across concurrent requests.
+                worker_client = SiloClient()
+                worker_client.cfg.update(client.cfg)
+
+                detail = worker_client.item_detail(
+                    content_id,
+                    library_id,
+                )
+
+                if detail:
+                    return content_id, detail
+
+                # An empty document is unusual but should get one retry.
+                if attempt < attempts - 1:
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+
+                return content_id, None
+
+            except SiloError as exc:
+                status = getattr(exc, "status", None)
+
+                # Retry transient HTTP failures and network errors. For 429,
+                # Silo supplies the authoritative Retry-After delay.
+                transient = (
+                    status is None
+                    or status == 408
+                    or status == 429
+                    or status >= 500
+                )
+
+                if attempt < attempts - 1 and transient:
+                    retry_after = getattr(exc, "retry_after", None)
+
+                    try:
+                        delay = float(retry_after)
+                    except (TypeError, ValueError):
+                        delay = 0.0
+
+                    if status == 429 and delay <= 0:
+                        delay = 2.0
+                    elif delay <= 0:
+                        delay = 0.5 * (attempt + 1)
+
+                    # Give the server a little breathing room before the next
+                    # attempt, especially after a rate-limit response.
+                    time.sleep(max(0.25, delay))
+                    continue
+
+                log(
+                    "Unable to retrieve detail metadata for %s: %s"
+                    % (content_id, exc),
+                    xbmc.LOGWARNING,
+                )
+                return content_id, None
+
+        return content_id, None
+
+    details = {}
+    worker_count = max(
+        1,
+        min(int(max_workers or 2), len(content_ids)),
+    )
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(fetch_one, content_id)
+            for content_id in content_ids
+        ]
+
+        for future in as_completed(futures):
+            content_id, detail = future.result()
+
+            if detail:
+                details[str(content_id)] = detail
+
+    return details
+
+
+def get_runtime_seconds(item):
+    """Convert Silo's catalog runtime (minutes) into Kodi seconds."""
+    if not item:
+        return 0.0
+
+    try:
+        runtime = float(item.get("runtime", 0) or 0)
+    except (TypeError, ValueError):
+        runtime = 0.0
+
+    return max(0.0, runtime * 60.0)
 
 
 def get_progress_position(progress):
@@ -200,12 +433,767 @@ def catalog_progress(item):
     except (TypeError, ValueError):
         duration = 0.0
 
+    # Catalog runtime is in minutes; progress duration is in seconds.
+    # Unwatched items may not have a progress duration, so use the catalog
+    # runtime as the Kodi duration in that case.
+    if duration <= 0:
+        duration = get_runtime_seconds(item)
+
     return {
         "completed": bool(user_state.get("played", False)),
         "position_seconds": position,
         "duration_seconds": duration,
         "updated_at": item.get("progress_updated_at") or "",
     }
+
+
+def set_catalog_metadata(list_item, item, client):
+    """Apply metadata that Silo includes directly in CatalogItem responses.
+
+    This deliberately uses only catalog data so opening a large library does
+    not trigger one detail request per movie or episode.
+    """
+    if not item:
+        return
+
+    tag = list_item.getVideoInfoTag()
+    media_type = (item.get("type") or item.get("media_type") or "").lower()
+
+    # Kodi media types map Silo's catalog types to the native video types.
+    kodi_media_type = {
+        "movie": "movie",
+        "series": "tvshow",
+        "season": "season",
+        "episode": "episode",
+        "video": "video",
+    }.get(media_type, "video")
+
+    tag.setMediaType(kodi_media_type)
+
+    title = item.get("title") or item.get("name")
+    if title:
+        tag.setTitle(title)
+
+    # Silo normally supplies year on CatalogItem, but some TV series
+    # can have a missing/zero year while their first-air/release date exists.
+    # Derive the year from that date so Kodi does not lose it.
+    year = item.get("year")
+
+    try:
+        year = int(year or 0)
+    except (TypeError, ValueError):
+        year = 0
+
+    if year <= 0:
+        date_candidates = []
+
+        if media_type == "series":
+            date_candidates.extend([
+                item.get("first_air_date"),
+            ])
+
+        date_candidates.extend([
+            item.get("release_date"),
+            item.get("first_air_date"),
+            item.get("air_date"),
+        ])
+
+        for date_value in date_candidates:
+            if date_value:
+                try:
+                    year = int(str(date_value)[:4])
+                except (TypeError, ValueError):
+                    year = 0
+
+                if year > 0:
+                    break
+
+    if year > 0:
+        tag.setYear(year)
+
+    genres = [str(value) for value in (item.get("genres") or []) if value]
+    if genres:
+        tag.setGenres(genres)
+
+    studios = [str(value) for value in (item.get("studios") or []) if value]
+    if studios:
+        tag.setStudios(studios)
+
+    countries = [str(value) for value in (item.get("countries") or []) if value]
+    if countries:
+        tag.setCountries(countries)
+
+    keywords = [str(value) for value in (item.get("keywords") or []) if value]
+    if keywords:
+        tag.setTags(keywords)
+
+    plot = item.get("overview") or item.get("plot")
+    if plot:
+        tag.setPlot(plot)
+        tag.setPlotOutline(plot)
+
+    if item.get("tagline"):
+        tag.setTagLine(item["tagline"])
+
+    if item.get("content_rating"):
+        tag.setMpaa(item["content_rating"])
+
+    if item.get("original_language"):
+        try:
+            tag.setOriginalLanguage(item["original_language"])
+        except Exception:
+            # Keep the catalog value available even when Kodi cannot recognise
+            # the language code supplied by the server.
+            list_item.setProperty(
+                "Silo.OriginalLanguage",
+                str(item["original_language"]),
+            )
+
+    if item.get("series_title"):
+        tag.setTvShowTitle(item["series_title"])
+
+    if item.get("show_status"):
+        tag.setTvShowStatus(item["show_status"])
+
+    if item.get("season_number") is not None:
+        try:
+            tag.setSeason(int(item["season_number"]))
+        except (TypeError, ValueError):
+            pass
+
+    if item.get("episode_number") is not None:
+        try:
+            tag.setEpisode(int(item["episode_number"]))
+        except (TypeError, ValueError):
+            pass
+
+    release_date = item.get("release_date")
+    if release_date:
+        if media_type == "episode":
+            tag.setFirstAired(str(release_date))
+        else:
+            tag.setPremiered(str(release_date))
+
+    if item.get("runtime"):
+        try:
+            duration_seconds = int(round(float(item["runtime"]) * 60))
+        except (TypeError, ValueError):
+            duration_seconds = 0
+
+        if duration_seconds > 0:
+            tag.setDuration(duration_seconds)
+
+    # Preserve every rating Silo exposes. Kodi supports multiple named rating
+    # types; IMDb is preferred as the default when it exists.
+    ratings = {}
+    rating_map = (
+        ("imdb", item.get("rating_imdb")),
+        ("tmdb", item.get("rating_tmdb")),
+        ("rotten_tomatoes_critic", item.get("rating_rt_critic")),
+        ("rotten_tomatoes_audience", item.get("rating_rt_audience")),
+    )
+
+    for rating_type, value in rating_map:
+        if value is None:
+            continue
+        try:
+            ratings[rating_type] = (float(value), 0)
+        except (TypeError, ValueError):
+            pass
+
+    if ratings:
+        default_rating = "imdb" if "imdb" in ratings else next(iter(ratings))
+        try:
+            tag.setRatings(ratings, default_rating)
+        except AttributeError:
+            # Kodi versions before the InfoTagVideo rating API can still
+            # receive named ratings through ListItem.
+            for rating_type, (value, votes) in ratings.items():
+                list_item.setRating(
+                    rating_type,
+                    value,
+                    votes,
+                    rating_type == default_rating,
+                )
+
+    # Store identifiers that are useful to Kodi and to skins/addons.
+    unique_ids = {}
+    for key in ("imdb_id", "tmdb_id", "tvdb_id"):
+        value = item.get(key)
+        if value:
+            unique_ids[key.replace("_id", "")] = str(value)
+
+    if unique_ids:
+        default_id = (
+            "imdb" if "imdb" in unique_ids
+            else "tmdb" if "tmdb" in unique_ids
+            else "tvdb"
+        )
+        try:
+            tag.setUniqueIDs(unique_ids, default_id)
+        except AttributeError:
+            list_item.setUniqueIDs(unique_ids, default_id)
+
+        for key, value in unique_ids.items():
+            list_item.setProperty("Silo.%sID" % key.upper(), value)
+
+    # The catalog has a few useful fields with no dedicated Kodi video-info
+    # field. Expose them as ListItem properties so skins can still access them.
+    if item.get("networks"):
+        list_item.setProperty(
+            "Silo.Networks",
+            " / ".join(str(value) for value in item["networks"] if value),
+        )
+
+    for key in (
+        "status",
+        "item_source",
+        "work_id",
+        "work_title",
+    ):
+        value = item.get(key)
+        if value:
+            list_item.setProperty("Silo.%s" % key.title(), str(value))
+
+    overlay = item.get("overlay_summary") or {}
+    if isinstance(overlay, dict):
+        for key in (
+            "resolution",
+            "hdr",
+            "audio",
+            "audio_channels",
+            "video_codec",
+            "container",
+            "aspect_ratio",
+            "release_type",
+            "edition",
+            "multi_audio",
+            "multi_sub",
+        ):
+            value = overlay.get(key)
+            if value not in (None, "", False):
+                list_item.setProperty(
+                    "Silo.%s" % "".join(part.title() for part in key.split("_")),
+                    str(value),
+                )
+
+
+def _detail_version(detail, file_id=None):
+    """Select the Silo file version Kodi should use for pre-play details."""
+    versions = detail.get("versions") or []
+
+    if file_id is not None:
+        wanted = str(file_id)
+
+        for version in versions:
+            if str(version.get("file_id") or version.get("id")) == wanted:
+                return version
+
+    # The detail endpoint tells us which version its library/playback
+    # presentation resolved to. Prefer that instead of assuming versions[0].
+    effective_resolution = detail.get("effective_version_resolution")
+    effective_hdr = detail.get("effective_version_hdr")
+    effective_codec = detail.get("effective_version_codec_video")
+    effective_edition = detail.get("effective_version_edition_key")
+
+    best = None
+    best_score = -1
+
+    for version in versions:
+        score = 0
+
+        if effective_resolution and str(version.get("resolution") or "") == str(effective_resolution):
+            score += 4
+
+        if effective_hdr is not None and bool(version.get("hdr")) == bool(effective_hdr):
+            score += 2
+
+        if effective_codec and str(version.get("codec_video") or "") == str(effective_codec):
+            score += 2
+
+        if effective_edition and str(version.get("edition_key") or "") == str(effective_edition):
+            score += 2
+
+        if score > best_score:
+            best = version
+            best_score = score
+
+    return best or (versions[0] if versions else {})
+
+
+def _aspect_ratio(value):
+    """Convert Silo's aspect ratio into Kodi's numeric float form."""
+    if value in (None, ""):
+        return 0.0
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+
+    text = str(value).strip()
+
+    if ":" in text:
+        parts = text.split(":", 1)
+        try:
+            width = float(parts[0])
+            height = float(parts[1])
+            if height:
+                return width / height
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+
+    return 0.0
+
+
+def set_stream_details(list_item, version):
+    """Populate Kodi's pre-playback video, audio and subtitle stream details."""
+    if not version:
+        return
+
+    tag = list_item.getVideoInfoTag()
+    video_tracks = version.get("video_tracks") or []
+    audio_tracks = version.get("audio_tracks") or []
+    subtitle_tracks = version.get("subtitle_tracks") or []
+    duration = int(version.get("duration") or 0)
+
+    for track in video_tracks:
+        aspect = _aspect_ratio(track.get("aspect_ratio"))
+
+        info = {}
+        if track.get("codec"):
+            info["codec"] = track["codec"]
+        if track.get("width"):
+            info["width"] = int(track["width"])
+        if track.get("height"):
+            info["height"] = int(track["height"])
+        if aspect > 0:
+            info["aspect"] = aspect
+        if duration > 0:
+            info["duration"] = duration
+        if track.get("language"):
+            info["language"] = track["language"]
+
+        hdr = (
+            track.get("dolby_vision")
+            or ("dolbyvision" if track.get("dv_profile") else "")
+            or (
+                "hdr10"
+                if str(
+                    track.get("video_range_type", "")
+                ).upper().startswith("HDR10")
+                else ""
+            )
+            or (
+                "hlg"
+                if str(
+                    track.get("video_range_type", "")
+                ).upper().startswith("HLG")
+                else ""
+            )
+        )
+
+        if hdr:
+            info["hdrtype"] = hdr
+
+        # Preserve additional probed values for skins/addons even where Kodi's
+        # native stream API has no corresponding setter.
+        for key in (
+            "profile",
+            "level",
+            "bitrate",
+            "frame_rate",
+            "bit_depth",
+            "color_space",
+            "color_transfer",
+            "color_primaries",
+            "pixel_format",
+        ):
+            value = track.get(key)
+            if value not in (None, ""):
+                list_item.setProperty(
+                    "Silo.Video.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    str(value),
+                )
+
+        try:
+            stream = xbmc.VideoStreamDetail(
+                int(track.get("width") or 0),
+                int(track.get("height") or 0),
+                aspect,
+                duration,
+                str(track.get("codec") or ""),
+                "",
+                str(track.get("language") or ""),
+                str(hdr or ""),
+            )
+            tag.addVideoStream(stream)
+        except Exception:
+            pass
+
+    # Fallback for detail responses containing only version-level video data.
+    if not video_tracks and (
+        version.get("codec_video") or version.get("resolution")
+    ):
+        resolution = str(version.get("resolution") or "")
+        width = height = 0
+
+        if "x" in resolution.lower():
+            try:
+                width, height = [
+                    int(v)
+                    for v in resolution.lower().split("x", 1)
+                ]
+            except (TypeError, ValueError):
+                pass
+        elif resolution.lower().endswith("p"):
+            try:
+                height = int(resolution[:-1])
+            except ValueError:
+                pass
+
+        info = {
+            "codec": version.get("codec_video") or "",
+            "duration": duration,
+        }
+
+        if width:
+            info["width"] = width
+        if height:
+            info["height"] = height
+
+        try:
+            tag.addVideoStream(
+                xbmc.VideoStreamDetail(
+                    width,
+                    height,
+                    _aspect_ratio(version.get("aspect_ratio")),
+                    duration,
+                    str(version.get("codec_video") or ""),
+                )
+            )
+        except Exception:
+            pass
+
+    for track in audio_tracks:
+        info = {}
+
+        if track.get("codec"):
+            info["codec"] = track["codec"]
+        if track.get("language"):
+            info["language"] = track["language"]
+        if track.get("channels"):
+            info["channels"] = int(track["channels"])
+
+        for key in (
+            "title",
+            "profile",
+            "layout",
+            "bitrate",
+            "sample_rate",
+            "bit_depth",
+        ):
+            value = track.get(key)
+            if value not in (None, ""):
+                list_item.setProperty(
+                    "Silo.Audio.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    str(value),
+                )
+
+        try:
+            tag.addAudioStream(
+                xbmc.AudioStreamDetail(
+                    int(track.get("channels") or 0),
+                    str(track.get("codec") or ""),
+                    str(track.get("language") or ""),
+                )
+            )
+        except Exception:
+            pass
+
+    for track in subtitle_tracks:
+        language = str(
+            track.get("language")
+            or track.get("title")
+            or ""
+        )
+
+        if language:
+            try:
+                tag.addSubtitleStream(
+                    xbmc.SubtitleStreamDetail(language)
+                )
+            except Exception:
+                pass
+
+
+def set_detail_metadata(list_item, detail, client, file_id=None):
+    """Apply Silo detail-only metadata such as cast, crew and stream tracks."""
+    if not detail:
+        return
+
+    # CatalogItemDetail embeds the complete CatalogItem. Apply those
+    # fields here too because detail-only responses contain IDs, countries and
+    # other values that are not present on the browse card.
+    set_catalog_metadata(
+        list_item,
+        detail,
+        client,
+    )
+
+    tag = list_item.getVideoInfoTag()
+
+    if detail.get("sort_title"):
+        try:
+            tag.setSortTitle(detail["sort_title"])
+        except Exception:
+            pass
+
+    if detail.get("original_title"):
+        try:
+            tag.setOriginalTitle(detail["original_title"])
+        except Exception:
+            pass
+
+    if detail.get("first_air_date"):
+        try:
+            tag.setFirstAired(str(detail["first_air_date"]))
+        except Exception:
+            pass
+
+    if detail.get("air_date"):
+        try:
+            tag.setPremiered(str(detail["air_date"]))
+        except Exception:
+            pass
+
+    cast = []
+    cast_info = []
+    cast_names = []
+    cast_and_roles = []
+
+    for person in detail.get("cast") or []:
+        name = person.get("name")
+        if not name:
+            continue
+
+        name = str(name)
+        role = str(person.get("character") or "")
+        thumbnail = client.abs_url(person.get("photo_url") or "")
+
+        try:
+            order = int(person.get("order") or 0)
+        except (TypeError, ValueError):
+            order = 0
+
+        # Kodi 20+ uses xbmc.Actor objects for InfoTagVideo.setCast().
+        try:
+            cast.append(
+                xbmc.Actor(
+                    name,
+                    role,
+                    order,
+                    thumbnail,
+                )
+            )
+        except Exception:
+            pass
+
+        actor_info = {"name": name}
+        if role:
+            actor_info["role"] = role
+        if thumbnail:
+            actor_info["thumbnail"] = thumbnail
+        if order:
+            actor_info["order"] = order
+
+        cast_info.append(actor_info)
+        cast_names.append(name)
+
+        if role:
+            cast_and_roles.append((name, role))
+        else:
+            cast_and_roles.append((name, ""))
+
+    if cast:
+        try:
+            tag.setCast(cast)
+        except Exception:
+            pass
+
+    # Keep Kodi's older ListItem representation as well. It is deprecated in
+    # Kodi 20+, but remains supported and some skins/add-ons still consume it.
+    if cast_info:
+        # InfoTagVideo.setCast() above is the current Kodi API and retains the
+        # actor thumbnail supplied by Silo.
+        list_item.setProperty(
+            "Silo.CastNames",
+            " / ".join(cast_names),
+        )
+
+    directors = []
+    writers = []
+    credits = []
+
+    for person in detail.get("crew") or []:
+        name = person.get("name")
+        job = str(person.get("job") or "").strip()
+
+        if not name:
+            continue
+
+        name = str(name)
+        job_lower = job.lower()
+
+        if job:
+            credits.append(name)
+
+        # Silo can return detailed crew job labels, not only the bare "Director"
+        # or "Writer" values.
+        if (
+            job_lower == "director"
+            or job_lower.endswith(" director")
+            or "director" in job_lower
+        ):
+            directors.append(name)
+
+        if any(
+            word in job_lower
+            for word in (
+                "writer",
+                "screenplay",
+                "screenwriter",
+                "story",
+                "novel",
+            )
+        ):
+            writers.append(name)
+
+    # Remove duplicates while preserving Silo's order.
+    directors = list(dict.fromkeys(directors))
+    writers = list(dict.fromkeys(writers))
+    credits = list(dict.fromkeys(credits))
+
+    try:
+        if directors:
+            tag.setDirectors(directors)
+    except Exception:
+        pass
+
+    try:
+        if writers:
+            tag.setWriters(writers)
+    except Exception:
+        pass
+
+    if credits:
+        list_item.setProperty(
+            "Silo.Crew",
+            " / ".join(credits),
+        )
+
+    # Keep complete crew names/jobs available without requiring JSON in the
+    # Kodi runtime. Thumbnail-bearing crew data remains in the structured
+    # Silo.CrewDetails property only when a skin specifically needs it.
+    crew_details = []
+    for person in detail.get("crew") or []:
+        if not person.get("name"):
+            continue
+        crew_details.append(
+            "%s (%s)" % (
+                str(person.get("name")),
+                str(person.get("job") or ""),
+            )
+        )
+
+    if crew_details:
+        list_item.setProperty(
+            "Silo.CrewDetails",
+            " / ".join(crew_details),
+        )
+
+    # Detail-only viewer and series information.
+    if detail.get("user_rating") is not None:
+        try:
+            tag.setUserRating(int(detail["user_rating"]))
+        except (TypeError, ValueError):
+            pass
+
+    for key in (
+        "season_count",
+        "episode_count",
+        "air_time",
+        "air_timezone",
+        "effective_subtitle_language",
+        "effective_subtitle_mode",
+        "effective_version_resolution",
+        "effective_version_codec_video",
+        "effective_version_edition_key",
+    ):
+        value = detail.get(key)
+        if value not in (None, ""):
+            list_item.setProperty(
+                "Silo.%s" % "".join(
+                    part.title() for part in key.split("_")
+                ),
+                str(value),
+            )
+
+    # Marker data remains available as a simple property. Complex marker JSON
+    # is intentionally not serialised here because it is not required by Kodi
+    # for pre-playback metadata.
+    for marker_name in ("intro", "credits", "recap", "preview"):
+        marker = detail.get(marker_name)
+        if marker:
+            list_item.setProperty(
+                "Silo.Marker.%s" % marker_name.title(),
+                str(marker),
+            )
+
+    # Native date-added and ID infolabels are still consumed by some skins.
+    added_at = detail.get("added_at")
+    if added_at:
+        try:
+            tag.setDateAdded(str(added_at))
+        except Exception:
+            pass
+
+    unique_ids = {}
+    if detail.get("imdb_id"):
+        unique_ids["imdb"] = str(detail["imdb_id"])
+    if detail.get("tmdb_id"):
+        unique_ids["tmdb"] = str(detail["tmdb_id"])
+    if detail.get("tvdb_id"):
+        unique_ids["tvdb"] = str(detail["tvdb_id"])
+
+    if unique_ids:
+        try:
+            default_id = "imdb" if "imdb" in unique_ids else next(iter(unique_ids))
+            tag.setUniqueIDs(
+                unique_ids,
+                default_id,
+            )
+        except Exception:
+            for key, value in unique_ids.items():
+                try:
+                    tag.setUniqueID(value, key, key == "imdb")
+                except Exception:
+                    pass
+
+    version = _detail_version(detail, file_id)
+    set_stream_details(list_item, version)
+
+    # Full-detail runtime is the actual selected file duration in seconds.
+    if version.get("duration"):
+        try:
+            duration = int(version["duration"])
+            tag.setDuration(duration)
+        except (TypeError, ValueError):
+            pass
 
 
 def set_watch_state(list_item, progress, content_type=None):
@@ -224,6 +1212,12 @@ def set_watch_state(list_item, progress, content_type=None):
     completed = bool(progress.get("completed", False))
     position, duration = get_progress_position(progress)
     tag = list_item.getVideoInfoTag()
+
+    # Runtime is independent of resume state. Use Kodi's native
+    # VideoInfoTag duration field so directory views receive the duration.
+    if duration > 0:
+        duration_int = int(round(duration))
+        tag.setDuration(duration_int)
 
     if completed:
         # Silo says the item is fully watched.
@@ -258,6 +1252,8 @@ def add_catalog_item(client, item, library_id):
     list_item = xbmcgui.ListItem(label=title)
     tag = list_item.getVideoInfoTag()
     tag.setTitle(title)
+
+    set_catalog_metadata(list_item, item, client)
 
     # Copy basic metadata that Kodi can display.
     if item.get("year"):
@@ -322,38 +1318,341 @@ def add_catalog_item(client, item, library_id):
     )
 
 
-def list_root(client):
-    """Display the initial screen or the logged-in Silo libraries.
 
-    The addon deliberately does not start the login dialogue automatically.
-    When no account is authenticated, Kodi shows a simple Login button and the
-    user must select it before any server/account information is requested.
-    """
+def search_silo(client):
+    """Prompt for a search term and display Silo's library-wide results."""
+    query = xbmcgui.Dialog().input(
+        "Search Silo",
+    ).strip()
 
-    # --------------------------------------------------------------
-    # NOT LOGGED IN
-    # --------------------------------------------------------------
-    # This restores the original addon behaviour: merely opening the addon
-    # does not immediately ask for credentials.
-    if not client.cfg.get("token"):
-        login_item = xbmcgui.ListItem(label="Login")
-
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="login"),
-            login_item,
-            False,
-        )
-
+    if not query:
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE)
         return
 
-    # --------------------------------------------------------------
-    # LOGGED IN
-    # --------------------------------------------------------------
+    list_search_results(client, query, 1)
+
+
+def list_search_results(client, query, page=1):
+    """Display one page of Silo's server-side library-wide search results."""
+    query = str(query or "").strip()
+
+    if not query:
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    search_page_size = min(get_directory_page_size(), SEARCH_PAGE_SIZE)
+    offset = (page_number - 1) * search_page_size
+
+    try:
+        data = client.search_catalog(
+            query,
+            limit=search_page_size,
+            offset=offset,
+        ) or {}
+    except SiloError as exc:
+        log(
+            "Silo search failed for %r: %s" % (query, exc),
+            xbmc.LOGERROR,
+        )
+        notify("Search failed: %s" % str(exc)[:180])
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    items = data.get("items") or []
+    has_more = bool(data.get("has_more"))
+
+    log(
+        "Silo search query=%r returned %d item(s), has_more=%s"
+        % (query, len(items), has_more)
+    )
+
+    xbmcplugin.setPluginCategory(
+        HANDLE,
+        "Search: %s" % query,
+    )
+    xbmcplugin.setContent(HANDLE, "videos")
+
+    if page_number > 1:
+        previous_item = xbmcgui.ListItem(label="Previous Page")
+        previous_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="search",
+                query=query,
+                page=page_number - 1,
+            ),
+            previous_item,
+            True,
+        )
+
+    # Match normal library/episode browsing: fetch all extended detail
+    # metadata before Kodi receives the search result directory. This means
+    # cast, crew, ratings, runtime and full stream information are available
+    # immediately, rather than waiting until playback.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        None,
+    )
+
+    # Keep all media types in the same result page, but group them into
+    # Movies, TV Shows and Episodes so a common title (for example "Christmas")
+    # is immediately distinguishable.
+    grouped_items = {
+        "movie": [],
+        "series": [],
+        "episode": [],
+    }
+    other_items = []
+
+    for catalog_item in items:
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+        if media_type in grouped_items:
+            grouped_items[media_type].append(catalog_item)
+        else:
+            other_items.append(catalog_item)
+
+    ordered_items = (
+        grouped_items["movie"]
+        + grouped_items["series"]
+        + grouped_items["episode"]
+        + other_items
+    )
+
+    batch = []
+
+    for catalog_item in ordered_items:
+        content_id = get_content_id(catalog_item)
+        if not content_id:
+            continue
+
+        title = (
+            catalog_item.get("title")
+            or catalog_item.get("name")
+            or "Unknown"
+        )
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+
+        # Make each result's media type obvious. Episodes also include their
+        # parent series and season/episode number so dozens of identically
+        # titled episodes can be distinguished immediately.
+        display_title = title
+
+        if media_type == "movie":
+            display_title = "[Movie] %s" % title
+        elif media_type == "series":
+            display_title = "[TV Show] %s" % title
+        elif media_type == "episode":
+            series_title = (
+                catalog_item.get("series_title")
+                or catalog_item.get("series_name")
+                or ""
+            )
+            season_number = catalog_item.get("season_number")
+            episode_number = catalog_item.get("episode_number")
+
+            episode_code = ""
+            if season_number is not None and episode_number is not None:
+                try:
+                    episode_code = "S%02dE%02d" % (
+                        int(season_number),
+                        int(episode_number),
+                    )
+                except (TypeError, ValueError):
+                    episode_code = ""
+
+            if series_title and episode_code:
+                display_title = "[Episode] %s - %s - %s" % (
+                    series_title,
+                    episode_code,
+                    title,
+                )
+            elif series_title:
+                display_title = "[Episode] %s - %s" % (
+                    series_title,
+                    title,
+                )
+            elif episode_code:
+                display_title = "[Episode] %s - %s" % (
+                    episode_code,
+                    title,
+                )
+            else:
+                display_title = "[Episode] %s" % title
+
+        item = xbmcgui.ListItem(label=display_title)
+        tag = item.getVideoInfoTag()
+        tag.setTitle(title)
+
+        set_catalog_metadata(item, catalog_item, client)
+
+        set_art(
+            item,
+            client,
+            poster=(
+                catalog_item.get("poster_url")
+                or catalog_item.get("poster")
+                or catalog_item.get("image")
+                or catalog_item.get("artwork")
+                or catalog_item.get("thumbnail")
+            ),
+            backdrop=catalog_item.get("backdrop_url"),
+            logo=catalog_item.get("logo_url"),
+            still=(
+                catalog_item.get("still_url")
+                or catalog_item.get("still")
+            ),
+        )
+
+        # Apply the extended metadata fetched above before this result is
+        # handed to Kodi, matching the normal library and episode pages.
+        detail = detail_map.get(str(content_id))
+        if detail:
+            set_detail_metadata(
+                item,
+                detail,
+                client,
+            )
+
+        # Search results are already profile-scoped by Silo. Use the catalog
+        # watch state directly so this search does not download the full
+        # progress table spanning every library.
+        set_watch_state(
+            item,
+            catalog_progress(catalog_item),
+            media_type,
+        )
+
+        if media_type in PLAYABLE:
+            item.setProperty("IsPlayable", "true")
+            url = build_url(
+                action="play",
+                content_id=(
+                    catalog_item.get("play_content_id")
+                    or content_id
+                ),
+            )
+            batch.append((url, item, False))
+        elif media_type == "series":
+            url = build_url(
+                action="seasons",
+                series_id=content_id,
+            )
+            batch.append((url, item, True))
+        else:
+            # Keep unusual/non-playable results visible rather than creating a
+            # broken seasons URL.
+            url = build_url(
+                action="search",
+                query=query,
+                page=page_number,
+            )
+            batch.append((url, item, False))
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(ordered_items) + (1 if has_more else 0),
+        )
+
+    if has_more:
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="search",
+                query=query,
+                page=page_number + 1,
+            ),
+            next_item,
+            True,
+        )
+
+    if not items:
+        notify("No results found for: %s" % query)
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def open_settings(client):
+    """Open this add-on's Kodi settings dialog."""
+    client.sync_settings()
+    ADDON.openSettings()
+    xbmc.executebuiltin("Container.Refresh")
+
+
+def list_root(client, page=None):
+    """Display the initial screen or the logged-in Silo libraries.
+
+    Authentication works from either place:
+        * The Login button performs a complete fresh login.
+        * Server/username/profile entered in Kodi Settings are used automatically.
+    """
+
+    # If server and username were entered in Kodi Settings, authenticate
+    # automatically. Kodi never stores the password, so ask for it here.
+    if not client.cfg.get("token"):
+        if client.base and client.cfg.get("username"):
+            client.login()
+
+            # Authenticate the account first, then select the configured
+            # profile or show the normal profile selector.
+            if not client.cfg.get("profile_id"):
+                client.select_profile()
+        else:
+            # No saved account details: retain the Login button behaviour.
+            login_item = xbmcgui.ListItem(label="Login")
+            xbmcplugin.addDirectoryItem(
+                HANDLE,
+                build_url(action="login"),
+                login_item,
+                False,
+            )
+
+            # Settings is deliberately available before login so the user can
+            # enter the server/username/profile without using the Login button.
+            settings_item = xbmcgui.ListItem(label="Settings")
+            xbmcplugin.addDirectoryItem(
+                HANDLE,
+                build_url(action="settings"),
+                settings_item,
+                False,
+            )
+
+            xbmcplugin.setContent(HANDLE, "files")
+            xbmcplugin.endOfDirectory(HANDLE)
+            return
+
+    search_item = xbmcgui.ListItem(label="Search")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="search"),
+        search_item,
+        True,
+    )
+
     libraries = client.libraries()
 
+    # The root library list is deliberately not paginated. Pagination only
+    # applies to search results and the contents of individual libraries.
     for library in libraries:
         library_id = library.get("id")
         if not library_id:
@@ -362,6 +1661,15 @@ def list_root(client):
         title = library.get("name") or library.get("title") or "Library"
         item = xbmcgui.ListItem(label=title)
 
+        # Silo provides a library-level poster_url for custom library artwork.
+        # Apply it as Kodi's poster, thumbnail and icon so the artwork is used
+        # consistently by skins that prefer different art keys.
+        set_art(
+            item,
+            client,
+            poster=library.get("poster_url"),
+        )
+
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="library", library_id=library_id),
@@ -369,7 +1677,6 @@ def list_root(client):
             True,
         )
 
-    # Let the user change the active Silo household profile.
     profile_item = xbmcgui.ListItem(label="Switch Profile")
     xbmcplugin.addDirectoryItem(
         HANDLE,
@@ -378,7 +1685,6 @@ def list_root(client):
         False,
     )
 
-    # Clear local authentication/profile state and require a fresh login next time.
     logout_item = xbmcgui.ListItem(label="Logout")
     xbmcplugin.addDirectoryItem(
         HANDLE,
@@ -387,11 +1693,20 @@ def list_root(client):
         False,
     )
 
+    # Keep Settings at the bottom of the root list when logged in as well.
+    settings_item = xbmcgui.ListItem(label="Settings")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="settings"),
+        settings_item,
+        False,
+    )
+
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_library(client, library_id):
+def list_library(client, library_id, cursor=None):
     """Display every item in a Silo library as efficiently as possible.
 
     The catalog supplies the viewer's watched flag. A small in-progress-only
@@ -404,9 +1719,15 @@ def list_library(client, library_id):
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
-    # SiloClient combines every API catalog page internally. There is still no
-    # pagination item exposed in Kodi.
-    items = client.catalog(library_id)
+    # Use the user's configured page size for each Silo catalog request.
+    # Silo supports up to 200 items per page; get_directory_page_size() is
+    # already clamped to that range by the Kodi setting.
+    page_size = get_directory_page_size()
+    items, next_cursor = client.catalog_page(
+        library_id,
+        cursor=cursor,
+        limit=page_size,
+    )
 
     # The normal catalog tells us whether an item is played, but the detailed
     # partial position is not guaranteed to be present on every catalog row.
@@ -425,6 +1746,14 @@ def list_library(client, library_id):
         in_progress_map = {}
 
     xbmcplugin.setContent(HANDLE, "movies")
+
+    # Fetch cast, crew and full stream details before Kodi receives the list.
+    # Requests run concurrently so the entire library still renders once.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        library_id,
+    )
 
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
@@ -448,6 +1777,8 @@ def list_library(client, library_id):
         list_item = xbmcgui.ListItem(label=title)
         tag = list_item.getVideoInfoTag()
         tag.setTitle(title)
+
+        set_catalog_metadata(list_item, catalog_item, client)
 
         if catalog_item.get("year"):
             try:
@@ -474,6 +1805,11 @@ def list_library(client, library_id):
             logo=catalog_item.get("logo_url"),
         )
 
+        # Apply the extended metadata fetched concurrently above.
+        detail = detail_map.get(str(content_id))
+        if detail:
+            set_detail_metadata(list_item, detail, client)
+
         # Start with the fast catalog snapshot. For an in-progress item, use
         # the dedicated server progress record because it contains the detailed
         # position and duration required for Kodi's partial-watch indicator.
@@ -495,6 +1831,7 @@ def list_library(client, library_id):
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
+                duration_seconds=catalog_item.get("duration_seconds") or "",
             )
             batch.append((url, list_item, False))
         else:
@@ -519,21 +1856,42 @@ def list_library(client, library_id):
         xbmcplugin.addDirectoryItems(
             HANDLE,
             batch,
-            totalItems=len(items),
+            totalItems=len(items) + (1 if next_cursor else 0),
         )
+
+    if next_cursor:
+        next_url = build_url(
+            action="library",
+            library_id=library_id,
+            cursor=next_cursor,
+        )
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(HANDLE, next_url, next_item, True)
 
     xbmcplugin.endOfDirectory(HANDLE)
 
-
-def list_seasons(client, series_id, library_id):
+def list_seasons(client, series_id, library_id, page=None):
     """Display all seasons belonging to a series."""
     if not series_id:
         raise SiloError("No series ID was supplied.")
 
     seasons = client.seasons(series_id, library_id)
+    page_items, has_previous, has_next = paginate_directory(
+        seasons,
+        page,
+    )
+
     xbmcplugin.setContent(HANDLE, "seasons")
 
-    for season in seasons:
+    add_previous_page(
+        series_id=series_id,
+        library_id=library_id,
+        action="seasons",
+        page=page,
+    )
+
+    for season in page_items:
         season_number = season.get("season_number", season.get("number"))
         if season_number is None:
             continue
@@ -553,10 +1911,18 @@ def list_seasons(client, series_id, library_id):
             True,
         )
 
+    if has_next:
+        add_next_page(
+            series_id=series_id,
+            library_id=library_id,
+            action="seasons",
+            page=page,
+        )
+
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_episodes(client, series_id, season_number, library_id):
+def list_episodes(client, series_id, season_number, library_id, page=None):
     """Display all episodes for a season and apply their current watched state."""
     if not series_id:
         raise SiloError("No series ID was supplied.")
@@ -564,7 +1930,11 @@ def list_episodes(client, series_id, season_number, library_id):
     if season_number is None:
         raise SiloError("No season number was supplied.")
 
-    episodes = client.episodes(series_id, season_number, library_id)
+    all_episodes = client.episodes(series_id, season_number, library_id)
+    episodes, has_previous, has_next = paginate_directory(
+        all_episodes,
+        page,
+    )
 
     # Fetch only currently in-progress records for accurate episode resume
     # markers. Completed state comes from each catalog item's user_state.played
@@ -582,6 +1952,21 @@ def list_episodes(client, series_id, season_number, library_id):
 
     xbmcplugin.setContent(HANDLE, "episodes")
 
+    add_previous_page(
+        series_id=series_id,
+        season_number=season_number,
+        library_id=library_id,
+        action="season",
+        page=page,
+    )
+
+    # Fetch extended episode metadata concurrently before Kodi receives the list.
+    detail_map = fetch_detail_metadata(
+        client,
+        episodes,
+        library_id,
+    )
+
     # The episode endpoint returns CatalogItem objects as well, including the
     # viewer's watched flag. The in-progress map supplies detailed positions.
     batch = []
@@ -596,6 +1981,8 @@ def list_episodes(client, series_id, season_number, library_id):
         item = xbmcgui.ListItem(label=title)
         tag = item.getVideoInfoTag()
         tag.setTitle(title)
+
+        set_catalog_metadata(item, episode, client)
 
         if episode.get("episode_number") is not None:
             try:
@@ -631,6 +2018,11 @@ def list_episodes(client, series_id, season_number, library_id):
             ),
         )
 
+        # Apply the extended metadata fetched concurrently above.
+        detail = detail_map.get(str(content_id))
+        if detail:
+            set_detail_metadata(item, detail, client)
+
         # Start with the catalog snapshot and prefer the dedicated in-progress
         # server record when Silo has one for this episode.
         display_progress = catalog_progress(episode)
@@ -660,6 +2052,9 @@ def list_episodes(client, series_id, season_number, library_id):
             if file_id:
                 params["file_id"] = file_id
 
+        if episode.get("duration_seconds") is not None:
+            params["duration_seconds"] = episode.get("duration_seconds")
+
         batch.append((
             build_url(**params),
             item,
@@ -681,8 +2076,16 @@ def list_episodes(client, series_id, season_number, library_id):
             totalItems=len(episodes),
         )
 
-    xbmcplugin.endOfDirectory(HANDLE)
+    if has_next:
+        add_next_page(
+            series_id=series_id,
+            season_number=season_number,
+            library_id=library_id,
+            action="season",
+            page=page,
+        )
 
+    xbmcplugin.endOfDirectory(HANDLE)
 
 def choose_file(client, content_id, library_id):
     """Return the file/version selected by the user."""
@@ -714,7 +2117,7 @@ def choose_file(client, content_id, library_id):
     return version.get("id") or version.get("file_id")
 
 
-def apply_fresh_resume_to_resolved_item(list_item, progress):
+def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0.0):
     """Put the freshly retrieved Silo resume state onto the resolved item.
 
     Kodi itself owns the resume dialog. We deliberately do not show our own
@@ -727,15 +2130,33 @@ def apply_fresh_resume_to_resolved_item(list_item, progress):
     """
     tag = list_item.getVideoInfoTag()
 
+    try:
+        fallback_duration = max(0.0, float(fallback_duration or 0))
+    except (TypeError, ValueError):
+        fallback_duration = 0.0
+
     if not progress:
-        # There is no Silo resume state. Make the resolved item explicitly
-        # start with no resume point.
+        # An unwatched item may have no progress record, but the catalog still
+        # supplies its runtime. Pass that runtime to Kodi independently.
+        if fallback_duration > 0:
+            duration_int = int(round(fallback_duration))
+            tag.setDuration(duration_int)
+
         tag.setPlaycount(0)
         tag.setResumePoint(0.0, 0.0)
         return
 
     completed = bool(progress.get("completed", False))
     position, duration = get_progress_position(progress)
+
+    # Prefer the fresh progress duration when available; otherwise use the
+    # catalog duration carried through the plugin URL.
+    if duration <= 0:
+        duration = fallback_duration
+
+    if duration > 0:
+        duration_int = int(round(duration))
+        tag.setDuration(duration_int)
 
     if completed:
         # A completed item must not be offered as resumable.
@@ -754,35 +2175,42 @@ def apply_fresh_resume_to_resolved_item(list_item, progress):
         tag.setResumePoint(0.0, 0.0)
 
 
-def play(client, content_id, file_id, library_id):
-    """Play media using one fresh Silo resume check and Kodi's native prompt.
+def play(client, content_id, file_id, library_id, duration_seconds=None, resume=False):
+    """Play media using Kodi's native Resume/Start-over choice.
 
-    Playback order:
-        1. Resolve the file/version.
-        2. Query Silo progress again immediately before playback.
-        3. Ask Silo for the normal stream/session at position zero.
-        4. Put the fresh Silo resume point on the resolved Kodi ListItem.
-        5. Use setResolvedUrl(), letting Kodi show its normal single Resume/Play
-           prompt and perform the seek itself.
-        6. Report Kodi's actual playback position back to Silo.
-
-    There is intentionally NO custom resume dialog here.
+    Kodi passes resume:true when the user chose Resume and resume:false when
+    the user chose Start from beginning. A fresh Silo progress lookup is made
+    immediately before playback. Silo always starts the transport at zero;
+    when Resume was chosen, the fresh Silo position is placed on the resolved
+    item so Kodi performs the seek to the server-authoritative position.
     """
     if not content_id:
         raise SiloError("No content ID was supplied for playback.")
 
-    # Resolve the exact file/version to play.
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
 
     if not file_id:
         return
 
-    # --------------------------------------------------------------
-    # FRESH SERVER PROGRESS CHECK
-    # --------------------------------------------------------------
-    # This is deliberately performed after the user selects Play, rather than
-    # trusting the progress snapshot that was used to build the directory.
+    try:
+        detail = client.item_detail(
+            content_id,
+            library_id,
+            file_id,
+        )
+    except SiloError as exc:
+        detail = None
+        log(
+            "Unable to retrieve extended metadata for %s: %s" % (
+                content_id,
+                exc,
+            ),
+            xbmc.LOGWARNING,
+        )
+
+    # Always check Silo immediately before starting the stream so Kodi never
+    # has to rely on a stale local resume position for the actual seek.
     latest_progress = None
 
     try:
@@ -791,8 +2219,6 @@ def play(client, content_id, file_id, library_id):
             library_id,
         )
     except SiloError as exc:
-        # Playback should still work if Silo's progress endpoint is temporarily
-        # unavailable. In that case Kodi receives no resume point.
         log(
             "Fresh progress lookup failed; continuing without Silo resume: %s" % exc,
             xbmc.LOGWARNING,
@@ -815,12 +2241,9 @@ def play(client, content_id, file_id, library_id):
             % content_id
         )
 
-    # --------------------------------------------------------------
-    # START THE SILO PLAYBACK SESSION
-    # --------------------------------------------------------------
-    # Silo provides the stream URL/session here, but Kodi is responsible for
-    # performing the actual resume seek after its native Resume/Play choice.
-    # Therefore start_position MUST remain zero to avoid a double seek.
+    # Silo starts the transport at zero in both modes. This is important:
+    # Resume is implemented by Kodi seeking the resolved item to the fresh
+    # Silo position, while Start from beginning receives no resume point.
     info = client.start_playback(
         file_id,
         start_position=0.0,
@@ -829,36 +2252,66 @@ def play(client, content_id, file_id, library_id):
     if not info.get("url"):
         raise SiloError("Silo did not provide a playback URL.")
 
-    # --------------------------------------------------------------
-    # RESOLVED KODI LIST ITEM
-    # --------------------------------------------------------------
-    # setResolvedUrl() is important here. Kodi can use the original directory
-    # item's metadata/artwork while replacing its path with this resolved URL.
-    # This also lets Kodi's normal native resume mechanism handle the ONE resume
-    # prompt instead of us running a second dialog ourselves.
     resolved_item = xbmcgui.ListItem(path=info["url"])
 
-    # Apply the freshly retrieved Silo resume point to the resolved item.
-    # Do not set StartOffset: Kodi should decide whether to resume or start over.
-    apply_fresh_resume_to_resolved_item(
-        resolved_item,
-        latest_progress,
-    )
+    if detail:
+        try:
+            set_catalog_metadata(resolved_item, detail, client)
+            set_detail_metadata(
+                resolved_item,
+                detail,
+                client,
+                file_id=file_id,
+            )
+        except Exception as exc:
+            log(
+                "Unable to apply extended playback metadata for %s: %s" % (
+                    content_id,
+                    exc,
+                ),
+                xbmc.LOGWARNING,
+            )
 
-    # Keep the resolved item playable.
+    if resume and latest_progress:
+        # Replace Kodi's potentially stale local resume position with the
+        # position we just fetched from Silo.
+        apply_fresh_resume_to_resolved_item(
+            resolved_item,
+            latest_progress,
+            fallback_duration=duration_seconds,
+        )
+        log(
+            "Kodi requested Resume; applied fresh Silo resume position "
+            "to the resolved item for content %s" % content_id
+        )
+    else:
+        # Start from beginning must not carry a Kodi/Silo resume point.
+        try:
+            tag = resolved_item.getVideoInfoTag()
+            tag.setPlaycount(0)
+            tag.setResumePoint(0.0, 0.0)
+        except Exception:
+            pass
+
+        if resume:
+            log(
+                "Kodi requested Resume but Silo returned no progress; "
+                "starting from the beginning for content %s" % content_id
+            )
+        else:
+            log(
+                "Kodi requested Start from beginning; no resume point applied "
+                "for content %s" % content_id
+            )
+
     resolved_item.setProperty("IsPlayable", "true")
 
-    # Tell Kodi that the plugin URL has been resolved to the actual Silo stream.
-    # Kodi now handles the normal single Resume/Play prompt itself.
     xbmcplugin.setResolvedUrl(
         HANDLE,
         True,
         resolved_item,
     )
 
-    # --------------------------------------------------------------
-    # KODI -> SILO LIVE PROGRESS REPORTING
-    # --------------------------------------------------------------
     session_id = info.get("session_id")
 
     if session_id:
@@ -944,19 +2397,55 @@ def track_progress(client, session_id):
         pass
 
     # The final DELETE gets its own sequence number.
+    #
+    # Do not make Kodi wait for Silo's network response here. If the server is
+    # slow or temporarily unreachable, a synchronous cleanup request can keep
+    # this plugin invocation alive and make returning to the directory appear
+    # to freeze. The playback session can be cleaned up independently.
     sequence += 1
 
-    try:
-        client.stop_playback(
-            session_id,
-            sequence,
-            last_position,
-        )
-    except SiloError as exc:
-        log(
-            "Unable to stop Silo playback session: %s" % exc,
-            xbmc.LOGWARNING,
-        )
+    def finish_session():
+        try:
+            client.stop_playback(
+                session_id,
+                sequence,
+                last_position,
+            )
+        except SiloError as exc:
+            log(
+                "Unable to stop Silo playback session: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+        except Exception as exc:
+            log(
+                "Unexpected error stopping Silo playback session: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+
+    cleanup_thread = threading.Thread(
+        target=finish_session,
+        name="SiloPlaybackCleanup",
+    )
+    cleanup_thread.daemon = True
+    cleanup_thread.start()
+
+
+def kodi_requested_resume():
+    """Return Kodi's native resume choice for the current plugin request.
+
+    Kodi passes this to plugin scripts as the fourth argument:
+        resume:true  -> the user chose Resume
+        resume:false -> the user chose Start from beginning
+    """
+    if len(sys.argv) < 4:
+        return False
+
+    value = str(sys.argv[3] or "").strip().lower()
+
+    if value.startswith("resume:"):
+        value = value.split(":", 1)[1]
+
+    return value == "true"
 
 
 def router(client):
@@ -976,7 +2465,30 @@ def router(client):
     action = params.get("action")
 
     if not action:
-        list_root(client)
+        list_root(client, params.get("page"))
+        return
+
+    if action == "root":
+        list_root(
+            client,
+            params.get("page"),
+        )
+        return
+
+    if action == "search":
+        query = params.get("query", "")
+        if query:
+            list_search_results(
+                client,
+                query,
+                params.get("page"),
+            )
+        else:
+            search_silo(client)
+        return
+
+    if action == "settings":
+        open_settings(client)
         return
 
     if action == "login":
@@ -991,6 +2503,7 @@ def router(client):
         list_library(
             client,
             params.get("library_id"),
+            params.get("cursor"),
         )
         return
 
@@ -999,6 +2512,7 @@ def router(client):
             client,
             params.get("series_id"),
             params.get("library_id"),
+            params.get("page"),
         )
         return
 
@@ -1008,6 +2522,7 @@ def router(client):
             params.get("series_id"),
             params.get("season_number"),
             params.get("library_id"),
+            params.get("page"),
         )
         return
 
@@ -1017,6 +2532,8 @@ def router(client):
             params.get("content_id"),
             params.get("file_id"),
             params.get("library_id"),
+            params.get("duration_seconds"),
+            resume=kodi_requested_resume(),
         )
         return
 

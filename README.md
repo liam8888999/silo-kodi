@@ -327,6 +327,12 @@ When reporting a playback problem, include the relevant Kodi log output where po
 
 ---
 
+## The addon is taking a long time to load my libraries
+
+Sometimes if connection to your library is a bit slow it can take kodi longer to load the libraries into the addon, one way to help improve this is to set pagination to a smaller number in the addon settings
+
+---
+
 # 🧑‍💻 Development
 
 The Silo Kodi add-on is contained in:
