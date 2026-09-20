@@ -288,7 +288,10 @@ class SiloClient:
         else:
             self.cfg.pop("profile_name", None)
 
-        save_config(self.cfg)
+        # Server, username and profile are already persisted by Kodi's
+        # settings store. Do not call save_config() here: doing so could clear
+        # an internal token if Kodi has not yet exposed that setting value to
+        # this Addon instance.
 
 
 
@@ -481,7 +484,12 @@ class SiloClient:
     def _store_tokens(self, data):
         self.cfg["token"] = data["access_token"]
         self.cfg["refresh_token"] = data["refresh_token"]
-        save_config(self.cfg)
+
+        # Persist authentication immediately in Kodi's own settings store.
+        _set_setting("token", self.cfg["token"])
+        _set_setting("refresh_token", self.cfg["refresh_token"])
+
+        log("Silo authentication tokens saved to Kodi settings")
 
     # Authenticate directly with /auth/login.
     #
@@ -681,7 +689,11 @@ class SiloClient:
 
         self.cfg["profile_id"] = str(chosen["id"])
         self.cfg.pop("profile_token", None)
-        save_config(self.cfg)
+
+        # Persist profile selection directly so a new plugin invocation can
+        # immediately reuse the selected profile.
+        _set_setting("profile_id", self.cfg["profile_id"])
+        _set_setting("profile_token", "")
 
         if chosen.get("has_pin"):
             self.verify_profile(chosen["id"])
@@ -708,7 +720,7 @@ class SiloClient:
             raise SiloError("Wrong PIN")
 
         self.cfg["profile_token"] = data.get("profile_token", "")
-        save_config(self.cfg)
+        _set_setting("profile_token", self.cfg["profile_token"])
 
     # ------------------------------------------------------------ browsing
 
