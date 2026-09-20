@@ -2391,13 +2391,16 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
 
 
 def track_progress(client, session_id, playback_info=None):
-    """Monitor Kodi playback, report progress, and adapt after sustained stalls.
+    """Monitor Kodi playback, report progress, and adapt quality one rung at a time.
 
-    Kodi's public Python API does not expose the player's internal throughput
-    estimator. We therefore use a conservative stall-derived estimate rather
-    than pretending to know the link speed. A sustained lack of playback
-    progress is the trigger; Silo then owns the quality decision through an
-    auto replan.
+    Silo publishes the authoritative quality ladder in playback_plan.available_qualities.
+    Kodi does not invent its own bitrate ladder. On sustained buffering we move one
+    published rung downward; after sustained healthy playback we move one rung upward.
+    The direction can reverse at any point and there is no artificial total adaptation
+    limit. The server's ladder boundaries are the only limits.
+
+    "original" is Silo's source-preserving ceiling. It is kept as the highest entry
+    and is used again when the source can be restored.
     """
     player = xbmc.Player()
     monitor = xbmc.Monitor()
@@ -2422,21 +2425,163 @@ def track_progress(client, session_id, playback_info=None):
         )
         return
 
+    def quality_ladder(plan):
+        """Return Silo's published quality ladder in server order."""
+        entries = []
+        seen = set()
+
+        for quality in (plan or {}).get("available_qualities") or []:
+            if not isinstance(quality, dict):
+                continue
+
+            label = str(quality.get("label") or "").strip()
+            if not label or label in seen:
+                continue
+
+            seen.add(label)
+
+            try:
+                height = int(quality.get("height") or 0)
+            except (TypeError, ValueError):
+                height = 0
+
+            try:
+                bitrate = int(quality.get("bitrate_kbps") or 0)
+            except (TypeError, ValueError):
+                bitrate = 0
+
+            entries.append({
+                "label": label,
+                "height": height,
+                "bitrate_kbps": bitrate,
+            })
+
+        # Silo's v3 contract publishes original first. Preserve that order
+        # instead of inventing a local ordering of the server's rungs.
+        return entries
+
+    def detect_quality_label(info):
+        """Identify the current rung from the last adopted plan."""
+        plan = (info or {}).get("playback_plan") or {}
+        ladder = quality_ladder(plan)
+
+        preferred = str((info or {}).get("adaptive_quality") or "").strip()
+        labels = [entry["label"] for entry in ladder]
+
+        if preferred and preferred in labels:
+            return preferred
+
+        recipe = plan.get("effective_recipe") or {}
+
+        try:
+            current_height = int(recipe.get("height") or 0)
+        except (TypeError, ValueError):
+            current_height = 0
+
+        try:
+            current_bitrate = int(recipe.get("bitrate_kbps") or 0)
+        except (TypeError, ValueError):
+            current_bitrate = 0
+
+        # Prefer an exact height/bitrate match. This also lets an initial plan
+        # that was capped by Silo identify its actual rung instead of assuming
+        # that "original" was necessarily the active recipe.
+        if current_height > 0 or current_bitrate > 0:
+            for entry in ladder:
+                if (
+                    entry["height"] == current_height
+                    and entry["bitrate_kbps"] == current_bitrate
+                ):
+                    return entry["label"]
+
+        if labels:
+            return labels[0]
+
+        return ""
+
+    def next_quality_label(plan, current_label, direction):
+        """Return the adjacent published rung.
+
+        direction=-1 moves upward toward the source/original ceiling.
+        direction=1 moves downward toward lower quality.
+        """
+        ladder = quality_ladder(plan)
+
+        if len(ladder) < 2:
+            return None
+
+        labels = [entry["label"] for entry in ladder]
+
+        if current_label in labels:
+            index = labels.index(current_label)
+        else:
+            # The plan normally starts at original, so unknown state safely
+            # falls back to the highest published rung.
+            index = 0
+
+        target_index = index + direction
+
+        if target_index < 0 or target_index >= len(labels):
+            return None
+
+        return labels[target_index]
+
+    def switch_stream(new_info, position, target_label):
+        """Adopt an Silo replan and restore the current playback position."""
+        new_url = new_info.get("url")
+        if not new_url:
+            return False
+
+        log(
+            "Adapting playback to quality=%s at position=%.3f"
+            % (target_label, position)
+        )
+
+        player.play(new_url)
+
+        # Wait briefly for Kodi to attach the new stream before restoring the
+        # old position. Do not require a total duration because some streams
+        # populate it later.
+        for _ in range(40):
+            if monitor.abortRequested() or not player.isPlaying():
+                break
+
+            xbmc.sleep(250)
+
+        try:
+            player.seekTime(max(0.0, float(position or 0.0)))
+        except Exception as exc:
+            log(
+                "Unable to restore position after adaptive replan: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+
+        playback_info.clear()
+        playback_info.update(new_info)
+        playback_info["session_id"] = session_id
+        playback_info["adaptive_quality"] = target_label
+
+        return True
+
+    # Determine the initial active quality from the server plan.
+    playback_info["adaptive_quality"] = detect_quality_label(playback_info)
+
     sequence = 0
     last_position = 0.0
     last_progress_position = None
     last_progress_change_at = time.time()
     stall_started_at = None
     caching_started_at = None
-    last_replan_at = 0.0
-    replan_cooldown = 45.0
-    recovery_cooldown = 180.0
+
+    # Downward changes happen relatively quickly once sustained buffering is
+    # detected. Upward changes require substantially longer healthy playback.
+    last_down_replan_at = 0.0
+    last_up_replan_at = 0.0
+    down_cooldown = 45.0
+    up_cooldown = 180.0
     stall_threshold = 8.0
     healthy_recovery_threshold = 180.0
-    max_adaptations = 6
-    max_recovery_attempts = 3
-    adaptations = 0
-    recovery_attempts = 0
+
     healthy_since = time.time()
 
     while player.isPlaying():
@@ -2454,9 +2599,9 @@ def track_progress(client, session_id, playback_info=None):
         paused = xbmc.getCondVisibility("Player.Paused")
 
         if not paused:
-            # Kodi exposes Player.Caching while an internet stream is actively
-            # re-caching. Use it alongside player-position movement so we catch
-            # genuine buffering even when getTime() continues to advance briefly.
+            # Player.Caching catches Kodi's internal rebuffering state while
+            # position movement catches stalls where Kodi does not expose the
+            # caching flag for the whole duration.
             caching = xbmc.getCondVisibility("Player.Caching")
 
             if caching:
@@ -2482,9 +2627,13 @@ def track_progress(client, session_id, playback_info=None):
                         if caching_stalled and caching_started_at is not None
                         else last_progress_change_at
                     )
+
                 stalled_for = now - stall_started_at
             else:
-                if last_progress_position is None or position > last_progress_position + 0.25:
+                if (
+                    last_progress_position is None
+                    or position > last_progress_position + 0.25
+                ):
                     last_progress_position = position
                     last_progress_change_at = now
 
@@ -2497,198 +2646,240 @@ def track_progress(client, session_id, playback_info=None):
 
                 stalled_for = 0.0
 
-            if stall_started_at is not None:
-                if (
-                    stalled_for >= stall_threshold
-                    and now - last_replan_at >= replan_cooldown
-                    and adaptations < max_adaptations
-                ):
-                    try:
-                        plan = playback_info.get("playback_plan") or {}
-                        recipe = plan.get("effective_recipe") or {}
-                        current_bitrate = int(recipe.get("bitrate_kbps") or 0)
+            # -------------------------------------------------- downshift
+            if (
+                stall_started_at is not None
+                and stalled_for >= stall_threshold
+                and now - last_down_replan_at >= down_cooldown
+            ):
+                try:
+                    plan = playback_info.get("playback_plan") or {}
+                    current_label = detect_quality_label(playback_info)
+                    target_label = next_quality_label(
+                        plan,
+                        current_label,
+                        1,
+                    )
 
-                        # This is a conservative estimate derived from observed
-                        # failure, not a claimed link-speed probe.
+                    if target_label is None:
+                        # We are already at the lowest published rung. Do not
+                        # repeatedly ask Silo for another recovery plan.
+                        last_down_replan_at = now
+                    else:
+                        recipe = plan.get("effective_recipe") or {}
+
+                        try:
+                            current_bitrate = int(
+                                recipe.get("bitrate_kbps") or 0
+                            )
+                        except (TypeError, ValueError):
+                            current_bitrate = 0
+
                         estimated_bandwidth = max(
                             100,
-                            int(current_bitrate * 0.60) if current_bitrate > 0 else 1500,
+                            int(current_bitrate * 0.60)
+                            if current_bitrate > 0
+                            else 1500,
                         )
 
+                        # quality_change names the exact next published rung.
+                        # This starts a fresh intent replan chain rather than
+                        # permanently exhausting the playback recovery chain.
                         new_info = client.replan_playback(
                             playback_info,
                             position,
                             estimated_bandwidth,
-                            quality_preference="auto",
-                            operation="failure_recovery",
-                            failure={
-                                "classification": "network_buffering",
-                                "message": "Kodi reported sustained stream buffering.",
-                            },
+                            quality_preference=target_label,
+                            operation="quality_change",
                         )
 
                         new_plan = new_info.get("playback_plan") or {}
-                        old_delivery = plan.get("delivery")
-                        old_quality = (recipe.get("height"), recipe.get("bitrate_kbps"))
-                        new_recipe = new_plan.get("effective_recipe") or {}
-                        new_quality = (new_recipe.get("height"), new_recipe.get("bitrate_kbps"))
+                        new_label = (
+                            str(
+                                (new_info or {}).get("adaptive_quality") or ""
+                            ).strip()
+                            or target_label
+                        )
 
                         if (
                             new_info.get("url")
-                            and (
-                                new_plan.get("delivery") != old_delivery
-                                or new_quality != old_quality
+                            and new_label == target_label
+                            and switch_stream(
+                                new_info,
+                                position,
+                                target_label,
                             )
                         ):
+                            last_down_replan_at = time.time()
+                            last_up_replan_at = 0.0
+                            last_progress_position = position
+                            last_progress_change_at = last_down_replan_at
+                            healthy_since = last_down_replan_at
+                            stall_started_at = None
+
                             log(
-                                "Adapting playback after %.1fs stall: %s/%s -> %s/%s"
-                                % (stalled_for, old_delivery, old_quality, new_plan.get("delivery"), new_quality),
+                                "Adaptive downshift complete: %s -> %s"
+                                % (current_label, target_label)
+                            )
+                        else:
+                            last_down_replan_at = now
+                            log(
+                                "Silo returned no exact adaptive downshift for "
+                                "%s -> %s (delivery=%s)"
+                                % (
+                                    current_label,
+                                    target_label,
+                                    new_plan.get("delivery"),
+                                ),
+                                xbmc.LOGWARNING,
                             )
 
-                            player.play(new_info["url"])
-
-                            for _ in range(40):
-                                if monitor.abortRequested() or not player.isPlaying():
-                                    break
-                                xbmc.sleep(250)
-                                try:
-                                    if player.getTotalTime() > 0:
-                                        break
-                                except Exception:
-                                    pass
-
-                            try:
-                                player.seekTime(position)
-                            except Exception as exc:
-                                log(
-                                    "Unable to restore position after adaptive replan: %s" % exc,
-                                    xbmc.LOGWARNING,
-                                )
-
-                            playback_info.clear()
-                            playback_info.update(new_info)
-                            playback_info["session_id"] = session_id
-                            adaptations += 1
-                            last_replan_at = time.time()
-                            last_progress_position = position
-                            last_progress_change_at = last_replan_at
-                            stall_started_at = None
-                        else:
-                            last_replan_at = now
-
-                    except SiloError as exc:
-                        last_replan_at = now
-                        log("Adaptive playback replan failed: %s" % exc, xbmc.LOGWARNING)
-                    except Exception as exc:
-                        last_replan_at = now
-                        log("Unexpected adaptive playback error: %s" % exc, xbmc.LOGWARNING)
-
-        # After sustained healthy playback, ask Silo to reassess using auto.
-        # Recovery is deliberately much slower than downward adaptation.
-        if (
-            not paused
-            and stall_started_at is None
-            and healthy_since > 0
-            and now - healthy_since >= healthy_recovery_threshold
-            and now - last_replan_at >= recovery_cooldown
-            and recovery_attempts < max_recovery_attempts
-            and adaptations < max_adaptations
-        ):
-            try:
-                plan = playback_info.get("playback_plan") or {}
-                recipe = plan.get("effective_recipe") or {}
-                current_bitrate = int(recipe.get("bitrate_kbps") or 0)
-                estimated_bandwidth = max(
-                    1500,
-                    int(current_bitrate * 1.35) if current_bitrate > 0 else 8000,
-                )
-
-                new_info = client.replan_playback(
-                    playback_info,
-                    position,
-                    estimated_bandwidth,
-                    quality_preference="auto",
-                    operation="quality_change",
-                )
-
-                new_plan = new_info.get("playback_plan") or {}
-                new_recipe = new_plan.get("effective_recipe") or {}
-                old_quality = (
-                    int(recipe.get("height") or 0),
-                    int(recipe.get("bitrate_kbps") or 0),
-                )
-                new_quality = (
-                    int(new_recipe.get("height") or 0),
-                    int(new_recipe.get("bitrate_kbps") or 0),
-                )
-
-                # Never adopt a plan that is equal to or below the current one.
-                if (
-                    new_info.get("url")
-                    and (
-                        new_quality[0] > old_quality[0]
-                        or (new_quality[0] == old_quality[0] and new_quality[1] > old_quality[1])
-                    )
-                ):
+                except SiloError as exc:
+                    last_down_replan_at = now
                     log(
-                        "Recovering playback quality after %.1fs healthy playback: %s -> %s"
-                        % (now - healthy_since, old_quality, new_quality),
+                        "Adaptive downshift failed: %s" % exc,
+                        xbmc.LOGWARNING,
                     )
-                    player.play(new_info["url"])
-                    for _ in range(40):
-                        if monitor.abortRequested() or not player.isPlaying():
-                            break
-                        xbmc.sleep(250)
-                        try:
-                            if player.getTotalTime() > 0:
-                                break
-                        except Exception:
-                            pass
-                    try:
-                        player.seekTime(position)
-                    except Exception as exc:
-                        log("Unable to restore position after quality recovery: %s" % exc, xbmc.LOGWARNING)
+                except Exception as exc:
+                    last_down_replan_at = now
+                    log(
+                        "Unexpected adaptive downshift error: %s" % exc,
+                        xbmc.LOGWARNING,
+                    )
 
-                    playback_info.clear()
-                    playback_info.update(new_info)
-                    playback_info["session_id"] = session_id
-                    adaptations += 1
-                    recovery_attempts += 1
-                    last_replan_at = time.time()
-                    healthy_since = last_replan_at
-                    last_progress_position = position
-                    last_progress_change_at = last_replan_at
-                else:
-                    last_replan_at = now
-                    recovery_attempts += 1
+            # ---------------------------------------------------- upshift
+            if (
+                stall_started_at is None
+                and healthy_since > 0
+                and now - healthy_since >= healthy_recovery_threshold
+                and now - last_up_replan_at >= up_cooldown
+            ):
+                try:
+                    plan = playback_info.get("playback_plan") or {}
+                    current_label = detect_quality_label(playback_info)
+                    target_label = next_quality_label(
+                        plan,
+                        current_label,
+                        -1,
+                    )
+
+                    if target_label is None:
+                        # Already at the source/original ceiling. There is
+                        # nothing higher to request until a future downshift.
+                        last_up_replan_at = now
+                        healthy_since = now
+                    else:
+                        recipe = plan.get("effective_recipe") or {}
+
+                        try:
+                            current_bitrate = int(
+                                recipe.get("bitrate_kbps") or 0
+                            )
+                        except (TypeError, ValueError):
+                            current_bitrate = 0
+
+                        estimated_bandwidth = max(
+                            1500,
+                            int(current_bitrate * 1.35)
+                            if current_bitrate > 0
+                            else 8000,
+                        )
+
+                        # The important difference from the old implementation:
+                        # never send "auto" for an adaptive quality recovery.
+                        # Silo expects the label of the exact ladder rung wanted.
+                        new_info = client.replan_playback(
+                            playback_info,
+                            position,
+                            estimated_bandwidth,
+                            quality_preference=target_label,
+                            operation="quality_change",
+                        )
+
+                        new_plan = new_info.get("playback_plan") or {}
+                        returned_label = detect_quality_label(new_info)
+
+                        if (
+                            new_info.get("url")
+                            and returned_label == target_label
+                            and switch_stream(
+                                new_info,
+                                position,
+                                target_label,
+                            )
+                        ):
+                            now = time.time()
+                            last_up_replan_at = now
+                            last_down_replan_at = 0.0
+                            last_progress_position = position
+                            last_progress_change_at = now
+                            healthy_since = now
+
+                            log(
+                                "Adaptive upshift complete: %s -> %s"
+                                % (current_label, target_label)
+                            )
+                        else:
+                            last_up_replan_at = now
+                            healthy_since = now
+
+                            log(
+                                "Silo did not return the requested adaptive "
+                                "upshift %s -> %s (returned=%s delivery=%s)"
+                                % (
+                                    current_label,
+                                    target_label,
+                                    returned_label,
+                                    new_plan.get("delivery"),
+                                ),
+                                xbmc.LOGWARNING,
+                            )
+
+                except SiloError as exc:
+                    last_up_replan_at = now
                     healthy_since = now
-            except SiloError as exc:
-                last_replan_at = now
-                recovery_attempts += 1
-                healthy_since = now
-                log("Adaptive quality recovery failed: %s" % exc, xbmc.LOGWARNING)
-            except Exception as exc:
-                last_replan_at = now
-                recovery_attempts += 1
-                healthy_since = now
-                log("Unexpected adaptive quality recovery error: %s" % exc, xbmc.LOGWARNING)
+                    log(
+                        "Adaptive quality recovery failed for requested rung: %s"
+                        % exc,
+                        xbmc.LOGWARNING,
+                    )
+                except Exception as exc:
+                    last_up_replan_at = now
+                    healthy_since = now
+                    log(
+                        "Unexpected adaptive quality recovery error: %s"
+                        % exc,
+                        xbmc.LOGWARNING,
+                    )
 
         last_position = max(last_position, position)
         sequence += 1
 
         try:
-            client.report_progress(session_id, sequence, last_position, paused)
+            client.report_progress(
+                session_id,
+                sequence,
+                last_position,
+                paused,
+            )
         except SiloError as exc:
-            log("Unable to report playback progress: %s" % exc, xbmc.LOGWARNING)
+            log(
+                "Unable to report playback progress: %s" % exc,
+                xbmc.LOGWARNING,
+            )
 
         for _ in range(50):
             if not player.isPlaying() or monitor.abortRequested():
                 break
+
             xbmc.sleep(100)
 
     try:
         if player.isPlaying():
-            last_position = max(0.0, float(player.getTime()))
+            last_position = max(
+                0.0,
+                float(player.getTime()),
+            )
     except Exception:
         pass
 
@@ -2696,11 +2887,21 @@ def track_progress(client, session_id, playback_info=None):
 
     def finish_session():
         try:
-            client.stop_playback(session_id, sequence, last_position)
+            client.stop_playback(
+                session_id,
+                sequence,
+                last_position,
+            )
         except SiloError as exc:
-            log("Unable to stop Silo playback session: %s" % exc, xbmc.LOGWARNING)
+            log(
+                "Unable to stop Silo playback session: %s" % exc,
+                xbmc.LOGWARNING,
+            )
         except Exception as exc:
-            log("Unexpected error stopping Silo playback session: %s" % exc, xbmc.LOGWARNING)
+            log(
+                "Unexpected error stopping Silo playback session: %s" % exc,
+                xbmc.LOGWARNING,
+            )
 
     cleanup_thread = threading.Thread(
         target=finish_session,
