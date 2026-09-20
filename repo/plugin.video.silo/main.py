@@ -2570,18 +2570,30 @@ def track_progress(client, session_id, playback_info=None):
 
         player.play(new_url, list_item)
 
-        # Kodi can briefly report the old player state while it tears down the
-        # previous HLS pipeline. Wait for the replacement stream to attach;
-        # there is no second seek because StartOffset already supplied the
-        # desired position to the new player instance.
+        # Kodi can report isPlaying() while the previous HLS input is still
+        # being torn down. Wait until Kodi reports the replacement URL as the
+        # actual current playing file, otherwise the adaptive monitor can begin
+        # measuring the old stream and immediately issue another replan.
         attached = False
-        for _ in range(80):
+        expected_url = str(new_url).split("?", 1)[0]
+        for _ in range(120):
             if monitor.abortRequested():
                 break
 
             if player.isPlaying():
-                attached = True
-                break
+                try:
+                    playing_url = str(player.getPlayingFile() or "")
+                except Exception:
+                    playing_url = ""
+
+                playing_base = playing_url.split("?", 1)[0]
+
+                if (
+                    playing_url == str(new_url)
+                    or playing_base == expected_url
+                ):
+                    attached = True
+                    break
 
             xbmc.sleep(250)
 
@@ -2607,8 +2619,10 @@ def track_progress(client, session_id, playback_info=None):
     last_position = 0.0
     last_progress_position = None
     last_progress_change_at = time.time()
+    progress_confirmed = True
     stall_started_at = None
     caching_started_at = None
+    post_switch_grace_until = 0.0
 
     # Downward changes happen relatively quickly once sustained buffering is
     # detected. Upward changes require a sustained healthy period before trying
@@ -2669,52 +2683,74 @@ def track_progress(client, session_id, playback_info=None):
         paused = xbmc.getCondVisibility("Player.Paused")
 
         if not paused:
-            # Player.Caching catches Kodi's internal rebuffering state while
-            # position movement catches stalls where Kodi does not expose the
-            # caching flag for the whole duration.
-            caching = xbmc.getCondVisibility("Player.Caching")
+            # Give Kodi a short handoff window after changing streams. During
+            # this period the old player state may still be visible even though
+            # the replacement URL has already been requested.
+            in_post_switch_grace = now < post_switch_grace_until
 
-            if caching:
-                if caching_started_at is None:
-                    caching_started_at = now
-            else:
+            if in_post_switch_grace:
                 caching_started_at = None
-
-            position_stalled = (
-                last_progress_position is not None
-                and now - last_progress_change_at >= stall_threshold
-            )
-            caching_stalled = (
-                caching_started_at is not None
-                and now - caching_started_at >= stall_threshold
-            )
-
-            if position_stalled or caching_stalled:
-                if stall_started_at is None:
-                    healthy_since = 0.0
-                    stall_started_at = (
-                        caching_started_at
-                        if caching_stalled and caching_started_at is not None
-                        else last_progress_change_at
-                    )
-
-                stalled_for = now - stall_started_at
-            else:
-                if (
-                    last_progress_position is None
-                    or position > last_progress_position + 0.25
-                ):
-                    last_progress_position = position
-                    last_progress_change_at = now
-
-                if stall_started_at is not None:
-                    healthy_since = now
-                    stall_started_at = None
-
-                if healthy_since <= 0:
-                    healthy_since = now
-
+                stall_started_at = None
                 stalled_for = 0.0
+            else:
+                # Player.Caching catches Kodi's internal rebuffering state while
+                # position movement catches stalls where Kodi does not expose
+                # the caching flag for the whole duration.
+                caching = xbmc.getCondVisibility("Player.Caching")
+
+                if caching:
+                    if caching_started_at is None:
+                        caching_started_at = now
+                else:
+                    caching_started_at = None
+
+                position_stalled = (
+                    last_progress_position is not None
+                    and now - last_progress_change_at >= stall_threshold
+                )
+                caching_stalled = (
+                    caching_started_at is not None
+                    and now - caching_started_at >= stall_threshold
+                )
+
+                if position_stalled or caching_stalled:
+                    if stall_started_at is None:
+                        healthy_since = 0.0
+                        stall_started_at = (
+                            caching_started_at
+                            if caching_stalled and caching_started_at is not None
+                            else last_progress_change_at
+                        )
+
+                    stalled_for = now - stall_started_at
+                else:
+                    if last_progress_position is None:
+                        last_progress_position = position
+                        last_progress_change_at = now
+                    elif position > last_progress_position + 0.25:
+                        last_progress_position = position
+                        last_progress_change_at = now
+
+                        # Do not start the healthy recovery clock until the
+                        # replacement stream has actually advanced.
+                        if not progress_confirmed:
+                            progress_confirmed = True
+                            healthy_since = now
+                            log(
+                                "Adaptive replacement stream confirmed progressing "
+                                "at position=%.3f" % position,
+                                xbmc.LOGDEBUG,
+                            )
+
+                    if stall_started_at is not None:
+                        if progress_confirmed:
+                            healthy_since = now
+                        stall_started_at = None
+
+                    if healthy_since <= 0 and progress_confirmed:
+                        healthy_since = now
+
+                    stalled_for = 0.0
 
             # -------------------------------------------------- downshift
             if (
@@ -2786,9 +2822,13 @@ def track_progress(client, session_id, playback_info=None):
                         ):
                             last_down_replan_at = time.time()
                             last_up_replan_at = 0.0
-                            last_progress_position = position
+                            last_progress_position = None
                             last_progress_change_at = last_down_replan_at
-                            healthy_since = last_down_replan_at
+                            progress_confirmed = False
+                            healthy_since = 0.0
+                            post_switch_grace_until = (
+                                last_down_replan_at + 15.0
+                            )
                             stall_started_at = None
 
                             log(
@@ -2900,9 +2940,11 @@ def track_progress(client, session_id, playback_info=None):
                             last_up_replan_at = now
                             last_upshift_at = now
                             last_down_replan_at = 0.0
-                            last_progress_position = position
+                            last_progress_position = None
                             last_progress_change_at = now
-                            healthy_since = now
+                            progress_confirmed = False
+                            healthy_since = 0.0
+                            post_switch_grace_until = now + 15.0
 
                             log(
                                 "Adaptive upshift complete: %s -> %s "
