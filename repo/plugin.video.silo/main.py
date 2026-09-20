@@ -2176,28 +2176,23 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
 
 
 def play(client, content_id, file_id, library_id, duration_seconds=None, resume=False):
-    """Play media using Kodi's native resume choice.
+    """Play media using Kodi's native Resume/Start-over choice.
 
-    Kodi decides Resume vs Start from beginning before this plugin callback is
-    run and passes that choice as resume:true/false. Silo is then told exactly
-    what playback position policy to use:
-        * Resume -> omit start_position and let Silo use its saved server position.
-        * Start from beginning -> explicitly send start_position=0.
+    Kodi passes resume:true when the user chose Resume and resume:false when
+    the user chose Start from beginning. A fresh Silo progress lookup is made
+    immediately before playback. Silo always starts the transport at zero;
+    when Resume was chosen, the fresh Silo position is placed on the resolved
+    item so Kodi performs the seek to the server-authoritative position.
     """
     if not content_id:
         raise SiloError("No content ID was supplied for playback.")
 
-    # Resolve the exact file/version to play.
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
 
     if not file_id:
         return
 
-    # Fetch the extended item detail only when the item is actually played.
-    # The library/episode listing remains fast because it uses CatalogItem
-    # metadata directly. The detail response contains cast, crew and complete
-    # video/audio/subtitle track descriptors.
     try:
         detail = client.item_detail(
             content_id,
@@ -2214,37 +2209,51 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             xbmc.LOGWARNING,
         )
 
-    # Kodi has already made the Resume/Start-over decision and passed it to us.
-    # Do not put a resume point back onto the resolved ListItem: Kodi's plugin
-    # resolver treats a resume point on the returned item as an instruction to
-    # force resume, which would override a Start-from-beginning selection.
-    if resume:
-        start_position = None
+    # Always check Silo immediately before starting the stream so Kodi never
+    # has to rely on a stale local resume position for the actual seek.
+    latest_progress = None
+
+    try:
+        latest_progress = client.get_progress(
+            content_id,
+            library_id,
+        )
+    except SiloError as exc:
         log(
-            "Kodi requested Resume; Silo will use the server-saved resume position "
-            "for content %s" % content_id
+            "Fresh progress lookup failed; continuing without Silo resume: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+
+    if latest_progress:
+        fresh_position, fresh_duration = get_progress_position(latest_progress)
+        log(
+            "Fresh Silo state before playback: content=%s position=%.3f duration=%.3f completed=%s"
+            % (
+                content_id,
+                fresh_position,
+                fresh_duration,
+                latest_progress.get("completed", False),
+            )
         )
     else:
-        start_position = 0.0
         log(
-            "Kodi requested Start from beginning; Silo will start content %s at 0"
+            "No Silo progress record found immediately before playback for content %s"
             % content_id
         )
 
-    # Start the Silo playback session at the position policy selected by Kodi.
+    # Silo starts the transport at zero in both modes. This is important:
+    # Resume is implemented by Kodi seeking the resolved item to the fresh
+    # Silo position, while Start from beginning receives no resume point.
     info = client.start_playback(
         file_id,
-        start_position=start_position,
+        start_position=0.0,
     )
 
     if not info.get("url"):
         raise SiloError("Silo did not provide a playback URL.")
 
-    # Resolve the plugin URL to the actual Silo stream.
     resolved_item = xbmcgui.ListItem(path=info["url"])
 
-    # Reapply the same extended metadata to the resolved playback item so Kodi
-    # retains cast/crew and stream information after resolution.
     if detail:
         try:
             set_catalog_metadata(resolved_item, detail, client)
@@ -2263,8 +2272,38 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
                 xbmc.LOGWARNING,
             )
 
-    # Keep the resolved item playable, but deliberately do not set a resume
-    # point here. Kodi already consumed its native resume decision.
+    if resume and latest_progress:
+        # Replace Kodi's potentially stale local resume position with the
+        # position we just fetched from Silo.
+        apply_fresh_resume_to_resolved_item(
+            resolved_item,
+            latest_progress,
+            fallback_duration=duration_seconds,
+        )
+        log(
+            "Kodi requested Resume; applied fresh Silo resume position "
+            "to the resolved item for content %s" % content_id
+        )
+    else:
+        # Start from beginning must not carry a Kodi/Silo resume point.
+        try:
+            tag = resolved_item.getVideoInfoTag()
+            tag.setPlaycount(0)
+            tag.setResumePoint(0.0, 0.0)
+        except Exception:
+            pass
+
+        if resume:
+            log(
+                "Kodi requested Resume but Silo returned no progress; "
+                "starting from the beginning for content %s" % content_id
+            )
+        else:
+            log(
+                "Kodi requested Start from beginning; no resume point applied "
+                "for content %s" % content_id
+            )
+
     resolved_item.setProperty("IsPlayable", "true")
 
     xbmcplugin.setResolvedUrl(
@@ -2273,9 +2312,6 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
         resolved_item,
     )
 
-    # --------------------------------------------------------------
-    # KODI -> SILO LIVE PROGRESS REPORTING
-    # --------------------------------------------------------------
     session_id = info.get("session_id")
 
     if session_id:
