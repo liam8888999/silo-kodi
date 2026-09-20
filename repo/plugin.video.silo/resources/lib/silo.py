@@ -59,9 +59,9 @@ def log(msg, level=xbmc.LOGINFO):
 
 
 # Load saved server/login/device/profile settings from Kodi's addon profile.
-# Kodi settings are the persistent configuration store. The small in-memory
-# cfg dictionary is retained so the rest of the client can keep its existing
-# logic, but it is rebuilt from Kodi settings for every client instance.
+# Kodi's add-on settings are the persistent configuration store.
+# The cfg dictionary remains an in-memory convenience for the rest of the
+# client; it is never persisted to config.json.
 _INTERNAL_SETTINGS = (
     "device_id",
     "token",
@@ -72,155 +72,94 @@ _INTERNAL_SETTINGS = (
 )
 
 
-def _read_setting(key):
-    return ADDON.getSetting(key)
+def _setting(key, default=""):
+    value = ADDON.getSetting(key)
+    return value if value not in (None, "") else default
 
 
-def _write_setting(key, value):
+def _set_setting(key, value):
     ADDON.setSetting(key, "" if value is None else str(value))
 
 
-def _read_legacy_config():
-    """Read the old JSON config once so existing installations can migrate."""
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _delete_legacy_config():
-    try:
-        os.remove(CONFIG_PATH)
-    except OSError:
-        pass
+def _clear_account_settings():
+    """Clear editable login/profile settings and authentication state."""
+    for key in (
+        "server",
+        "username",
+        "profile",
+        "device_id",
+        "token",
+        "refresh_token",
+        "profile_id",
+        "profile_token",
+        "start_overrides",
+    ):
+        _set_setting(key, "")
 
 
 def load_config():
-    """Load connection and internal state from Kodi's add-on settings."""
+    """Load all persistent add-on state from Kodi settings."""
     cfg = {}
 
-    server = _read_setting("server").strip()
-    raw_username = _read_setting("username").strip()
-    profile = _read_setting("profile").strip()
+    server = _setting("server").strip().rstrip("/")
+    username = _setting("username").strip()
+    profile = _setting("profile").strip()
+
+    # Support username#profile in the settings username field.
+    if "#" in username:
+        username, inline_profile = username.split("#", 1)
+        username = username.strip()
+        if not profile:
+            profile = inline_profile.strip()
 
     if server:
-        cfg["server"] = server.rstrip("/")
-
-    if raw_username:
-        # username#profile is supported in settings as well as the login prompt.
-        if "#" in raw_username:
-            username, requested_profile = raw_username.split("#", 1)
-            username = username.strip()
-            requested_profile = requested_profile.strip()
-
-            if username:
-                cfg["username"] = username
-            if requested_profile and not profile:
-                profile = requested_profile
-        else:
-            cfg["username"] = raw_username
-
+        cfg["server"] = server
+    if username:
+        cfg["username"] = username
     if profile:
         cfg["profile_name"] = profile
 
-    raw_items = _read_setting("items_per_page")
+    raw_items = _setting("items_per_page")
     try:
-        if raw_items:
-            cfg["items_per_page"] = max(20, min(int(raw_items), 200))
+        cfg["items_per_page"] = max(20, min(int(raw_items or 200), 200))
     except (TypeError, ValueError):
-        pass
+        cfg["items_per_page"] = 200
 
     for key in _INTERNAL_SETTINGS:
-        value = _read_setting(key)
+        value = _setting(key)
+
+        if not value:
+            continue
 
         if key == "start_overrides":
-            if value:
-                try:
-                    parsed = json.loads(value)
-                    if isinstance(parsed, dict):
-                        cfg[key] = parsed
-                except ValueError:
-                    pass
-        elif value:
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict):
+                cfg[key] = parsed
+        else:
             cfg[key] = value
-
-    # Migrate fields from the old JSON file only when the new settings store
-    # does not already contain them. This is a one-time migration path.
-    legacy = _read_legacy_config()
-    if legacy:
-        changed = False
-
-        if not cfg.get("server") and legacy.get("server"):
-            _write_setting("server", str(legacy["server"]).rstrip("/"))
-            cfg["server"] = str(legacy["server"]).rstrip("/")
-            changed = True
-
-        if not cfg.get("username") and legacy.get("username"):
-            raw_legacy_username = str(legacy["username"]).strip()
-            if "#" in raw_legacy_username:
-                legacy_username, legacy_profile = raw_legacy_username.split("#", 1)
-                legacy_username = legacy_username.strip()
-                legacy_profile = legacy_profile.strip()
-                _write_setting("username", raw_legacy_username)
-                cfg["username"] = legacy_username
-                if not cfg.get("profile_name") and legacy_profile:
-                    _write_setting("profile", legacy_profile)
-                    cfg["profile_name"] = legacy_profile
-            else:
-                _write_setting("username", raw_legacy_username)
-                cfg["username"] = raw_legacy_username
-            changed = True
-
-        if not cfg.get("profile_name") and legacy.get("profile_name"):
-            profile_value = str(legacy["profile_name"]).strip()
-            if profile_value:
-                _write_setting("profile", profile_value)
-                cfg["profile_name"] = profile_value
-                changed = True
-
-        for key in _INTERNAL_SETTINGS:
-            if cfg.get(key):
-                continue
-
-            value = legacy.get(key)
-            if value in (None, ""):
-                continue
-
-            if key == "start_overrides" and isinstance(value, dict):
-                _write_setting(key, json.dumps(value, separators=(",", ":")))
-                cfg[key] = value
-            else:
-                _write_setting(key, value)
-                cfg[key] = value
-            changed = True
-
-        if changed or legacy:
-            _delete_legacy_config()
 
     return cfg
 
 
 def save_config(cfg):
-    """Persist internal runtime state into hidden Kodi settings.
+    """Persist only hidden/internal runtime state into Kodi settings.
 
-    User-editable connection values are deliberately NOT written from cfg.
-    Kodi already persists server/username/profile/items_per_page itself and
-    remains the single source of truth for those values.
+    Server, username, profile and pagination are user-facing settings and are
+    already persisted by Kodi itself. They are deliberately not written here.
     """
     for key in _INTERNAL_SETTINGS:
         if key not in cfg:
-            _write_setting(key, "")
+            _set_setting(key, "")
             continue
 
         value = cfg[key]
         if key == "start_overrides":
             value = json.dumps(value or {}, separators=(",", ":"))
 
-        _write_setting(key, value)
-
-    _delete_legacy_config()
+        _set_setting(key, value)
 
 
 # Custom exception used for errors that should be shown/logged by Kodi.
@@ -312,18 +251,18 @@ class SiloClient:
     # ------------------------------------------------------------ settings
 
     def sync_settings(self):
-        """Refresh editable connection values from Kodi settings."""
-        server = ADDON.getSetting("server").strip().rstrip("/")
+        """Refresh editable connection/profile settings from Kodi."""
         raw_username = ADDON.getSetting("username").strip()
+        server = ADDON.getSetting("server").strip().rstrip("/")
         profile = ADDON.getSetting("profile").strip()
 
         username = raw_username
-        requested_profile = profile
 
         if "#" in raw_username:
-            username, requested_profile = raw_username.split("#", 1)
+            username, inline_profile = raw_username.split("#", 1)
             username = username.strip()
-            requested_profile = requested_profile.strip()
+            if not profile:
+                profile = inline_profile.strip()
 
         old_identity = (
             self.cfg.get("server", ""),
@@ -333,7 +272,7 @@ class SiloClient:
         new_identity = (
             server,
             username,
-            requested_profile,
+            profile,
         )
 
         if new_identity != old_identity:
@@ -341,18 +280,11 @@ class SiloClient:
                 self.cfg.pop(key, None)
             self._caps = None
 
-        if server:
-            self.cfg["server"] = server
-        else:
-            self.cfg.pop("server", None)
+        self.cfg["server"] = server if server else self.cfg.get("server", "")
+        self.cfg["username"] = username if username else self.cfg.get("username", "")
 
-        if username:
-            self.cfg["username"] = username
-        else:
-            self.cfg.pop("username", None)
-
-        if requested_profile:
-            self.cfg["profile_name"] = requested_profile
+        if profile:
+            self.cfg["profile_name"] = profile
         else:
             self.cfg.pop("profile_name", None)
 
@@ -510,8 +442,11 @@ class SiloClient:
         # A '#' is optional. Without it, retain the normal profile-selection
         # dialog. With it, use the part before '#' as the account username and
         # the part after '#' as the profile name.
-        ADDON.setSetting("server", server.rstrip("/"))
-        ADDON.setSetting("username", user.strip())
+        server = server.rstrip("/")
+        user = user.strip()
+
+        ADDON.setSetting("server", server)
+        ADDON.setSetting("username", user)
 
         if "#" in user:
             username, profile_name = user.split("#", 1)
@@ -521,6 +456,7 @@ class SiloClient:
             if not username or not profile_name:
                 ADDON.setSetting("server", "")
                 ADDON.setSetting("username", "")
+                ADDON.setSetting("profile", "")
                 raise SiloError(
                     "Use username#profile, for example liam1#liam2"
                 )
@@ -532,11 +468,11 @@ class SiloClient:
             self._requested_profile_name = profile_name
         else:
             ADDON.setSetting("profile", "")
-            self.cfg["username"] = user.strip()
+            self.cfg["username"] = user
             self.cfg.pop("profile_name", None)
             self._requested_profile_name = ""
 
-        self.cfg["server"] = server.rstrip("/")
+        self.cfg["server"] = server
         save_config(self.cfg)
 
 
