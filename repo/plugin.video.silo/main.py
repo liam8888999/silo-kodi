@@ -1718,8 +1718,15 @@ def list_library(client, library_id, cursor=None):
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
-    # Load one 200-item Silo catalog page. Larger libraries use the cursor below.
-    items, next_cursor = client.catalog_page(library_id, cursor=cursor, limit=200)
+    # Use the user's configured page size for each Silo catalog request.
+    # Silo supports up to 200 items per page; get_directory_page_size() is
+    # already clamped to that range by the Kodi setting.
+    page_size = get_directory_page_size()
+    items, next_cursor = client.catalog_page(
+        library_id,
+        cursor=cursor,
+        limit=page_size,
+    )
 
     # The normal catalog tells us whether an item is played, but the detailed
     # partial position is not guaranteed to be present on every catalog row.
