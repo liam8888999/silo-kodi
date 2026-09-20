@@ -15,4 +15,12 @@
       option="int"
     />
   </category>
+  <category label="Internal" visible="false">
+    <setting id="device_id" type="text" default="" />
+    <setting id="token" type="text" default="" />
+    <setting id="refresh_token" type="text" default="" />
+    <setting id="profile_id" type="text" default="" />
+    <setting id="profile_token" type="text" default="" />
+    <setting id="start_overrides" type="text" default="" />
+  </category>
 </settings>
