@@ -573,24 +573,28 @@ class SiloClient:
     # intentionally retained so Silo still recognises this Kodi installation
     # as the same device after logging into another account.
     def logout(self):
+        # Clear the editable account settings from Kodi itself as well as the
+        # in-memory client state. Keeping these values would cause the next
+        # addon launch to use the settings-first login path and ask only for
+        # the password.
         for key in (
             "server",
             "username",
+            "profile",
             "token",
             "refresh_token",
             "profile_id",
             "profile_token",
         ):
-            self.cfg.pop(key, None)
-
-        # Playback capabilities can be profile/account dependent, so discard
-        # the cached copy and fetch it again after the next login.
-        self._caps = None
-        for key in ("device_id", "token", "refresh_token", "profile_id", "profile_token", "start_overrides"):
-            if key == "device_id":
-                continue
+            self.cfg.pop("server" if key == "server" else key, None)
             _set_setting(key, "")
-        save_config(self.cfg)
+
+        # Keep the stable device ID, but discard account/profile-specific state.
+        self.cfg.pop("profile_name", None)
+        self._caps = None
+        self._requested_profile_name = ""
+
+        log("Silo account settings and authentication state cleared")
 
     # ----------------------------------------------------------- profiles
 
