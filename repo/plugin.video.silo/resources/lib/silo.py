@@ -1054,7 +1054,7 @@ class SiloClient:
             return 3
 
     # Build a protocol-v3 playback/start request.
-    def _start_body(self, file_id, start_position=0.0):
+    def _start_body(self, file_id, start_position=0.0, quality_preference="original"):
         caps = self.playback_caps()
         pv = self._protocol_version()
 
@@ -1172,7 +1172,7 @@ class SiloClient:
             "profile_id": str(self.cfg["profile_id"]),
             "start_position": float(start_position),
             "playback_attempt_id": uuid.uuid4().hex,
-            "quality_preference": "original",
+            "quality_preference": str(quality_preference or "original"),
             "subtitle_fidelity_preference": "preserve",
             "metered": False,
             "progress_persistence": "server",
@@ -1362,8 +1362,12 @@ class SiloClient:
         ]
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
-    def start_playback(self, file_id, start_position=0.0):
-        body = self._start_body(file_id, start_position)
+    def start_playback(self, file_id, start_position=0.0, quality_preference="original"):
+        body = self._start_body(
+            file_id,
+            start_position,
+            quality_preference=quality_preference,
+        )
 
         data = self._json(            "POST",
             "/api/v2/playback/start",
@@ -1416,6 +1420,7 @@ class SiloClient:
             "url": url,
             "session_id": data.get("session_id") or plan.get("session_id"),
             "playback_plan": plan,
+            "file_id": str(file_id),
             "playback_attempt_id": body.get("playback_attempt_id"),
             # plan_attempt_id is client-owned; keep one stable ID for all
             # replans in this playback session, matching Silo's other clients.
