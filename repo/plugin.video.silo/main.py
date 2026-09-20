@@ -1322,11 +1322,20 @@ def list_search_results(client, query, page=1):
 
     offset = (page_number - 1) * SEARCH_PAGE_SIZE
 
-    data = client.search_catalog(
-        query,
-        limit=SEARCH_PAGE_SIZE,
-        offset=offset,
-    ) or {}
+    try:
+        data = client.search_catalog(
+            query,
+            limit=SEARCH_PAGE_SIZE,
+            offset=offset,
+        ) or {}
+    except SiloError as exc:
+        log(
+            "Silo search failed for %r: %s" % (query, exc),
+            xbmc.LOGERROR,
+        )
+        notify("Search failed: %s" % str(exc)[:180])
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
 
     items = data.get("items") or []
     has_more = bool(data.get("has_more"))
@@ -1506,7 +1515,7 @@ def list_root(client, page=None):
         HANDLE,
         build_url(action="search"),
         search_item,
-        False,
+        True,
     )
 
     libraries = client.libraries()
