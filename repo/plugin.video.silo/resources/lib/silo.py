@@ -1263,10 +1263,8 @@ class SiloClient:
             "selected_tracks": plan.get("selected_tracks") or {},
             "client_capabilities": (info or {}).get("client_capabilities") or {},
             "client_playback_context": (info or {}).get("client_playback_context") or {},
+            **({"failure": failure} if failure else {}),
         }
-
-        if failure:
-            body["failure"] = failure
 
         data = self._json(
             "POST",
