@@ -156,8 +156,43 @@ class SiloClient:
 
         self.session = requests.Session()
         self._caps = None
+        self.sync_settings()
         # Detail responses are reused when the same item is later played.
         self._details = {}
+
+    # ------------------------------------------------------------ settings
+
+    def sync_settings(self):
+        """Sync editable Kodi connection settings into the saved config."""
+        server = ADDON.getSetting("server").strip().rstrip("/")
+        username = ADDON.getSetting("username").strip()
+        profile = ADDON.getSetting("profile").strip()
+
+        changed = (
+            server != self.cfg.get("server", "")
+            or username != self.cfg.get("username", "")
+            or profile != self.cfg.get("profile_name", "")
+        )
+
+        if changed:
+            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+                self.cfg.pop(key, None)
+            self._caps = None
+
+        if server:
+            self.cfg["server"] = server
+        else:
+            self.cfg.pop("server", None)
+        if username:
+            self.cfg["username"] = username
+        else:
+            self.cfg.pop("username", None)
+        if profile:
+            self.cfg["profile_name"] = profile
+        else:
+            self.cfg.pop("profile_name", None)
+
+        save_config(self.cfg)
 
     # ------------------------------------------------------------ helpers
 
@@ -323,7 +358,7 @@ class SiloClient:
             self._requested_profile_name = profile_name
         else:
             self.cfg["username"] = user.strip()
-            self._requested_profile_name = ""
+            self._requested_profile_name = self.cfg.get("profile_name", "")
 
         self.cfg["server"] = server.rstrip("/")
         save_config(self.cfg)
@@ -496,7 +531,9 @@ class SiloClient:
             raise SiloError("This account has no profiles")
 
         requested_name = str(
-            getattr(self, "_requested_profile_name", "") or ""
+            getattr(self, "_requested_profile_name", "")
+            or self.cfg.get("profile_name", "")
+            or ""
         ).strip()
 
         if requested_name:
