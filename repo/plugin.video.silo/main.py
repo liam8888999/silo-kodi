@@ -2427,6 +2427,7 @@ def track_progress(client, session_id, playback_info=None):
     last_progress_position = None
     last_progress_change_at = time.time()
     stall_started_at = None
+    caching_started_at = None
     last_replan_at = 0.0
     replan_cooldown = 45.0
     recovery_cooldown = 180.0
@@ -2453,21 +2454,50 @@ def track_progress(client, session_id, playback_info=None):
         paused = xbmc.getCondVisibility("Player.Paused")
 
         if not paused:
-            if last_progress_position is None or position > last_progress_position + 0.25:
-                if stall_started_at is not None:
-                    healthy_since = now
-                elif healthy_since <= 0:
-                    healthy_since = now
-                last_progress_position = position
-                last_progress_change_at = now
-                stall_started_at = None
-            elif now - last_progress_change_at >= stall_threshold:
+            # Kodi exposes Player.Caching while an internet stream is actively
+            # re-caching. Use it alongside player-position movement so we catch
+            # genuine buffering even when getTime() continues to advance briefly.
+            caching = xbmc.getCondVisibility("Player.Caching")
+
+            if caching:
+                if caching_started_at is None:
+                    caching_started_at = now
+            else:
+                caching_started_at = None
+
+            position_stalled = (
+                last_progress_position is not None
+                and now - last_progress_change_at >= stall_threshold
+            )
+            caching_stalled = (
+                caching_started_at is not None
+                and now - caching_started_at >= stall_threshold
+            )
+
+            if position_stalled or caching_stalled:
                 if stall_started_at is None:
                     healthy_since = 0.0
-                    stall_started_at = last_progress_change_at
-
+                    stall_started_at = (
+                        caching_started_at
+                        if caching_stalled and caching_started_at is not None
+                        else last_progress_change_at
+                    )
                 stalled_for = now - stall_started_at
+            else:
+                if last_progress_position is None or position > last_progress_position + 0.25:
+                    last_progress_position = position
+                    last_progress_change_at = now
 
+                if stall_started_at is not None:
+                    healthy_since = now
+                    stall_started_at = None
+
+                if healthy_since <= 0:
+                    healthy_since = now
+
+                stalled_for = 0.0
+
+            if stall_started_at is not None:
                 if (
                     stalled_for >= stall_threshold
                     and now - last_replan_at >= replan_cooldown
