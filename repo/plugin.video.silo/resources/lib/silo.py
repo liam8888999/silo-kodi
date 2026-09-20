@@ -1244,6 +1244,18 @@ class SiloClient:
 
         attempt_count = max(1, min(attempt_count, 8))
 
+        # Silo requires every failure_recovery replan to carry a failure
+        # classification. Enforce that here as a final safeguard so callers
+        # cannot accidentally produce a malformed recovery request.
+        if str(operation or "failure_recovery") in (
+            "failure_recovery",
+            "seek_failure_recovery",
+        ) and not failure:
+            failure = {
+                "classification": "playback_recovery",
+                "message": "Kodi requested recovery from the current playback plan.",
+            }
+
         body = {
             "installation_id": self._installation_id(),
             "protocol_version": 3,
