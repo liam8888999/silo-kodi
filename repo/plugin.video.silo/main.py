@@ -2539,14 +2539,27 @@ def track_progress(client, session_id, playback_info=None):
 
         player.play(new_url)
 
-        # Wait briefly for Kodi to attach the new stream before restoring the
-        # old position. Do not require a total duration because some streams
-        # populate it later.
-        for _ in range(40):
-            if monitor.abortRequested() or not player.isPlaying():
+        # Kodi can briefly report the old player state while it is tearing down
+        # the previous HLS pipeline. Wait for the replacement stream to attach
+        # before seeking; otherwise seekTime() can fail with "not playing media".
+        attached = False
+        for _ in range(80):
+            if monitor.abortRequested():
+                break
+
+            if player.isPlaying():
+                attached = True
                 break
 
             xbmc.sleep(250)
+
+        if not attached:
+            log(
+                "Kodi did not attach the adaptive stream for quality=%s"
+                % target_label,
+                xbmc.LOGWARNING,
+            )
+            return False
 
         try:
             player.seekTime(max(0.0, float(position or 0.0)))
@@ -2577,7 +2590,7 @@ def track_progress(client, session_id, playback_info=None):
     # detected. Upward changes require substantially longer healthy playback.
     last_down_replan_at = 0.0
     last_up_replan_at = 0.0
-    down_cooldown = 45.0
+    down_cooldown = 10.0
     up_cooldown = 180.0
     stall_threshold = 8.0
     healthy_recovery_threshold = 180.0
