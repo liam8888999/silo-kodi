@@ -1375,9 +1375,37 @@ def list_search_results(client, query, page=1):
         None,
     )
 
-    batch = []
+    # Keep all media types in the same result page, but group them into
+    # Movies, TV Shows and Episodes so a common title (for example "Christmas")
+    # is immediately distinguishable.
+    grouped_items = {
+        "movie": [],
+        "series": [],
+        "episode": [],
+    }
+    other_items = []
 
     for catalog_item in items:
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+        if media_type in grouped_items:
+            grouped_items[media_type].append(catalog_item)
+        else:
+            other_items.append(catalog_item)
+
+    ordered_items = (
+        grouped_items["movie"]
+        + grouped_items["series"]
+        + grouped_items["episode"]
+        + other_items
+    )
+
+    batch = []
+
+    for catalog_item in ordered_items:
         content_id = get_content_id(catalog_item)
         if not content_id:
             continue
@@ -1393,7 +1421,54 @@ def list_search_results(client, query, page=1):
             or ""
         ).lower()
 
-        item = xbmcgui.ListItem(label=title)
+        # Make each result's media type obvious. Episodes also include their
+        # parent series and season/episode number so dozens of identically
+        # titled episodes can be distinguished immediately.
+        display_title = title
+
+        if media_type == "movie":
+            display_title = "[Movie] %s" % title
+        elif media_type == "series":
+            display_title = "[TV Show] %s" % title
+        elif media_type == "episode":
+            series_title = (
+                catalog_item.get("series_title")
+                or catalog_item.get("series_name")
+                or ""
+            )
+            season_number = catalog_item.get("season_number")
+            episode_number = catalog_item.get("episode_number")
+
+            episode_code = ""
+            if season_number is not None and episode_number is not None:
+                try:
+                    episode_code = "S%02dE%02d" % (
+                        int(season_number),
+                        int(episode_number),
+                    )
+                except (TypeError, ValueError):
+                    episode_code = ""
+
+            if series_title and episode_code:
+                display_title = "[Episode] %s - %s - %s" % (
+                    series_title,
+                    episode_code,
+                    title,
+                )
+            elif series_title:
+                display_title = "[Episode] %s - %s" % (
+                    series_title,
+                    title,
+                )
+            elif episode_code:
+                display_title = "[Episode] %s - %s" % (
+                    episode_code,
+                    title,
+                )
+            else:
+                display_title = "[Episode] %s" % title
+
+        item = xbmcgui.ListItem(label=display_title)
         tag = item.getVideoInfoTag()
         tag.setTitle(title)
 
@@ -1466,7 +1541,7 @@ def list_search_results(client, query, page=1):
         xbmcplugin.addDirectoryItems(
             HANDLE,
             batch,
-            totalItems=len(items) + (1 if has_more else 0),
+            totalItems=len(ordered_items) + (1 if has_more else 0),
         )
 
     if has_more:
