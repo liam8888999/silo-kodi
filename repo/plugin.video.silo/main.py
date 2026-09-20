@@ -2597,11 +2597,29 @@ def track_progress(client, session_id, playback_info=None):
 
     healthy_since = time.time()
 
-    while player.isPlaying():
+    # Kodi can briefly report isPlaying() == false while it replaces an HLS
+    # input during an adaptive quality switch. Do not treat that short teardown
+    # window as the end of the user's playback session.
+    not_playing_since = None
+    playback_teardown_grace = 20.0
+
+    while True:
         if monitor.abortRequested():
             break
 
         now = time.time()
+
+        if not player.isPlaying():
+            if not_playing_since is None:
+                not_playing_since = now
+
+            if now - not_playing_since >= playback_teardown_grace:
+                break
+
+            xbmc.sleep(100)
+            continue
+
+        not_playing_since = None
 
         try:
             position = float(player.getTime())
@@ -2782,6 +2800,15 @@ def track_progress(client, session_id, playback_info=None):
                         last_up_replan_at = now
                         healthy_since = now
                     else:
+                        log(
+                            "Adaptive upshift eligible: %s -> %s after %.1fs healthy playback"
+                            % (
+                                current_label,
+                                target_label,
+                                now - healthy_since,
+                            )
+                        )
+
                         recipe = plan.get("effective_recipe") or {}
 
                         try:
@@ -2798,8 +2825,7 @@ def track_progress(client, session_id, playback_info=None):
                             else 8000,
                         )
 
-                        # The important difference from the old implementation:
-                        # never send "auto" for an adaptive quality recovery.
+                        # Never send "auto" for an adaptive quality recovery.
                         # Silo expects the label of the exact ladder rung wanted.
                         new_info = client.replan_playback(
                             playback_info,
