@@ -1365,9 +1365,15 @@ def list_search_results(client, query, page=1):
             True,
         )
 
-    # Do not block the search directory on one detail request per result.
-    # Full detail metadata is fetched when the selected item is played, just
-    # like the normal Kodi playback path.
+    # Match normal library/episode browsing: fetch all extended detail
+    # metadata before Kodi receives the search result directory. This means
+    # cast, crew, ratings, runtime and full stream information are available
+    # immediately, rather than waiting until playback.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        None,
+    )
 
     batch = []
 
@@ -1411,9 +1417,15 @@ def list_search_results(client, query, page=1):
             ),
         )
 
-        # Search results already contain the catalog metadata Kodi needs to
-        # display the result. Extended cast/crew/stream detail is loaded when
-        # the item is selected for playback.
+        # Apply the extended metadata fetched above before this result is
+        # handed to Kodi, matching the normal library and episode pages.
+        detail = detail_map.get(str(content_id))
+        if detail:
+            set_detail_metadata(
+                item,
+                detail,
+                client,
+            )
 
         # Search results are already profile-scoped by Silo. Use the catalog
         # watch state directly so this search does not download the full
