@@ -2615,10 +2615,12 @@ def track_progress(client, session_id, playback_info=None):
     # the next higher published rung.
     last_down_replan_at = 0.0
     last_up_replan_at = 0.0
+    last_upshift_at = 0.0
     down_cooldown = 10.0
     up_cooldown = 90.0
     stall_threshold = 8.0
     healthy_recovery_threshold = 90.0
+    upshift_downshift_grace = 30.0
 
     healthy_since = time.time()
 
@@ -2719,6 +2721,10 @@ def track_progress(client, session_id, playback_info=None):
                 stall_started_at is not None
                 and stalled_for >= stall_threshold
                 and now - last_down_replan_at >= down_cooldown
+                and (
+                    last_upshift_at <= 0
+                    or now - last_upshift_at >= upshift_downshift_grace
+                )
             ):
                 try:
                     plan = playback_info.get("playback_plan") or {}
@@ -2892,6 +2898,7 @@ def track_progress(client, session_id, playback_info=None):
                         ):
                             now = time.time()
                             last_up_replan_at = now
+                            last_upshift_at = now
                             last_down_replan_at = 0.0
                             last_progress_position = position
                             last_progress_change_at = now
