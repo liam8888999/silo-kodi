@@ -2389,10 +2389,20 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
         )
 
 
-def track_progress(client, session_id):
-    """Monitor Kodi playback and periodically report its position to Silo."""
+def track_progress(client, session_id, playback_info=None):
+    """Monitor Kodi playback, report progress, and adapt after sustained stalls.
+
+    Kodi's public Python API does not expose the player's internal throughput
+    estimator. We therefore use a conservative stall-derived estimate rather
+    than pretending to know the link speed. A sustained lack of playback
+    progress is the trigger; Silo then owns the quality decision through an
+    auto replan.
+    """
     player = xbmc.Player()
     monitor = xbmc.Monitor()
+
+    playback_info = dict(playback_info or {})
+    playback_info["session_id"] = session_id
 
     # Wait for Kodi to actually begin playing the resolved stream.
     for _ in range(60):
@@ -2413,76 +2423,148 @@ def track_progress(client, session_id):
 
     sequence = 0
     last_position = 0.0
+    last_progress_position = None
+    last_progress_change_at = time.time()
+    stall_started_at = None
+    last_replan_at = 0.0
+    replan_cooldown = 45.0
+    stall_threshold = 8.0
+    max_adaptations = 3
+    adaptations = 0
 
-    # Report roughly every ten seconds while Kodi is playing.
     while player.isPlaying():
         if monitor.abortRequested():
             break
+
+        now = time.time()
 
         try:
             position = float(player.getTime())
         except Exception:
             position = last_position
 
-        last_position = max(0.0, position)
-
+        position = max(0.0, position)
         paused = xbmc.getCondVisibility("Player.Paused")
 
+        if not paused:
+            if last_progress_position is None or position > last_progress_position + 0.25:
+                last_progress_position = position
+                last_progress_change_at = now
+                stall_started_at = None
+            elif now - last_progress_change_at >= stall_threshold:
+                if stall_started_at is None:
+                    stall_started_at = last_progress_change_at
+
+                stalled_for = now - stall_started_at
+
+                if (
+                    stalled_for >= stall_threshold
+                    and now - last_replan_at >= replan_cooldown
+                    and adaptations < max_adaptations
+                ):
+                    try:
+                        plan = playback_info.get("playback_plan") or {}
+                        recipe = plan.get("effective_recipe") or {}
+                        current_bitrate = int(recipe.get("bitrate_kbps") or 0)
+
+                        # This is a conservative estimate derived from observed
+                        # failure, not a claimed link-speed probe.
+                        estimated_bandwidth = max(
+                            100,
+                            int(current_bitrate * 0.60) if current_bitrate > 0 else 1500,
+                        )
+
+                        new_info = client.replan_playback(
+                            playback_info,
+                            position,
+                            estimated_bandwidth,
+                            quality_preference="auto",
+                        )
+
+                        new_plan = new_info.get("playback_plan") or {}
+                        old_delivery = plan.get("delivery")
+                        old_quality = (recipe.get("height"), recipe.get("bitrate_kbps"))
+                        new_recipe = new_plan.get("effective_recipe") or {}
+                        new_quality = (new_recipe.get("height"), new_recipe.get("bitrate_kbps"))
+
+                        if (
+                            new_info.get("url")
+                            and (
+                                new_plan.get("delivery") != old_delivery
+                                or new_quality != old_quality
+                            )
+                        ):
+                            log(
+                                "Adapting playback after %.1fs stall: %s/%s -> %s/%s"
+                                % (stalled_for, old_delivery, old_quality, new_plan.get("delivery"), new_quality),
+                            )
+
+                            player.play(new_info["url"])
+
+                            for _ in range(40):
+                                if monitor.abortRequested() or not player.isPlaying():
+                                    break
+                                xbmc.sleep(250)
+                                try:
+                                    if player.getTotalTime() > 0:
+                                        break
+                                except Exception:
+                                    pass
+
+                            try:
+                                player.seekTime(position)
+                            except Exception as exc:
+                                log(
+                                    "Unable to restore position after adaptive replan: %s" % exc,
+                                    xbmc.LOGWARNING,
+                                )
+
+                            playback_info.clear()
+                            playback_info.update(new_info)
+                            playback_info["session_id"] = session_id
+                            adaptations += 1
+                            last_replan_at = time.time()
+                            last_progress_position = position
+                            last_progress_change_at = last_replan_at
+                            stall_started_at = None
+                        else:
+                            last_replan_at = now
+
+                    except SiloError as exc:
+                        last_replan_at = now
+                        log("Adaptive playback replan failed: %s" % exc, xbmc.LOGWARNING)
+                    except Exception as exc:
+                        last_replan_at = now
+                        log("Unexpected adaptive playback error: %s" % exc, xbmc.LOGWARNING)
+
+        last_position = max(last_position, position)
         sequence += 1
 
         try:
-            client.report_progress(
-                session_id,
-                sequence,
-                last_position,
-                paused,
-            )
+            client.report_progress(session_id, sequence, last_position, paused)
         except SiloError as exc:
-            # Never interrupt the video because a progress update failed.
-            log(
-                "Unable to report playback progress: %s" % exc,
-                xbmc.LOGWARNING,
-            )
+            log("Unable to report playback progress: %s" % exc, xbmc.LOGWARNING)
 
-        # Sleep in small chunks so playback can stop/abort without making the
-        # addon wait a full five seconds before noticing it.
         for _ in range(50):
             if not player.isPlaying() or monitor.abortRequested():
                 break
             xbmc.sleep(100)
 
-    # Try one final position read while Kodi still has player state available.
     try:
         if player.isPlaying():
             last_position = max(0.0, float(player.getTime()))
     except Exception:
         pass
 
-    # The final DELETE gets its own sequence number.
-    #
-    # Do not make Kodi wait for Silo's network response here. If the server is
-    # slow or temporarily unreachable, a synchronous cleanup request can keep
-    # this plugin invocation alive and make returning to the directory appear
-    # to freeze. The playback session can be cleaned up independently.
     sequence += 1
 
     def finish_session():
         try:
-            client.stop_playback(
-                session_id,
-                sequence,
-                last_position,
-            )
+            client.stop_playback(session_id, sequence, last_position)
         except SiloError as exc:
-            log(
-                "Unable to stop Silo playback session: %s" % exc,
-                xbmc.LOGWARNING,
-            )
+            log("Unable to stop Silo playback session: %s" % exc, xbmc.LOGWARNING)
         except Exception as exc:
-            log(
-                "Unexpected error stopping Silo playback session: %s" % exc,
-                xbmc.LOGWARNING,
-            )
+            log("Unexpected error stopping Silo playback session: %s" % exc, xbmc.LOGWARNING)
 
     cleanup_thread = threading.Thread(
         target=finish_session,
@@ -2490,7 +2572,6 @@ def track_progress(client, session_id):
     )
     cleanup_thread.daemon = True
     cleanup_thread.start()
-
 
 def kodi_requested_resume():
     """Return Kodi's native resume choice for the current plugin request.
