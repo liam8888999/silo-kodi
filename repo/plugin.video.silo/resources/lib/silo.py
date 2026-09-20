@@ -1229,20 +1229,29 @@ class SiloClient:
             raise SiloError("Playback replan state is incomplete.")
 
         current_plan_key = str(plan.get("plan_attempt_key") or "")
-        attempted_plan_keys = list((info or {}).get("attempted_plan_keys") or [])
 
-        if current_plan_key and current_plan_key not in attempted_plan_keys:
-            attempted_plan_keys.append(current_plan_key)
+        # Failure recovery uses attempted-plan loop prevention. Explicit
+        # quality changes are a fresh intent and must start a new replan chain.
+        is_failure_recovery = str(operation or "failure_recovery") in (
+            "failure_recovery",
+            "seek_failure_recovery",
+        )
 
-        # Keep only the newest server-owned keys accepted by the v3 contract.
-        attempted_plan_keys = attempted_plan_keys[-16:]
+        if is_failure_recovery:
+            attempted_plan_keys = list((info or {}).get("attempted_plan_keys") or [])
+            if current_plan_key and current_plan_key not in attempted_plan_keys:
+                attempted_plan_keys.append(current_plan_key)
+            attempted_plan_keys = attempted_plan_keys[-16:]
 
-        try:
-            attempt_count = int((info or {}).get("attempt_count") or 1) + 1
-        except (TypeError, ValueError):
-            attempt_count = 2
+            try:
+                attempt_count = int((info or {}).get("attempt_count") or 1) + 1
+            except (TypeError, ValueError):
+                attempt_count = 2
 
-        attempt_count = max(1, min(attempt_count, 8))
+            attempt_count = max(1, min(attempt_count, 8))
+        else:
+            attempted_plan_keys = []
+            attempt_count = 1
 
         # Silo requires every failure_recovery replan to carry a failure
         # classification. Enforce that here as a final safeguard so callers
