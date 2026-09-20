@@ -55,6 +55,23 @@ def log(msg, level=xbmc.LOGINFO):
     xbmc.log("[plugin.video.silo] %s" % msg, level)
 
 
+# Window property used to keep the login loading indicator visible while the
+# refreshed root directory is loading after a successful login.
+_LOGIN_LOADING_PROPERTY = "Silo.LoginLoading"
+
+
+def _show_login_loading():
+    """Show Kodi's native busy spinner and mark it as owned by the login flow."""
+    xbmcgui.Window(10000).setProperty(_LOGIN_LOADING_PROPERTY, "true")
+    xbmc.executebuiltin("ActivateWindow(busydialog)")
+
+
+def _hide_login_loading():
+    """Close the login busy spinner and clear its refresh-state marker."""
+    xbmc.executebuiltin("Dialog.Close(busydialog,true)")
+    xbmcgui.Window(10000).clearProperty(_LOGIN_LOADING_PROPERTY)
+
+
 # Load saved server/login/device/profile settings from Kodi's addon profile.
 # Kodi's add-on settings are the persistent configuration store.
 # The cfg dictionary remains an in-memory convenience for the rest of the
@@ -437,9 +454,13 @@ class SiloClient:
     #
     # This deliberately does NOT call _send(), because _send() calls login()
     # when a token is missing. Calling _send() here would recurse forever.
-    def login(self):
+    def login(self, show_loading=False):
         if not self.base or not self.cfg.get("username"):
             self._prompt_account()
+
+        # Never leave the busy dialog covering an input prompt. The loading
+        # indicator starts only after the password has been submitted.
+        _hide_login_loading()
 
         pw = xbmcgui.Dialog().input(
             "Password for %s" % self.cfg["username"],
@@ -448,6 +469,11 @@ class SiloClient:
 
         if not pw:
             raise SiloError("Login cancelled")
+
+        # Start Kodi's native busy spinner immediately after the password
+        # prompt closes, before the network authentication request begins.
+        if show_loading:
+            _show_login_loading()
 
         try:
             r = self.session.post(
@@ -467,12 +493,21 @@ class SiloClient:
                 },
             )
         except requests.RequestException as e:
+            if show_loading:
+                _hide_login_loading()
             raise SiloError("Cannot reach server: %s" % e)
 
         if not r.ok:
+            if show_loading:
+                _hide_login_loading()
             raise SiloError("Login failed - " + self._problem(r))
 
-        self._store_tokens(r.json())
+        try:
+            self._store_tokens(r.json())
+        except Exception:
+            if show_loading:
+                _hide_login_loading()
+            raise
 
     # Complete interactive login used by the Kodi Login button.
     #
@@ -480,6 +515,10 @@ class SiloClient:
     # place: server/username/password, token storage, profile selection and
     # profile PIN verification when required.
     def login_full(self):
+        # Explicit login starts with no busy spinner so the server, username
+        # and password prompts are unobstructed.
+        _hide_login_loading()
+
         # Every explicit Kodi login starts as a completely fresh attempt.
         # Do not reuse a previously entered server, username, token or profile
         # after a failed/cancelled login; this ensures the next attempt always
@@ -503,14 +542,24 @@ class SiloClient:
         try:
             # login() now asks for server URL, username and password from
             # scratch because no account fields were retained above.
-            self.login()
+            self.login(show_loading=True)
+
+            # Do not cover the profile selector/PIN prompt with the busy dialog.
+            _hide_login_loading()
 
             # login() only authenticates the account. Select the household
             # profile afterwards so subsequent profile-scoped API calls have
             # everything they need.
             self.select_profile()
 
+            # Keep the spinner active for the next Container.Refresh so the
+            # library page itself cannot appear before its server data is ready.
+            _show_login_loading()
+
         except SiloError:
+            # Always close the loading indicator on a failed or cancelled login.
+            _hide_login_loading()
+
             # A bad password, unknown user/server, cancelled prompt, cancelled
             # profile selection, or cancelled PIN must leave no partial login
             # state behind. The next Login selection will start at server URL.
