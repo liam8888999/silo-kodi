@@ -2527,21 +2527,53 @@ def track_progress(client, session_id, playback_info=None):
         return labels[target_index]
 
     def switch_stream(new_info, position, target_label):
-        """Adopt an Silo replan and restore the current playback position."""
+        """Adopt an Silo replan without visibly jumping back to zero."""
         new_url = new_info.get("url")
         if not new_url:
             return False
 
+        new_plan = new_info.get("playback_plan") or {}
+        timeline = new_plan.get("timeline") or {}
+
+        # Silo's player_start_seconds is the position the client should use
+        # inside the newly planned stream. This is deliberately not always the
+        # same number as the source/media position: a transcode can begin from
+        # a seek anchor and expose a shorter player-relative timeline.
+        try:
+            start_offset = float(
+                timeline.get("player_start_seconds")
+            )
+        except (TypeError, ValueError):
+            start_offset = max(0.0, float(position or 0.0))
+
+        start_offset = max(0.0, start_offset)
+
         log(
-            "Adapting playback to quality=%s at position=%.3f"
-            % (target_label, position)
+            "Adapting playback to quality=%s at position=%.3f "
+            "(player_start_seconds=%.3f)"
+            % (
+                target_label,
+                position,
+                start_offset,
+            )
         )
 
-        player.play(new_url)
+        # StartOffset is handled internally by Kodi when the ListItem is
+        # opened, so the replacement stream starts at the correct playback
+        # position instead of visibly starting at 0 and then seeking forward.
+        list_item = xbmcgui.ListItem(path=new_url)
+        list_item.setProperty("IsPlayable", "true")
+        list_item.setProperty(
+            "StartOffset",
+            "%.3f" % start_offset,
+        )
 
-        # Kodi can briefly report the old player state while it is tearing down
-        # the previous HLS pipeline. Wait for the replacement stream to attach
-        # before seeking; otherwise seekTime() can fail with "not playing media".
+        player.play(new_url, list_item)
+
+        # Kodi can briefly report the old player state while it tears down the
+        # previous HLS pipeline. Wait for the replacement stream to attach;
+        # there is no second seek because StartOffset already supplied the
+        # desired position to the new player instance.
         attached = False
         for _ in range(80):
             if monitor.abortRequested():
@@ -2560,14 +2592,6 @@ def track_progress(client, session_id, playback_info=None):
                 xbmc.LOGWARNING,
             )
             return False
-
-        try:
-            player.seekTime(max(0.0, float(position or 0.0)))
-        except Exception as exc:
-            log(
-                "Unable to restore position after adaptive replan: %s" % exc,
-                xbmc.LOGWARNING,
-            )
 
         playback_info.clear()
         playback_info.update(new_info)
