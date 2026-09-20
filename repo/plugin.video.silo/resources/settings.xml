@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <settings>
   <category label="Connection">
-    <setting id="server" type="text" label="Server address" default="" />
-    <setting id="username" type="text" label="Username" default="" />
-    <setting id="profile" type="text" label="Profile name (optional)" default="" />
+    <setting id="server" type="text" label="Server address" default="" enable="false" />
+    <setting id="username" type="text" label="Username" default="" enable="false" />
   </category>
 
   <category label="Pagination">
