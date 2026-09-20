@@ -449,7 +449,6 @@ class SiloClient:
         self.cfg["server"] = server
         save_config(self.cfg)
 
-
     # Store the access/refresh token pair returned by Silo.
     def _store_tokens(self, data):
         access_token = str(data.get("access_token") or "")
@@ -897,8 +896,7 @@ class SiloClient:
 
         if key in self._details:
             return self._details[key]
-        # The detail endpoint also prepares cast/crew artwork. Kodi only
-        # needs small thumbnails for these person images, which keeps the
+        # The detail endpoint also prepares cast/crew artwork. Kodi only        # needs small thumbnails for these person images, which keeps the
         # metadata response substantially smaller for large libraries.
         params = {"image_size": "small"}
 
@@ -1263,11 +1261,12 @@ class SiloClient:
             "metered": bool((info or {}).get("metered", False)),
             "bandwidth_estimate_kbps": bandwidth_estimate_kbps,
             "selected_tracks": plan.get("selected_tracks") or {},
-        if failure:
-            body["failure"] = failure
             "client_capabilities": (info or {}).get("client_capabilities") or {},
             "client_playback_context": (info or {}).get("client_playback_context") or {},
         }
+
+        if failure:
+            body["failure"] = failure
 
         data = self._json(
             "POST",
@@ -1347,8 +1346,7 @@ class SiloClient:
     def start_playback(self, file_id, start_position=0.0):
         body = self._start_body(file_id, start_position)
 
-        data = self._json(
-            "POST",
+        data = self._json(            "POST",
             "/api/v2/playback/start",
             body=body,
         )
