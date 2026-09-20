@@ -164,7 +164,7 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
-def fetch_detail_metadata(client, items, library_id, max_workers=4):
+def fetch_detail_metadata(client, items, library_id, max_workers=2):
     """Fetch extended metadata concurrently and retry transient failures.
 
     Catalog data is fast and contains most metadata. The detail endpoint adds
@@ -255,7 +255,7 @@ def fetch_detail_metadata(client, items, library_id, max_workers=4):
     details = {}
     worker_count = max(
         1,
-        min(int(max_workers or 4), len(content_ids)),
+        min(int(max_workers or 2), len(content_ids)),
     )
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
