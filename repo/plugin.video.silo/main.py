@@ -70,12 +70,19 @@ ADDON = xbmcaddon.Addon()
 
 
 def get_directory_page_size():
-    """Return the configured Kodi page size, clamped to 20-200."""
+    """Return the configured Kodi page size, clamped to 20-200.
+
+    Kodi's legacy slider settings are stored as strings representing floating
+    point values even when option="int" is used, so parse the value as a float.
+    """
     raw = ADDON.getSetting("items_per_page")
+
     try:
-        return max(MIN_PAGE_SIZE, min(int(raw or MAX_PAGE_SIZE), MAX_PAGE_SIZE))
+        value = int(round(float(raw))) if raw not in (None, "") else MAX_PAGE_SIZE
     except (TypeError, ValueError):
-        return MAX_PAGE_SIZE
+        value = MAX_PAGE_SIZE
+
+    return max(MIN_PAGE_SIZE, min(value, MAX_PAGE_SIZE))
 
 
 # Build a Kodi plugin URL containing the action and any required IDs.
@@ -1642,14 +1649,10 @@ def list_root(client, page=None):
     )
 
     libraries = client.libraries()
-    page_items, has_previous, has_next = paginate_directory(
-        libraries,
-        page,
-    )
 
-    add_previous_page(action="root", page=page)
-
-    for library in page_items:
+    # The root library list is deliberately not paginated. Pagination only
+    # applies to search results and the contents of individual libraries.
+    for library in libraries:
         library_id = library.get("id")
         if not library_id:
             continue
@@ -1688,9 +1691,6 @@ def list_root(client, page=None):
         logout_item,
         False,
     )
-
-    if has_next:
-        add_next_page(action="root", page=page)
 
     # Keep Settings at the bottom of the root list when logged in as well.
     settings_item = xbmcgui.ListItem(label="Settings")
