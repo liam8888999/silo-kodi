@@ -2849,11 +2849,17 @@ def track_progress(client, session_id, playback_info=None):
                         )
 
                         new_plan = new_info.get("playback_plan") or {}
-                        returned_label = detect_quality_label(new_info)
+                        new_recipe = new_plan.get("effective_recipe") or {}
 
+                        # quality_change is an explicit selection from Silo's
+                        # published ladder. Once Silo accepts it and returns a
+                        # replacement stream, do not second-guess the response
+                        # with a local quality detector. The previous detector
+                        # could mislabel a valid rung as "original" and leave
+                        # the server on the new plan while Kodi kept the old
+                        # stream, causing subsequent 409 stale-plan conflicts.
                         if (
                             new_info.get("url")
-                            and returned_label == target_label
                             and switch_stream(
                                 new_info,
                                 position,
@@ -2868,20 +2874,25 @@ def track_progress(client, session_id, playback_info=None):
                             healthy_since = now
 
                             log(
-                                "Adaptive upshift complete: %s -> %s"
-                                % (current_label, target_label)
+                                "Adaptive upshift complete: %s -> %s "
+                                "(server recipe height=%s bitrate=%s)"
+                                % (
+                                    current_label,
+                                    target_label,
+                                    new_recipe.get("height"),
+                                    new_recipe.get("bitrate_kbps"),
+                                )
                             )
                         else:
                             last_up_replan_at = now
                             healthy_since = now
 
                             log(
-                                "Silo did not return the requested adaptive "
-                                "upshift %s -> %s (returned=%s delivery=%s)"
+                                "Kodi could not adopt the Silo adaptive "
+                                "upshift %s -> %s (delivery=%s)"
                                 % (
                                     current_label,
                                     target_label,
-                                    returned_label,
                                     new_plan.get("delivery"),
                                 ),
                                 xbmc.LOGWARNING,
