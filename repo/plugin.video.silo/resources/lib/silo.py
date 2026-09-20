@@ -1209,7 +1209,7 @@ class SiloClient:
 
     # an observed effective bandwidth estimate.
 
-    def replan_playback(self, info, position, bandwidth_estimate_kbps, quality_preference="auto"):
+    def replan_playback(self, info, position, bandwidth_estimate_kbps, quality_preference="auto", operation="failure_recovery", failure=None):
 
         plan = (info or {}).get("playback_plan") or {}
         session_id = (info or {}).get("session_id") or plan.get("session_id")
@@ -1250,7 +1250,7 @@ class SiloClient:
             "installation_id": self._installation_id(),
             "protocol_version": 3,
             "client_features": ["playback_plan_v3"],
-            "operation": "failure_recovery",
+            "operation": str(operation or "failure_recovery"),
             "playback_attempt_id": playback_attempt_id,
             "replan_request_id": uuid.uuid4().hex,
             "failed_plan_id": str(plan.get("plan_id") or ""),
@@ -1263,7 +1263,8 @@ class SiloClient:
             "metered": bool((info or {}).get("metered", False)),
             "bandwidth_estimate_kbps": bandwidth_estimate_kbps,
             "selected_tracks": plan.get("selected_tracks") or {},
-            "failure": {"classification": "network_buffering"},
+        if failure:
+            body["failure"] = failure
             "client_capabilities": (info or {}).get("client_capabilities") or {},
             "client_playback_context": (info or {}).get("client_playback_context") or {},
         }
