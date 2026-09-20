@@ -30,6 +30,7 @@ to the user.
 
 import sys
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
@@ -2405,19 +2406,37 @@ def track_progress(client, session_id):
         pass
 
     # The final DELETE gets its own sequence number.
+    #
+    # Do not make Kodi wait for Silo's network response here. If the server is
+    # slow or temporarily unreachable, a synchronous cleanup request can keep
+    # this plugin invocation alive and make returning to the directory appear
+    # to freeze. The playback session can be cleaned up independently.
     sequence += 1
 
-    try:
-        client.stop_playback(
-            session_id,
-            sequence,
-            last_position,
-        )
-    except SiloError as exc:
-        log(
-            "Unable to stop Silo playback session: %s" % exc,
-            xbmc.LOGWARNING,
-        )
+    def finish_session():
+        try:
+            client.stop_playback(
+                session_id,
+                sequence,
+                last_position,
+            )
+        except SiloError as exc:
+            log(
+                "Unable to stop Silo playback session: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+        except Exception as exc:
+            log(
+                "Unexpected error stopping Silo playback session: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+
+    cleanup_thread = threading.Thread(
+        target=finish_session,
+        name="SiloPlaybackCleanup",
+    )
+    cleanup_thread.daemon = True
+    cleanup_thread.start()
 
 
 def router(client):
