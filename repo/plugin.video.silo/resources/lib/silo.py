@@ -506,6 +506,38 @@ class SiloClient:
             if not cursor:
                 return libraries
 
+
+    # Search the profile-visible catalog across all accessible libraries.
+    # Silo performs the search server-side, so the addon does not need to
+    # download and scan every library itself.
+    def search_catalog(self, query, limit=100, offset=0):
+        """Return one page of Silo's server-side catalog search results."""
+        query = str(query or "").strip()
+        if not query:
+            return {"items": [], "has_more": False, "total": 0}
+
+        try:
+            limit = max(1, min(int(limit or 100), 100))
+        except (TypeError, ValueError):
+            limit = 100
+
+        try:
+            offset = max(0, int(offset or 0))
+        except (TypeError, ValueError):
+            offset = 0
+
+        return self._json(
+            "GET",
+            "/api/v1/catalog",
+            params={
+                "source": "query",
+                "q": query,
+                "limit": limit,
+                "offset": offset,
+                "include_total": "false",
+            },
+        ) or {}
+
     # Return every catalog item in a library while handling pagination internally.
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
