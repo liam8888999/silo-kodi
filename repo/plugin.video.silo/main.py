@@ -1656,6 +1656,16 @@ def list_root(client, page=None):
 
         title = library.get("name") or library.get("title") or "Library"
         item = xbmcgui.ListItem(label=title)
+
+        # Silo provides a library-level poster_url for custom library artwork.
+        # Apply it as Kodi's poster, thumbnail and icon so the artwork is used
+        # consistently by skins that prefer different art keys.
+        set_art(
+            item,
+            client,
+            poster=library.get("poster_url"),
+        )
+
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="library", library_id=library_id),
