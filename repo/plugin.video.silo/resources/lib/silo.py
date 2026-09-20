@@ -240,7 +240,7 @@ class SiloClient:
 
         if not self.cfg.get("device_id"):
             self.cfg["device_id"] = "kodi-" + uuid.uuid4().hex[:16]
-            save_config(self.cfg)
+            _set_setting("device_id", self.cfg["device_id"])
 
         self.session = requests.Session()
         self._caps = None
@@ -310,22 +310,38 @@ class SiloClient:
 
     # Build authentication/client headers required by Silo API endpoints.
     def _headers(self):
+        # Kodi's settings store is authoritative. Read the live values
+        # directly instead of relying on a potentially stale in-memory cfg.
+        device_id = _setting("device_id")
+        token = _setting("token")
+        profile_id = _setting("profile_id")
+        profile_token = _setting("profile_token")
+
+        if not device_id:
+            device_id = "kodi-" + uuid.uuid4().hex[:16]
+            _set_setting("device_id", device_id)
+
+        self.cfg["device_id"] = device_id
+
         h = {
             "Accept": "application/json",
-            "X-Device-ID": self.cfg["device_id"],
+            "X-Device-ID": device_id,
             "X-Client-Name": "kodi-silo",
             "X-Client-Version": ADDON_VERSION,
             "X-Client-Platform": "kodi",
         }
 
-        if self.cfg.get("token"):
-            h["Authorization"] = "Bearer " + self.cfg["token"]
+        if token:
+            h["Authorization"] = "Bearer " + token
+            self.cfg["token"] = token
 
-        if self.cfg.get("profile_id"):
-            h["X-Profile-Id"] = str(self.cfg["profile_id"])
+        if profile_id:
+            h["X-Profile-Id"] = str(profile_id)
+            self.cfg["profile_id"] = str(profile_id)
 
-        if self.cfg.get("profile_token"):
-            h["X-Profile-Token"] = self.cfg["profile_token"]
+        if profile_token:
+            h["X-Profile-Token"] = str(profile_token)
+            self.cfg["profile_token"] = str(profile_token)
 
         return h
 
@@ -360,7 +376,8 @@ class SiloClient:
         if not self.base:
             self._prompt_account()
 
-        if not self.cfg.get("token"):
+        if not _setting("token"):
+            self.cfg.pop("token", None)
             self.login()
 
         if need_profile and not self.cfg.get("profile_id"):
@@ -482,12 +499,18 @@ class SiloClient:
 
     # Store the access/refresh token pair returned by Silo.
     def _store_tokens(self, data):
-        self.cfg["token"] = data["access_token"]
-        self.cfg["refresh_token"] = data["refresh_token"]
+        access_token = str(data.get("access_token") or "")
+        refresh_token = str(data.get("refresh_token") or "")
 
-        # Persist authentication immediately in Kodi's own settings store.
-        _set_setting("token", self.cfg["token"])
-        _set_setting("refresh_token", self.cfg["refresh_token"])
+        if not access_token or not refresh_token:
+            raise SiloError("Silo login did not return authentication tokens")
+
+        self.cfg["token"] = access_token
+        self.cfg["refresh_token"] = refresh_token
+
+        # Persist authentication immediately in Kodi's settings store.
+        _set_setting("token", access_token)
+        _set_setting("refresh_token", refresh_token)
 
         log("Silo authentication tokens saved to Kodi settings")
 
@@ -554,6 +577,8 @@ class SiloClient:
 
         self._caps = None
         self._requested_profile_name = ""
+        for key in ("token", "refresh_token", "profile_id", "profile_token"):
+            _set_setting(key, "")
         save_config(self.cfg)
 
         try:
@@ -582,12 +607,14 @@ class SiloClient:
 
             self._caps = None
             self._requested_profile_name = ""
+            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+                _set_setting(key, "")
             save_config(self.cfg)
             raise
 
     # Exchange the saved refresh token for a new access token.
     def refresh(self):
-        rt = self.cfg.get("refresh_token")
+        rt = _setting("refresh_token") or self.cfg.get("refresh_token")
         if not rt or not self.base:
             return False
 
@@ -635,6 +662,10 @@ class SiloClient:
         # Playback capabilities can be profile/account dependent, so discard
         # the cached copy and fetch it again after the next login.
         self._caps = None
+        for key in ("device_id", "token", "refresh_token", "profile_id", "profile_token", "start_overrides"):
+            if key == "device_id":
+                continue
+            _set_setting(key, "")
         save_config(self.cfg)
 
     # ----------------------------------------------------------- profiles
@@ -690,10 +721,15 @@ class SiloClient:
         self.cfg["profile_id"] = str(chosen["id"])
         self.cfg.pop("profile_token", None)
 
-        # Persist profile selection directly so a new plugin invocation can
-        # immediately reuse the selected profile.
+        # Persist profile selection directly in Kodi's settings store so a
+        # new plugin invocation can immediately reuse the selected profile.
         _set_setting("profile_id", self.cfg["profile_id"])
         _set_setting("profile_token", "")
+
+        # Also remember the selected name for the Settings page. This does not
+        # force automatic selection unless the user has configured a profile.
+        if not getattr(self, "_requested_profile_name", ""):
+            _set_setting("profile", str(chosen.get("name") or ""))
 
         if chosen.get("has_pin"):
             self.verify_profile(chosen["id"])
