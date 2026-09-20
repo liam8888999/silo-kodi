@@ -553,17 +553,10 @@ class SiloClient:
             # scratch because no account fields were retained above.
             self.login(show_loading=True)
 
-            # Do not cover the profile selector/PIN prompt with the busy dialog.
-            _hide_login_loading()
-
-            # login() only authenticates the account. Select the household
-            # profile afterwards so subsequent profile-scoped API calls have
-            # everything they need.
+            # Keep the spinner active when the account can select its
+            # profile automatically. select_profile() pauses it only when Kodi
+            # actually needs to display a profile or PIN prompt.
             self.select_profile()
-
-            # Keep the spinner active for the next Container.Refresh so the
-            # library page itself cannot appear before its server data is ready.
-            _show_login_loading()
 
         except SiloError:
             # Always close the loading indicator on a failed or cancelled login.
@@ -686,8 +679,14 @@ class SiloClient:
                     % requested_name
                 )
         elif len(profiles) == 1:
+            # There is no profile chooser to display, so leave the login
+            # spinner active and select the only profile automatically.
             chosen = profiles[0]
         else:
+            # A real profile-selection dialog needs to be visible to the user,
+            # so temporarily close the login spinner while Kodi displays it.
+            _hide_login_loading()
+
             idx = xbmcgui.Dialog().select(
                 "Who's watching?",
                 [p.get("name", "Profile") for p in profiles],
@@ -697,6 +696,9 @@ class SiloClient:
                 raise SiloError("No profile selected")
 
             chosen = profiles[idx]
+
+            # Resume the existing login spinner once profile selection is done.
+            _show_login_loading()
 
         self.cfg["profile_id"] = str(chosen["id"])
         self.cfg.pop("profile_token", None)
@@ -710,7 +712,13 @@ class SiloClient:
         # page intentionally has no editable profile-name field.
 
         if chosen.get("has_pin"):
-            self.verify_profile(chosen["id"])
+            # The PIN prompt must be visible, so pause the spinner for it and
+            # resume the same login spinner afterwards.
+            _hide_login_loading()
+            try:
+                self.verify_profile(chosen["id"])
+            finally:
+                _show_login_loading()
 
     # Verify a PIN-locked profile and store its temporary verification token.
     def verify_profile(self, profile_id):
