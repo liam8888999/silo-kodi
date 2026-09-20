@@ -2594,7 +2594,7 @@ def track_progress(client, session_id, playback_info=None):
     down_cooldown = 10.0
     up_cooldown = 90.0
     stall_threshold = 8.0
-    healthy_recovery_threshold = 180.0
+    healthy_recovery_threshold = 90.0
 
     healthy_since = time.time()
 
