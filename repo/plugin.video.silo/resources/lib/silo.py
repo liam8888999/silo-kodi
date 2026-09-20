@@ -55,6 +55,40 @@ def log(msg, level=xbmc.LOGINFO):
     xbmc.log("[plugin.video.silo] %s" % msg, level)
 
 
+# Window property used to keep the login loading indicator visible while the
+# refreshed root directory is loading after a successful login.
+_LOGIN_LOADING_PROPERTY = "Silo.LoginLoading"
+
+
+def _show_login_loading():
+    """Show Kodi's native non-cancelable busy spinner once for the login flow."""
+    window = xbmcgui.Window(10000)
+
+    # The login flow can pass through automatic profile selection, an explicit
+    # profile chooser, and a post-login Container.Refresh. Keep one continuous
+    # spinner instead of activating the busy dialog more than once.
+    if window.getProperty(_LOGIN_LOADING_PROPERTY) == "true":
+        return
+
+    window.setProperty(_LOGIN_LOADING_PROPERTY, "true")
+
+    # DialogBusy was removed as a usable Python class in Kodi 18+. The
+    # supported workaround is to activate the non-cancelable busy-dialog
+    # window explicitly.
+    xbmc.executebuiltin("ActivateWindow(busydialognocancel)")
+
+    # Allow Kodi's GUI thread to process and display the dialog before the
+    # synchronous network request immediately following this call starts.
+    xbmc.sleep(100)
+
+
+def _hide_login_loading():
+    """Close the login busy spinner and clear its refresh-state marker."""
+    xbmc.executebuiltin("Dialog.Close(busydialognocancel)")
+    xbmc.sleep(50)
+    xbmcgui.Window(10000).clearProperty(_LOGIN_LOADING_PROPERTY)
+
+
 # Load saved server/login/device/profile settings from Kodi's addon profile.
 # Kodi's add-on settings are the persistent configuration store.
 # The cfg dictionary remains an in-memory convenience for the rest of the
@@ -437,9 +471,13 @@ class SiloClient:
     #
     # This deliberately does NOT call _send(), because _send() calls login()
     # when a token is missing. Calling _send() here would recurse forever.
-    def login(self):
+    def login(self, show_loading=False):
         if not self.base or not self.cfg.get("username"):
             self._prompt_account()
+
+        # Never leave the busy dialog covering an input prompt. The loading
+        # indicator starts only after the password has been submitted.
+        _hide_login_loading()
 
         pw = xbmcgui.Dialog().input(
             "Password for %s" % self.cfg["username"],
@@ -448,6 +486,11 @@ class SiloClient:
 
         if not pw:
             raise SiloError("Login cancelled")
+
+        # Start Kodi's native busy spinner immediately after the password
+        # prompt closes, before the network authentication request begins.
+        if show_loading:
+            _show_login_loading()
 
         try:
             r = self.session.post(
@@ -467,12 +510,21 @@ class SiloClient:
                 },
             )
         except requests.RequestException as e:
+            if show_loading:
+                _hide_login_loading()
             raise SiloError("Cannot reach server: %s" % e)
 
         if not r.ok:
+            if show_loading:
+                _hide_login_loading()
             raise SiloError("Login failed - " + self._problem(r))
 
-        self._store_tokens(r.json())
+        try:
+            self._store_tokens(r.json())
+        except Exception:
+            if show_loading:
+                _hide_login_loading()
+            raise
 
     # Complete interactive login used by the Kodi Login button.
     #
@@ -480,6 +532,10 @@ class SiloClient:
     # place: server/username/password, token storage, profile selection and
     # profile PIN verification when required.
     def login_full(self):
+        # Explicit login starts with no busy spinner so the server, username
+        # and password prompts are unobstructed.
+        _hide_login_loading()
+
         # Every explicit Kodi login starts as a completely fresh attempt.
         # Do not reuse a previously entered server, username, token or profile
         # after a failed/cancelled login; this ensures the next attempt always
@@ -503,14 +559,17 @@ class SiloClient:
         try:
             # login() now asks for server URL, username and password from
             # scratch because no account fields were retained above.
-            self.login()
+            self.login(show_loading=True)
 
-            # login() only authenticates the account. Select the household
-            # profile afterwards so subsequent profile-scoped API calls have
-            # everything they need.
+            # Keep the spinner active when the account can select its
+            # profile automatically. select_profile() pauses it only when Kodi
+            # actually needs to display a profile or PIN prompt.
             self.select_profile()
 
         except SiloError:
+            # Always close the loading indicator on a failed or cancelled login.
+            _hide_login_loading()
+
             # A bad password, unknown user/server, cancelled prompt, cancelled
             # profile selection, or cancelled PIN must leave no partial login
             # state behind. The next Login selection will start at server URL.
@@ -628,8 +687,14 @@ class SiloClient:
                     % requested_name
                 )
         elif len(profiles) == 1:
+            # There is no profile chooser to display, so leave the login
+            # spinner active and select the only profile automatically.
             chosen = profiles[0]
         else:
+            # A real profile-selection dialog needs to be visible to the user,
+            # so temporarily close the login spinner while Kodi displays it.
+            _hide_login_loading()
+
             idx = xbmcgui.Dialog().select(
                 "Who's watching?",
                 [p.get("name", "Profile") for p in profiles],
@@ -639,6 +704,9 @@ class SiloClient:
                 raise SiloError("No profile selected")
 
             chosen = profiles[idx]
+
+            # Resume the existing login spinner once profile selection is done.
+            _show_login_loading()
 
         self.cfg["profile_id"] = str(chosen["id"])
         self.cfg.pop("profile_token", None)
@@ -652,7 +720,13 @@ class SiloClient:
         # page intentionally has no editable profile-name field.
 
         if chosen.get("has_pin"):
-            self.verify_profile(chosen["id"])
+            # The PIN prompt must be visible, so pause the spinner for it and
+            # resume the same login spinner afterwards.
+            _hide_login_loading()
+            try:
+                self.verify_profile(chosen["id"])
+            finally:
+                _show_login_loading()
 
     # Verify a PIN-locked profile and store its temporary verification token.
     def verify_profile(self, profile_id):

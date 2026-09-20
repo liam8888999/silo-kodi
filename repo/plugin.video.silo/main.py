@@ -39,7 +39,12 @@ import xbmcgui
 import xbmcplugin
 import xbmcaddon
 
-from resources.lib.silo import SiloClient, SiloError, log
+from resources.lib.silo import (
+    SiloClient,
+    SiloError,
+    _hide_login_loading,
+    log,
+)
 
 
 # Kodi supplies a numeric handle for the current plugin directory.
@@ -1705,6 +1710,12 @@ def list_root(client, page=None):
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
 
+    # A successful login leaves this flag set while Container.Refresh starts
+    # the new root-page invocation. Close the spinner only after the libraries
+    # have actually been added to the Kodi directory.
+    if xbmcgui.Window(10000).getProperty("Silo.LoginLoading") == "true":
+        _hide_login_loading()
+
 
 def list_library(client, library_id, cursor=None):
     """Display every item in a Silo library as efficiently as possible.
@@ -2637,6 +2648,13 @@ def main():
             xbmcgui.NOTIFICATION_ERROR,
             5000,
         )
+
+    finally:
+        # Do not close the login spinner here. A successful login calls
+        # Container.Refresh, which starts a new main.py invocation to build
+        # the library. list_root() in that new invocation closes the spinner
+        # after the library directory has been populated.
+        pass
 
 
 # Kodi executes main.py as the addon entry point.
