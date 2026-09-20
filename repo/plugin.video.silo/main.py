@@ -1340,6 +1340,11 @@ def list_search_results(client, query, page=1):
     items = data.get("items") or []
     has_more = bool(data.get("has_more"))
 
+    log(
+        "Silo search query=%r returned %d item(s), has_more=%s"
+        % (query, len(items), has_more)
+    )
+
     xbmcplugin.setPluginCategory(
         HANDLE,
         "Search: %s" % query,
@@ -1360,13 +1365,9 @@ def list_search_results(client, query, page=1):
             True,
         )
 
-    # Use the same detail metadata pipeline as normal library pages so search
-    # results expose the same cast, crew, ratings and stream metadata.
-    detail_map = fetch_detail_metadata(
-        client,
-        items,
-        None,
-    )
+    # Do not block the search directory on one detail request per result.
+    # Full detail metadata is fetched when the selected item is played, just
+    # like the normal Kodi playback path.
 
     batch = []
 
@@ -1410,13 +1411,9 @@ def list_search_results(client, query, page=1):
             ),
         )
 
-        detail = detail_map.get(str(content_id))
-        if detail:
-            set_detail_metadata(
-                item,
-                detail,
-                client,
-            )
+        # Search results already contain the catalog metadata Kodi needs to
+        # display the result. Extended cast/crew/stream detail is loaded when
+        # the item is selected for playback.
 
         # Search results are already profile-scoped by Silo. Use the catalog
         # watch state directly so this search does not download the full
