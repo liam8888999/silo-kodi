@@ -34,7 +34,6 @@ Endpoints used by this addon:
 
 # Standard library modules used for configuration, UUID generation and URL handling.
 import json
-import os
 import uuid
 from urllib.parse import quote
 
@@ -49,8 +48,6 @@ import xbmcvfs
 # Read addon metadata and determine where Kodi should store persistent configuration.
 ADDON = xbmcaddon.Addon()
 ADDON_VERSION = ADDON.getAddonInfo("version")
-PROFILE_DIR = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
-CONFIG_PATH = os.path.join(PROFILE_DIR, "config.json")
 
 
 # Central logging helper so every log line identifies this addon.
@@ -68,7 +65,6 @@ _INTERNAL_SETTINGS = (
     "refresh_token",
     "profile_id",
     "profile_token",
-    "start_overrides",
 )
 
 
@@ -131,15 +127,7 @@ def load_config():
         if not value:
             continue
 
-        if key == "start_overrides":
-            try:
-                parsed = json.loads(value)
-            except ValueError:
-                continue
-            if isinstance(parsed, dict):
-                cfg[key] = parsed
-        else:
-            cfg[key] = value
+        cfg[key] = value
 
     return cfg
 
@@ -155,11 +143,7 @@ def save_config(cfg):
             _set_setting(key, "")
             continue
 
-        value = cfg[key]
-        if key == "start_overrides":
-            value = json.dumps(value or {}, separators=(",", ":"))
-
-        _set_setting(key, value)
+        _set_setting(key, cfg[key])
 
 
 # Custom exception used for errors that should be shown/logged by Kodi.
@@ -169,66 +153,6 @@ class SiloError(Exception):
         self.status = status
         self.problem = problem or {}
         self.retry_after = retry_after
-
-
-# Playback-start fields whose accepted strings are not fully described by the
-# OpenAPI schema. If Silo returns a validation error for one of these fields,
-# the addon tries the next known candidate automatically.
-_VOCAB = {
-    "subtitle_fidelity_preference": (
-        ("subtitle_fidelity_preference",),
-        [
-            "preserve", "auto", "prefer_fidelity", "fidelity", "native",
-            "prefer_native", "exact", "compatible", "compatibility", "balanced",
-            "best_effort", "any", "default", "none", "off", "sidecar", "text",
-            "convert", "original", "high", "strict", "lossless", ""
-        ]
-    ),
-    "quality_preference": (
-        ("quality_preference",),
-        ["original", "auto", "1080p", "2160p", "720p", "direct", ""]
-    ),
-    "video_evidence": (
-        ("client_capabilities", "video_evidence"),
-        [
-            "declared", "probed", "reported", "measured", "observed",
-            "platform", "api", "runtime", "static", "assumed", "heuristic",
-            "inferred", "unknown", "none", ""
-        ]
-    ),
-    "audio_evidence": (
-        ("client_capabilities", "audio_evidence"),
-        [
-            "declared", "probed", "reported", "measured", "observed",
-            "platform", "api", "runtime", "static", "assumed", "heuristic",
-            "inferred", "unknown", "none", ""
-        ]
-    ),
-    "form_factor": (
-        ("client_playback_context", "form_factor"),
-        [
-            "desktop", "tv", "phone", "tablet", "web", "laptop", "set_top_box",
-            "console", "other", "unknown", "stb", "htpc"
-        ]
-    ),
-}
-
-
-# Set a nested dictionary value, creating missing dictionaries along the way.
-def _set_path(obj, path, value):
-    for key in path[:-1]:
-        obj = obj.setdefault(key, {})
-    obj[path[-1]] = value
-
-
-# Merge nested playback overrides without replacing unrelated configuration fields.
-def _deep_merge(base, extra):
-    for k, v in (extra or {}).items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            _deep_merge(base[k], v)
-        else:
-            base[k] = v
-    return base
 
 
 class SiloClient:
@@ -1170,87 +1094,13 @@ class SiloClient:
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
     def start_playback(self, file_id, start_position=0.0):
-        # A value learned on an earlier run can speed up playback-start.
-        saved_overrides = self.cfg.get("start_overrides") or {}
-        chosen = {}
+        body = self._start_body(file_id, start_position)
 
-        # Reset the local subtitle override if it is known to be one of the
-        # values that the current server rejected. The probing loop below will
-        # learn a valid value again and save it.
-        if isinstance(saved_overrides.get("subtitle_fidelity_preference"), str):
-            saved_subtitle = saved_overrides.get("subtitle_fidelity_preference")
-            if saved_subtitle not in _VOCAB["subtitle_fidelity_preference"][1]:
-                saved_overrides.pop("subtitle_fidelity_preference", None)
-                save_config(self.cfg)
-
-        last_error = None
-
-        for _ in range(60):
-            body = _deep_merge(
-                self._start_body(file_id, start_position),
-                saved_overrides,
-            )
-
-            # Values already discovered during this request have priority over
-            # values remembered from an earlier request.
-            for field, index in chosen.items():
-                path, candidates = _VOCAB[field]
-                _set_path(body, path, candidates[index])
-
-            try:
-                data = self._json(
-                    "POST",
-                    "/api/v2/playback/start",
-                    body=body,
-                )
-                break
-
-            except SiloError as exc:
-                last_error = exc
-
-                bad_fields = self._invalid_fields(exc) if exc.status == 422 else []
-
-                if not bad_fields:
-                    log(
-                        "playback/start body was: %s" % json.dumps(body)[:4000],
-                        xbmc.LOGWARNING,
-                    )
-                    raise
-
-                # Advance every rejected vocabulary field to the next candidate.
-                for field in bad_fields:
-                    next_index = chosen.get(field, -1) + 1
-                    candidates = _VOCAB[field][1]
-
-                    if next_index >= len(candidates):
-                        raise SiloError(
-                            "No accepted value found for '%s'. Set it under "
-                            "start_overrides in config.json." % field
-                        )
-
-                    chosen[field] = next_index
-
-                xbmc.sleep(150)
-
-        else:
-            raise last_error or SiloError("Gave up probing playback field values")
-
-        # Remember values accepted by this server so future starts can be immediate.
-        if chosen:
-            saved = self.cfg.setdefault("start_overrides", {})
-
-            for field, index in chosen.items():
-                path, candidates = _VOCAB[field]
-                _set_path(saved, path, candidates[index])
-
-            save_config(self.cfg)
-
-            log(
-                "learned playback values: %s" % {
-                    field: _VOCAB[field][1][index]
-                    for field, index in chosen.items()
-                }
-            )
+        data = self._json(
+            "POST",
+            "/api/v2/playback/start",
+            body=body,
+        )
 
         plan = data.get("playback_plan")
 
