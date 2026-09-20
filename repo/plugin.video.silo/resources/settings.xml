@@ -1,28 +1,69 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<settings>
-  <category label="Connection">
-    <setting id="server" type="text" label="Server address" default="" />
-    <setting id="username" type="text" label="Username" default="" />
-    <setting id="profile" type="text" label="Profile name (optional)" default="" />
-  </category>
+<settings version="1">
+  <section id="plugin.video.silo" label="Silo Media Server">
+    <category id="connection" label="Connection">
+      <group id="1" label="Account">
+        <setting id="server" type="string" label="Server address" help="The URL of your Silo server.">
+          <level>0</level>
+          <default></default>
+          <control type="edit" format="string" />
+        </setting>
 
-  <category label="Pagination">
-    <setting
-      id="items_per_page"
-      type="slider"
-      label="Items per page"
-      default="200"
-      range="20,10,200"
-      option="int"
-    />
-  </category>
+        <setting id="username" type="string" label="Username" help="Use username#profile to automatically select a profile.">
+          <level>0</level>
+          <default></default>
+          <control type="edit" format="string" />
+        </setting>
 
-  <category label="Internal">
-    <setting id="device_id" type="text" label="Device ID" default="" visible="false" />
-    <setting id="token" type="text" label="Access token" default="" visible="false" />
-    <setting id="refresh_token" type="text" label="Refresh token" default="" visible="false" />
-    <setting id="profile_id" type="text" label="Profile ID" default="" visible="false" />
-    <setting id="profile_token" type="text" label="Profile token" default="" visible="false" />
-    <setting id="start_overrides" type="text" label="Playback overrides" default="" visible="false" />
-  </category>
+        <setting id="profile" type="string" label="Profile name" help="Optional. Leave empty to use the normal profile selection dialog.">
+          <level>0</level>
+          <default></default>
+          <control type="edit" format="string" />
+        </setting>
+
+        <!-- Internal settings. Level 4 is Kodi's internal level and is never
+             shown in the add-on settings GUI. These values are maintained by
+             the add-on for authentication and playback state. -->
+        <setting id="device_id" type="string">
+          <level>4</level>
+          <default></default>
+        </setting>
+        <setting id="token" type="string">
+          <level>4</level>
+          <default></default>
+        </setting>
+        <setting id="refresh_token" type="string">
+          <level>4</level>
+          <default></default>
+        </setting>
+        <setting id="profile_id" type="string">
+          <level>4</level>
+          <default></default>
+        </setting>
+        <setting id="profile_token" type="string">
+          <level>4</level>
+          <default></default>
+        </setting>
+        <setting id="start_overrides" type="string">
+          <level>4</level>
+          <default></default>
+        </setting>
+      </group>
+    </category>
+
+    <category id="pagination" label="Pagination">
+      <group id="1" label="Display">
+        <setting id="items_per_page" type="integer" label="Items per page" help="Number of items shown before a Next Page entry is added.">
+          <level>0</level>
+          <default>200</default>
+          <constraints>
+            <minimum>20</minimum>
+            <step>10</step>
+            <maximum>200</maximum>
+          </constraints>
+          <control type="spinner" format="integer" />
+        </setting>
+      </group>
+    </category>
+  </section>
 </settings>
