@@ -39,7 +39,12 @@ import xbmcgui
 import xbmcplugin
 import xbmcaddon
 
-from resources.lib.silo import SiloClient, SiloError, log
+from resources.lib.silo import (
+    SiloClient,
+    SiloError,
+    _hide_login_loading,
+    log,
+)
 
 
 # Kodi supplies a numeric handle for the current plugin directory.
@@ -2637,6 +2642,13 @@ def main():
             xbmcgui.NOTIFICATION_ERROR,
             5000,
         )
+
+    finally:
+        # If this invocation was the post-login Container.Refresh, the busy
+        # dialog stays open until the root directory has finished loading.
+        # Normal addon opens also remain unaffected because the login flow
+        # never sets this loading state for them.
+        _hide_login_loading()
 
 
 # Kodi executes main.py as the addon entry point.
