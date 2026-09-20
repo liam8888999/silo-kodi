@@ -1618,18 +1618,34 @@ def list_root(client, page=None):
                 login_item,
                 False,
             )
+
+            # Settings is deliberately available before login so the user can
+            # enter the server/username/profile without using the Login button.
+            settings_item = xbmcgui.ListItem(label="Settings")
+            xbmcplugin.addDirectoryItem(
+                HANDLE,
+                build_url(action="settings"),
+                settings_item,
+                False,
+            )
+
             xbmcplugin.setContent(HANDLE, "files")
             xbmcplugin.endOfDirectory(HANDLE)
             return
 
     search_item = xbmcgui.ListItem(label="Search")
-    xbmcplugin.addDirectoryItem(HANDLE, build_url(action="search"), search_item, True)
-
-    settings_item = xbmcgui.ListItem(label="Settings")
-    xbmcplugin.addDirectoryItem(HANDLE, build_url(action="settings"), settings_item, False)
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="search"),
+        search_item,
+        True,
+    )
 
     libraries = client.libraries()
-    page_items, has_previous, has_next = paginate_directory(libraries, page)
+    page_items, has_previous, has_next = paginate_directory(
+        libraries,
+        page,
+    )
 
     add_previous_page(action="root", page=page)
 
@@ -1665,6 +1681,15 @@ def list_root(client, page=None):
 
     if has_next:
         add_next_page(action="root", page=page)
+
+    # Keep Settings at the bottom of the root list when logged in as well.
+    settings_item = xbmcgui.ListItem(label="Settings")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="settings"),
+        settings_item,
+        False,
+    )
 
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
