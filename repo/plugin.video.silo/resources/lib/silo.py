@@ -991,7 +991,7 @@ class SiloClient:
             return 3
 
     # Build a protocol-v3 playback/start request.
-    def _start_body(self, file_id, start_position=None):
+    def _start_body(self, file_id, start_position=0.0):
         caps = self.playback_caps()
         pv = self._protocol_version()
 
@@ -1043,7 +1043,7 @@ class SiloClient:
             "client_features": [],
             "file_id": str(file_id),
             "profile_id": str(self.cfg["profile_id"]),
-            **({"start_position": float(start_position)} if start_position is not None else {}),
+            "start_position": float(start_position),
             "playback_attempt_id": uuid.uuid4().hex,
             "quality_preference": "original",
             "subtitle_fidelity_preference": "preserve",
@@ -1093,7 +1093,7 @@ class SiloClient:
         ]
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
-    def start_playback(self, file_id, start_position=None):
+    def start_playback(self, file_id, start_position=0.0):
         body = self._start_body(file_id, start_position)
 
         data = self._json(
@@ -1134,21 +1134,13 @@ class SiloClient:
                 for key, value in headers.items()
             )
 
-        # None means the start_position field was intentionally omitted,
-        # which tells Silo to use the server-saved resume position.
-        logged_position = (
-            "server_resume"
-            if start_position is None
-            else "%.3f" % float(start_position)
-        )
-
         log(
-            "delivery=%s protocol=%s outcome=%s start_position=%s"
+            "delivery=%s protocol=%s outcome=%s start_position=%.3f"
             % (
                 plan.get("delivery"),
                 stream.get("protocol"),
                 data.get("outcome"),
-                logged_position,
+                float(start_position),
             )
         )
 
