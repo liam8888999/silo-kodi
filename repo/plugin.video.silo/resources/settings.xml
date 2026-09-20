@@ -11,7 +11,7 @@
   </category>
 
   <category label="Internal">
-    <setting id="device_id" type="text" label="Device ID" default="" visible="false" />
+    <setting id="device_id" type="text" label="Device ID" default="" visible="true" enable="false" />
     <setting id="token" type="text" label="Access token" default="" visible="false" />
     <setting id="refresh_token" type="text" label="Refresh token" default="" visible="false" />
     <setting id="profile_id" type="text" label="Profile ID" default="" visible="false" />
