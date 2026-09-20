@@ -1710,6 +1710,12 @@ def list_root(client, page=None):
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
 
+    # A successful login leaves this flag set while Container.Refresh starts
+    # the new root-page invocation. Close the spinner only after the libraries
+    # have actually been added to the Kodi directory.
+    if xbmcgui.Window(10000).getProperty("Silo.LoginLoading") == "true":
+        _hide_login_loading()
+
 
 def list_library(client, library_id, cursor=None):
     """Display every item in a Silo library as efficiently as possible.
@@ -2644,11 +2650,11 @@ def main():
         )
 
     finally:
-        # If this invocation was the post-login Container.Refresh, the busy
-        # dialog stays open until the root directory has finished loading.
-        # Normal addon opens also remain unaffected because the login flow
-        # never sets this loading state for them.
-        _hide_login_loading()
+        # Do not close the login spinner here. A successful login calls
+        # Container.Refresh, which starts a new main.py invocation to build
+        # the library. list_root() in that new invocation closes the spinner
+        # after the library directory has been populated.
+        pass
 
 
 # Kodi executes main.py as the addon entry point.
