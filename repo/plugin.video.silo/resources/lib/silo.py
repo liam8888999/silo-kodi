@@ -59,19 +59,168 @@ def log(msg, level=xbmc.LOGINFO):
 
 
 # Load saved server/login/device/profile settings from Kodi's addon profile.
-def load_config():
+# Kodi settings are the persistent configuration store. The small in-memory
+# cfg dictionary is retained so the rest of the client can keep its existing
+# logic, but it is rebuilt from Kodi settings for every client instance.
+_INTERNAL_SETTINGS = (
+    "device_id",
+    "token",
+    "refresh_token",
+    "profile_id",
+    "profile_token",
+    "start_overrides",
+)
+
+
+def _read_setting(key):
+    return ADDON.getSetting(key)
+
+
+def _write_setting(key, value):
+    ADDON.setSetting(key, "" if value is None else str(value))
+
+
+def _read_legacy_config():
+    """Read the old JSON config once so existing installations can migrate."""
     try:
         with open(CONFIG_PATH, "r") as f:
-            return json.load(f)
+            data = json.load(f)
     except (OSError, ValueError):
         return {}
+    return data if isinstance(data, dict) else {}
 
 
-# Save configuration changes such as tokens, profile selection and playback settings.
+def _delete_legacy_config():
+    try:
+        os.remove(CONFIG_PATH)
+    except OSError:
+        pass
+
+
+def load_config():
+    """Load connection and internal state from Kodi's add-on settings."""
+    cfg = {}
+
+    server = _read_setting("server").strip()
+    raw_username = _read_setting("username").strip()
+    profile = _read_setting("profile").strip()
+
+    if server:
+        cfg["server"] = server.rstrip("/")
+
+    if raw_username:
+        # username#profile is supported in settings as well as the login prompt.
+        if "#" in raw_username:
+            username, requested_profile = raw_username.split("#", 1)
+            username = username.strip()
+            requested_profile = requested_profile.strip()
+
+            if username:
+                cfg["username"] = username
+            if requested_profile and not profile:
+                profile = requested_profile
+        else:
+            cfg["username"] = raw_username
+
+    if profile:
+        cfg["profile_name"] = profile
+
+    raw_items = _read_setting("items_per_page")
+    try:
+        if raw_items:
+            cfg["items_per_page"] = max(20, min(int(raw_items), 200))
+    except (TypeError, ValueError):
+        pass
+
+    for key in _INTERNAL_SETTINGS:
+        value = _read_setting(key)
+
+        if key == "start_overrides":
+            if value:
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, dict):
+                        cfg[key] = parsed
+                except ValueError:
+                    pass
+        elif value:
+            cfg[key] = value
+
+    # Migrate fields from the old JSON file only when the new settings store
+    # does not already contain them. This is a one-time migration path.
+    legacy = _read_legacy_config()
+    if legacy:
+        changed = False
+
+        if not cfg.get("server") and legacy.get("server"):
+            _write_setting("server", str(legacy["server"]).rstrip("/"))
+            cfg["server"] = str(legacy["server"]).rstrip("/")
+            changed = True
+
+        if not cfg.get("username") and legacy.get("username"):
+            raw_legacy_username = str(legacy["username"]).strip()
+            if "#" in raw_legacy_username:
+                legacy_username, legacy_profile = raw_legacy_username.split("#", 1)
+                legacy_username = legacy_username.strip()
+                legacy_profile = legacy_profile.strip()
+                _write_setting("username", raw_legacy_username)
+                cfg["username"] = legacy_username
+                if not cfg.get("profile_name") and legacy_profile:
+                    _write_setting("profile", legacy_profile)
+                    cfg["profile_name"] = legacy_profile
+            else:
+                _write_setting("username", raw_legacy_username)
+                cfg["username"] = raw_legacy_username
+            changed = True
+
+        if not cfg.get("profile_name") and legacy.get("profile_name"):
+            profile_value = str(legacy["profile_name"]).strip()
+            if profile_value:
+                _write_setting("profile", profile_value)
+                cfg["profile_name"] = profile_value
+                changed = True
+
+        for key in _INTERNAL_SETTINGS:
+            if cfg.get(key):
+                continue
+
+            value = legacy.get(key)
+            if value in (None, ""):
+                continue
+
+            if key == "start_overrides" and isinstance(value, dict):
+                _write_setting(key, json.dumps(value, separators=(",", ":")))
+                cfg[key] = value
+            else:
+                _write_setting(key, value)
+                cfg[key] = value
+            changed = True
+
+        if changed or legacy:
+            _delete_legacy_config()
+
+    return cfg
+
+
 def save_config(cfg):
-    xbmcvfs.mkdirs(PROFILE_DIR)
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f)
+    """Persist internal runtime state into hidden Kodi settings.
+
+    User-editable connection values are deliberately NOT written from cfg.
+    Kodi already persists server/username/profile/items_per_page itself and
+    remains the single source of truth for those values.
+    """
+    for key in _INTERNAL_SETTINGS:
+        if key not in cfg:
+            _write_setting(key, "")
+            continue
+
+        value = cfg[key]
+        if key == "start_overrides":
+            value = json.dumps(value or {}, separators=(",", ":"))
+
+        _write_setting(key, value)
+
+    _delete_legacy_config()
 
 
 # Custom exception used for errors that should be shown/logged by Kodi.
@@ -163,61 +312,52 @@ class SiloClient:
     # ------------------------------------------------------------ settings
 
     def sync_settings(self):
-        """Sync editable Kodi connection settings into the saved config.
+        """Refresh editable connection values from Kodi settings."""
+        server = ADDON.getSetting("server").strip().rstrip("/")
+        raw_username = ADDON.getSetting("username").strip()
+        profile = ADDON.getSetting("profile").strip()
 
-        Existing config values are copied into Kodi settings the first time
-        the settings page is introduced. After that, non-empty setting values
-        are treated as user edits and invalidate stale authentication.
-        """
-        setting_server = ADDON.getSetting("server").strip().rstrip("/")
-        setting_username = ADDON.getSetting("username").strip()
-        setting_profile = ADDON.getSetting("profile").strip()
+        username = raw_username
+        requested_profile = profile
 
-        config_server = self.cfg.get("server", "").strip().rstrip("/")
-        config_username = self.cfg.get("username", "").strip()
-        config_profile = self.cfg.get("profile_name", "").strip()
+        if "#" in raw_username:
+            username, requested_profile = raw_username.split("#", 1)
+            username = username.strip()
+            requested_profile = requested_profile.strip()
 
-        # Migrate an existing installation into the new Kodi settings UI
-        # without logging the user out on first startup after the update.
-        if not setting_server and config_server:
-            ADDON.setSetting("server", config_server)
-            setting_server = config_server
-
-        if not setting_username and config_username:
-            ADDON.setSetting("username", config_username)
-            setting_username = config_username
-
-        if not setting_profile and config_profile:
-            ADDON.setSetting("profile", config_profile)
-            setting_profile = config_profile
-
-        changed = (
-            setting_server != config_server
-            or setting_username != config_username
-            or setting_profile != config_profile
+        old_identity = (
+            self.cfg.get("server", ""),
+            self.cfg.get("username", ""),
+            self.cfg.get("profile_name", ""),
+        )
+        new_identity = (
+            server,
+            username,
+            requested_profile,
         )
 
-        if changed:
+        if new_identity != old_identity:
             for key in ("token", "refresh_token", "profile_id", "profile_token"):
                 self.cfg.pop(key, None)
             self._caps = None
 
-        if setting_server:
-            self.cfg["server"] = setting_server
+        if server:
+            self.cfg["server"] = server
         else:
             self.cfg.pop("server", None)
 
-        if setting_username:
-            self.cfg["username"] = setting_username
+        if username:
+            self.cfg["username"] = username
         else:
             self.cfg.pop("username", None)
 
-        if setting_profile:
-            self.cfg["profile_name"] = setting_profile
+        if requested_profile:
+            self.cfg["profile_name"] = requested_profile
         else:
             self.cfg.pop("profile_name", None)
 
         save_config(self.cfg)
+
 
 
     # ------------------------------------------------------------ helpers
@@ -370,24 +510,36 @@ class SiloClient:
         # A '#' is optional. Without it, retain the normal profile-selection
         # dialog. With it, use the part before '#' as the account username and
         # the part after '#' as the profile name.
+        ADDON.setSetting("server", server.rstrip("/"))
+        ADDON.setSetting("username", user.strip())
+
         if "#" in user:
             username, profile_name = user.split("#", 1)
             username = username.strip()
             profile_name = profile_name.strip()
 
             if not username or not profile_name:
+                ADDON.setSetting("server", "")
+                ADDON.setSetting("username", "")
                 raise SiloError(
                     "Use username#profile, for example liam1#liam2"
                 )
 
+            ADDON.setSetting("username", username)
+            ADDON.setSetting("profile", profile_name)
             self.cfg["username"] = username
+            self.cfg["profile_name"] = profile_name
             self._requested_profile_name = profile_name
         else:
+            ADDON.setSetting("profile", "")
             self.cfg["username"] = user.strip()
-            self._requested_profile_name = self.cfg.get("profile_name", "")
+            self.cfg.pop("profile_name", None)
+            self._requested_profile_name = ""
 
         self.cfg["server"] = server.rstrip("/")
         save_config(self.cfg)
+
+
 
     # Store the access/refresh token pair returned by Silo.
     def _store_tokens(self, data):
