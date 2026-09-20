@@ -1872,11 +1872,64 @@ def list_library(client, library_id, cursor=None):
     xbmcplugin.endOfDirectory(HANDLE)
 
 def list_seasons(client, series_id, library_id, page=None):
-    """Display all seasons belonging to a series."""
+    """Display all seasons belonging to a series.
+
+    Library browsing already supplies the library ID because the user opened
+    the series from a specific library. Search results are different: Silo's
+    global catalog search intentionally does not include library membership on
+    the returned series card, while the v2 season/episode endpoints require a
+    positive library ID for the episode lookup.
+
+    When search opened this page without a library ID, resolve the series
+    against the user's accessible libraries and then carry the resolved ID
+    forward into every season URL.
+    """
     if not series_id:
         raise SiloError("No series ID was supplied.")
 
-    seasons = client.seasons(series_id, library_id)
+    resolved_library_id = library_id
+    seasons = None
+
+    if resolved_library_id:
+        seasons = client.seasons(
+            series_id,
+            resolved_library_id,
+        )
+    else:
+        # A global search result does not identify which accessible library
+        # contains the series. Check each accessible library until the v2
+        # seasons endpoint returns a matching set of seasons.
+        libraries = client.libraries()
+
+        for library in libraries:
+            candidate_library_id = library.get("id")
+            if not candidate_library_id:
+                continue
+
+            try:
+                candidate_seasons = client.seasons(
+                    series_id,
+                    candidate_library_id,
+                )
+            except SiloError as exc:
+                log(
+                    "Unable to check series %s in library %s: %s"
+                    % (series_id, candidate_library_id, exc),
+                    xbmc.LOGDEBUG,
+                )
+                continue
+
+            if candidate_seasons:
+                resolved_library_id = candidate_library_id
+                seasons = candidate_seasons
+                break
+
+        if resolved_library_id is None:
+            raise SiloError(
+                "Unable to determine the Silo library for this TV show."
+            )
+
+    seasons = seasons or []
     page_items, has_previous, has_next = paginate_directory(
         seasons,
         page,
@@ -1886,7 +1939,7 @@ def list_seasons(client, series_id, library_id, page=None):
 
     add_previous_page(
         series_id=series_id,
-        library_id=library_id,
+        library_id=resolved_library_id,
         action="seasons",
         page=page,
     )
@@ -1905,7 +1958,7 @@ def list_seasons(client, series_id, library_id, page=None):
                 action="season",
                 series_id=series_id,
                 season_number=season_number,
-                library_id=library_id,
+                library_id=resolved_library_id,
             ),
             item,
             True,
@@ -1914,14 +1967,12 @@ def list_seasons(client, series_id, library_id, page=None):
     if has_next:
         add_next_page(
             series_id=series_id,
-            library_id=library_id,
+            library_id=resolved_library_id,
             action="seasons",
             page=page,
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
-
-
 def list_episodes(client, series_id, season_number, library_id, page=None):
     """Display all episodes for a season and apply their current watched state."""
     if not series_id:
