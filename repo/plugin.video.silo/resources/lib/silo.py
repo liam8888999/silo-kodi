@@ -1056,23 +1056,280 @@ class SiloClient:
         except (TypeError, ValueError):
             return 3
 
+    # Read a Kodi InfoLabel without letting an unavailable label break playback.
+    @staticmethod
+    def _kodi_info(label):
+        try:
+            return str(xbmc.getInfoLabel(label) or "").strip()
+        except Exception:
+            return ""
+
+    # Read one Kodi setting through JSON-RPC. This avoids depending on Kodi's
+    # Python Addon settings API for system-level audio output capabilities.
+    @staticmethod
+    def _kodi_setting(setting_id):
+        try:
+            raw = xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "Settings.GetSettingValue",
+                        "params": {
+                            "setting": setting_id,
+                        },
+                        "id": "silo-playback-capability",
+                    }
+                )
+            )
+            response = json.loads(raw or "{}")
+            value = (response.get("result") or {}).get("value")
+
+            if isinstance(value, dict) and "value" in value:
+                return value.get("value")
+
+            return value
+        except Exception as exc:
+            log(
+                "Kodi setting lookup failed for %s: %s" % (
+                    setting_id,
+                    exc,
+                ),
+                xbmc.LOGDEBUG,
+            )
+            return None
+
+    @staticmethod
+    def _kodi_bool(value):
+        if isinstance(value, bool):
+            return value
+
+        if isinstance(value, (int, float)):
+            return bool(value)
+
+        return str(value or "").strip().lower() in (
+            "true",
+            "yes",
+            "1",
+            "on",
+        )
+
+    @staticmethod
+    def _normalise_codec(codec):
+        # Alias conversion only; this is not a hardcoded capability list.
+        value = str(codec or "").strip().lower()
+
+        aliases = {
+            "avc": "h264",
+            "avc1": "h264",
+            "h.264": "h264",
+            "h265": "hevc",
+            "h.265": "hevc",
+            "x265": "hevc",
+            "e-ac-3": "eac3",
+            "ec-3": "eac3",
+            "eac3_ddp_atmos": "eac3",
+            "truehd_atmos": "truehd",
+            "dtshd_hra": "dtshd",
+            "dtshd_ma": "dtshd",
+            "dtshd_ma_x": "dtshd",
+            "dtshd_ma_x_imax": "dtshd",
+            "dtsma": "dtshd",
+        }
+
+        return aliases.get(value, value)
+
+    @classmethod
+    def _kodi_stream_codecs(cls, primary_label, property_name):
+        """Return codecs Kodi exposes for the selected item's streams."""
+        codecs = []
+
+        primary = cls._normalise_codec(cls._kodi_info(primary_label))
+        if primary:
+            codecs.append(primary)
+
+        # Kodi exposes numbered stream properties for individual streams.
+        # Read a bounded range so multi-track items can report every codec Kodi
+        # exposes without manufacturing a capability list.
+        for index in range(64):
+            value = cls._kodi_info(
+                "ListItem.Property(%s.[%d])" % (
+                    property_name,
+                    index,
+                )
+            )
+
+            codec = cls._normalise_codec(value)
+
+            if codec and codec not in codecs:
+                codecs.append(codec)
+
+        return codecs
+
+    @classmethod
+    def _kodi_hdr_details(cls):
+        raw = cls._kodi_info("System.SupportedHDRTypes")
+        tokens = []
+
+        for part in str(raw or "").replace(";", ",").replace("|", ",").split(","):
+            token = (
+                part.strip()
+                .lower()
+                .replace(" ", "")
+                .replace("-", "")
+                .replace("_", "")
+                .replace("+", "plus")
+            )
+
+            if token:
+                tokens.append(token)
+
+        values = set(tokens)
+
+        hdr10 = any(
+            value in values
+            for value in (
+                "hdr10",
+                "hdr10smpte",
+            )
+        )
+        hdr10_plus = "hdr10plus" in values
+        hlg = "hlg" in values
+        dolby_vision = "dolbyvision" in values
+
+        # Kodi's public labels do not expose the receiver's Dolby Vision
+        # profile list here, so do not invent profile numbers.
+        return {
+            "hdr": bool(hdr10 or hdr10_plus or hlg or dolby_vision),
+            "hdr_details": {
+                "hdr10": hdr10,
+                "hdr10_plus": hdr10_plus,
+                "hlg": hlg,
+                "dolby_vision_profiles": [],
+            },
+        }
+
+    @classmethod
+    def _kodi_audio_passthrough(cls):
+        """Read Kodi's active passthrough settings from system settings."""
+        enabled = cls._kodi_bool(
+            cls._kodi_setting("audiooutput.passthrough")
+        )
+
+        codecs = []
+
+        if enabled:
+            settings = (
+                ("ac3", "audiooutput.ac3passthrough"),
+                ("eac3", "audiooutput.eac3passthrough"),
+                ("dts", "audiooutput.dtspassthrough"),
+                ("dtshd", "audiooutput.dtshdpassthrough"),
+                ("truehd", "audiooutput.truehdpassthrough"),
+            )
+
+            for codec, setting_id in settings:
+                if cls._kodi_bool(cls._kodi_setting(setting_id)):
+                    codecs.append(codec)
+
+        # audiooutput.channels is Kodi's output channel-layout enum rather
+        # than a literal channel count.
+        channel_counts = {
+            1: 2,   # 2.0
+            2: 3,   # 2.1
+            3: 3,   # 3.0
+            4: 4,   # 3.1
+            5: 4,   # 4.0
+            6: 5,   # 4.1
+            7: 5,   # 5.0
+            8: 6,   # 5.1
+            9: 7,   # 7.0
+            10: 8,  # 7.1
+        }
+
+        max_channels = 0
+
+        if enabled:
+            try:
+                output_layout = int(
+                    cls._kodi_setting("audiooutput.channels")
+                )
+                max_channels = channel_counts.get(output_layout, 0)
+            except (TypeError, ValueError):
+                max_channels = 0
+
+        if not codecs and max_channels <= 0:
+            return None
+
+        return {
+            "passthrough_codecs": codecs,
+            "spatializer_enabled": False,
+            "max_channels": max_channels,
+        }
+
+    @classmethod
+    def _kodi_runtime_capabilities(cls):
+        """Build playback facts directly from Kodi for the current item."""
+        video = cls._kodi_stream_codecs(
+            "ListItem.VideoCodec",
+            "VideoCodec",
+        )
+        audio = cls._kodi_stream_codecs(
+            "ListItem.AudioCodec",
+            "AudioCodec",
+        )
+
+        # Prefer Kodi's own file extension. Silo.Container is retained as a
+        # fallback for plugin items that do not expose an extension.
+        container = (
+            cls._kodi_info("ListItem.FileExtension")
+            or cls._kodi_info("ListItem.Property(Silo.Container)")
+        ).strip().lower()
+
+        container_aliases = {
+            "m4v": "mp4",
+            "mpegts": "ts",
+            "mpeg-ts": "ts",
+        }
+        container = container_aliases.get(container, container)
+
+        containers = [container] if container else []
+        hdr = cls._kodi_hdr_details()
+        passthrough = cls._kodi_audio_passthrough()
+
+        return {
+            "video": video,
+            "audio": audio,
+            "containers": containers,
+            "hdr": hdr["hdr"],
+            "hdr_details": hdr["hdr_details"],
+            "audio_passthrough": passthrough,
+        }
+
     # Build a protocol-v3 playback/start request.
     def _start_body(self, file_id, start_position=0.0):
         caps = self.playback_caps()
         pv = self._protocol_version()
+        runtime = self._kodi_runtime_capabilities()
 
-        video = ["h264", "hevc", "vp9", "av1", "mpeg2video", "mpeg4", "vc1"]
-        audio = ["aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "mp3", "vorbis", "pcm"]
-        containers = ["mkv", "mp4", "avi", "ts", "webm", "mov"]
+        video = runtime["video"]
+        audio = runtime["audio"]
+        containers = runtime["containers"]
+        passthrough = runtime["audio_passthrough"]
 
-        # Describe the HTTP/direct-play capability of this Kodi client.
+        # Direct/progressive delivery declarations use Kodi's reported stream
+        # facts for this item. The evidence remains "declared" because Kodi's
+        # public Python API does not expose a complete pre-play decoder/profile
+        # matrix that could honestly be reported as exact evidence.
         delivery_template = {
             "enabled": True,
             "supported_on_device": True,
             "containers": containers,
             "video_codecs": video,
             "audio_decode_codecs": audio,
-            "audio_passthrough_codecs": [],
+            "audio_passthrough_codecs": (
+                passthrough["passthrough_codecs"]
+                if passthrough
+                else []
+            ),
             "subtitles": {
                 "embedded_text": True,
                 "sidecar_text": True,
@@ -1087,14 +1344,13 @@ class SiloClient:
             "transformations": [],
         }
 
-        # The capabilities response can contain a dict of delivery names.
-        # Preserve those actual names instead of accidentally iterating a dict
-        # as though it were a list of delivery objects.
         server_deliveries = caps.get("deliveries") or {}
 
         if isinstance(server_deliveries, dict):
             deliveries = {
-                name: dict(value) if isinstance(value, dict) else dict(delivery_template)
+                name: dict(value)
+                if isinstance(value, dict)
+                else dict(delivery_template)
                 for name, value in server_deliveries.items()
             }
         else:
@@ -1102,6 +1358,34 @@ class SiloClient:
                 name: dict(delivery_template)
                 for name in server_deliveries
             }
+
+        # HLS is a delivery class, not a claim that Kodi can decode a specific
+        # HLS codec. Leave codec lists empty so Silo can choose its validated
+        # HLS transcode recipe (normally H.264/AAC) without being blocked by
+        # client-side codec filtering.
+        hls_delivery = deliveries.get(
+            "hls",
+            dict(delivery_template),
+        )
+        hls_delivery["containers"] = ["hls"]
+        hls_delivery["video_codecs"] = []
+        hls_delivery["audio_decode_codecs"] = []
+        hls_delivery["audio_passthrough_codecs"] = []
+        deliveries["hls"] = hls_delivery
+
+        original_delivery = deliveries.get(
+            "original_http",
+            dict(delivery_template),
+        )
+        original_delivery.update(delivery_template)
+        deliveries["original_http"] = original_delivery
+
+        progressive_delivery = deliveries.get(
+            "progressive",
+            dict(delivery_template),
+        )
+        progressive_delivery.update(delivery_template)
+        deliveries["progressive"] = progressive_delivery
 
         return {
             "installation_id": self._installation_id(),
@@ -1122,8 +1406,9 @@ class SiloClient:
                 "codecs_video_hardware": [],
                 "codecs_audio": audio,
                 "containers": containers,
-                "hdr": True,
-                "max_resolution": "2160p",
+                "hdr": runtime["hdr"],
+                "hdr_details": runtime["hdr_details"],
+                "audio_passthrough": passthrough,
             },
             "client_playback_context": {
                 "protocol_version": pv,
@@ -1133,9 +1418,12 @@ class SiloClient:
                     "platform": "kodi",
                     "manufacturer": "",
                     "model": "",
-                    "os_version": xbmc.getInfoLabel("System.OSVersionInfo"),
+                    "os_version": self._kodi_info("System.OSVersionInfo"),
                 },
-                "output": {},
+                "output": {
+                    "hdr_details": runtime["hdr_details"],
+                    "audio_passthrough": passthrough,
+                },
                 "deliveries": deliveries,
             },
         }
