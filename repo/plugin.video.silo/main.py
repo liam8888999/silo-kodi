@@ -2520,6 +2520,11 @@ def track_progress(client, session_id, playback_info=None):
                             position,
                             estimated_bandwidth,
                             quality_preference="auto",
+                            operation="failure_recovery",
+                            failure={
+                                "classification": "network_buffering",
+                                "message": "Kodi reported sustained stream buffering.",
+                            },
                         )
 
                         new_plan = new_info.get("playback_plan") or {}
