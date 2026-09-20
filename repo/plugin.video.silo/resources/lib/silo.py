@@ -292,15 +292,19 @@ class SiloClient:
 
         server = dlg.input(
             "Silo server URL (e.g. http://host:8090)",
-            defaultt=self.cfg.get("server", "http://"),
-        )
-        user = dlg.input(
-            "Silo username",
-            defaultt=self.cfg.get("username", ""),
+            defaultt="http://",
         )
 
-        if not server or not user:
-            raise SiloError("Server and username are required")
+        if not server:
+            raise SiloError("Login cancelled")
+
+        user = dlg.input(
+            "Silo username",
+            defaultt="",
+        )
+
+        if not user:
+            raise SiloError("Login cancelled")
 
         self.cfg["server"] = server.rstrip("/")
         self.cfg["username"] = user
@@ -359,15 +363,50 @@ class SiloClient:
     # place: server/username/password, token storage, profile selection and
     # profile PIN verification when required.
     def login_full(self):
-        # A completely logged-out configuration has no server or username, so
-        # login() will show the server and username fields before asking for the
-        # password.
-        self.login()
+        # Every explicit Kodi login starts as a completely fresh attempt.
+        # Do not reuse a previously entered server, username, token or profile
+        # after a failed/cancelled login; this ensures the next attempt always
+        # starts at the server URL prompt.
+        for key in (
+            "server",
+            "username",
+            "token",
+            "refresh_token",
+            "profile_id",
+            "profile_token",
+        ):
+            self.cfg.pop(key, None)
 
-        # login() only authenticates the account. Select the household profile
-        # afterwards so subsequent profile-scoped API calls have everything they
-        # need.
-        self.select_profile()
+        self._caps = None
+        save_config(self.cfg)
+
+        try:
+            # login() now asks for server URL, username and password from
+            # scratch because no account fields were retained above.
+            self.login()
+
+            # login() only authenticates the account. Select the household
+            # profile afterwards so subsequent profile-scoped API calls have
+            # everything they need.
+            self.select_profile()
+
+        except SiloError:
+            # A bad password, unknown user/server, cancelled prompt, cancelled
+            # profile selection, or cancelled PIN must leave no partial login
+            # state behind. The next Login selection will start at server URL.
+            for key in (
+                "server",
+                "username",
+                "token",
+                "refresh_token",
+                "profile_id",
+                "profile_token",
+            ):
+                self.cfg.pop(key, None)
+
+            self._caps = None
+            save_config(self.cfg)
+            raise
 
     # Exchange the saved refresh token for a new access token.
     def refresh(self):
