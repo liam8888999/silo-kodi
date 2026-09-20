@@ -1134,13 +1134,21 @@ class SiloClient:
                 for key, value in headers.items()
             )
 
+        # None means the start_position field was intentionally omitted,
+        # which tells Silo to use the server-saved resume position.
+        logged_position = (
+            "server_resume"
+            if start_position is None
+            else "%.3f" % float(start_position)
+        )
+
         log(
-            "delivery=%s protocol=%s outcome=%s start_position=%.3f"
+            "delivery=%s protocol=%s outcome=%s start_position=%s"
             % (
                 plan.get("delivery"),
                 stream.get("protocol"),
                 data.get("outcome"),
-                float(start_position),
+                logged_position,
             )
         )
 
