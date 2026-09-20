@@ -28,6 +28,7 @@ Endpoints used by this addon:
     GET  /api/v2/progress
     GET  /api/v2/playback/capabilities
     POST /api/v2/playback/start
+    POST /api/v2/playback/{sid}/replan
     POST /api/v2/playback/{sid}/progress
     DELETE /api/v2/playback/{sid}
 """
@@ -1249,7 +1250,7 @@ class SiloClient:
             "installation_id": self._installation_id(),
             "protocol_version": 3,
             "client_features": ["playback_plan_v3"],
-            "operation": "quality_change",
+            "operation": "failure_recovery",
             "playback_attempt_id": playback_attempt_id,
             "replan_request_id": uuid.uuid4().hex,
             "failed_plan_id": str(plan.get("plan_id") or ""),
@@ -1262,6 +1263,7 @@ class SiloClient:
             "metered": bool((info or {}).get("metered", False)),
             "bandwidth_estimate_kbps": bandwidth_estimate_kbps,
             "selected_tracks": plan.get("selected_tracks") or {},
+            "failure": {"classification": "network_buffering"},
             "client_capabilities": (info or {}).get("client_capabilities") or {},
             "client_playback_context": (info or {}).get("client_playback_context") or {},
         }
