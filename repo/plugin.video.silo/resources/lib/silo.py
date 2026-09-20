@@ -991,7 +991,7 @@ class SiloClient:
             return 3
 
     # Build a protocol-v3 playback/start request.
-    def _start_body(self, file_id, start_position=0.0):
+    def _start_body(self, file_id, start_position=None):
         caps = self.playback_caps()
         pv = self._protocol_version()
 
@@ -1043,15 +1043,11 @@ class SiloClient:
             "client_features": [],
             "file_id": str(file_id),
             "profile_id": str(self.cfg["profile_id"]),
+            **({"start_position": float(start_position)} if start_position is not None else {}),
             "playback_attempt_id": uuid.uuid4().hex,
             "quality_preference": "original",
-            # This field is required by the Silo v2 schema. Its actual accepted
-            # vocabulary is learned by the probing logic below when necessary.
             "subtitle_fidelity_preference": "preserve",
             "metered": False,
-            # This is the IMPORTANT server-side resume position. main.py fills
-            # this with the fresh position obtained immediately before playback.
-            "start_position": float(start_position),
             "progress_persistence": "server",
             "client_capabilities": {
                 "video_evidence": "declared",
@@ -1097,7 +1093,7 @@ class SiloClient:
         ]
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
-    def start_playback(self, file_id, start_position=0.0):
+    def start_playback(self, file_id, start_position=None):
         body = self._start_body(file_id, start_position)
 
         data = self._json(
