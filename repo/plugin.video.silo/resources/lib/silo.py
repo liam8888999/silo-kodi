@@ -82,7 +82,6 @@ def _clear_account_settings():
     for key in (
         "server",
         "username",
-        "profile",
         "device_id",
         "token",
         "refresh_token",
@@ -99,14 +98,13 @@ def load_config():
 
     server = _setting("server").strip().rstrip("/")
     username = _setting("username").strip()
-    profile = _setting("profile").strip()
+    profile = ""
 
-    # Support username#profile in the settings username field.
+    # Support username#profile in the username field.
     if "#" in username:
         username, inline_profile = username.split("#", 1)
         username = username.strip()
-        if not profile:
-            profile = inline_profile.strip()
+        profile = inline_profile.strip()
 
     if server:
         cfg["server"] = server
@@ -135,8 +133,9 @@ def load_config():
 def save_config(cfg):
     """Persist only hidden/internal runtime state into Kodi settings.
 
-    Server, username, profile and pagination are user-facing settings and are
-    already persisted by Kodi itself. They are deliberately not written here.
+    Server and username are read-only settings and are already persisted by Kodi
+    itself. Pagination is also handled directly by Kodi. These are deliberately
+    not written here.
     """
     for key in _INTERNAL_SETTINGS:
         if key not in cfg:
@@ -178,15 +177,14 @@ class SiloClient:
         """Refresh editable connection/profile settings from Kodi."""
         raw_username = ADDON.getSetting("username").strip()
         server = ADDON.getSetting("server").strip().rstrip("/")
-        profile = ADDON.getSetting("profile").strip()
+        profile = ""
 
         username = raw_username
 
         if "#" in raw_username:
             username, inline_profile = raw_username.split("#", 1)
             username = username.strip()
-            if not profile:
-                profile = inline_profile.strip()
+            profile = inline_profile.strip()
 
         old_identity = (
             self.cfg.get("server", ""),
@@ -400,18 +398,15 @@ class SiloClient:
             if not username or not profile_name:
                 ADDON.setSetting("server", "")
                 ADDON.setSetting("username", "")
-                ADDON.setSetting("profile", "")
                 raise SiloError(
                     "Use username#profile, for example liam1#liam2"
                 )
 
             ADDON.setSetting("username", username)
-            ADDON.setSetting("profile", profile_name)
             self.cfg["username"] = username
             self.cfg["profile_name"] = profile_name
             self._requested_profile_name = profile_name
         else:
-            ADDON.setSetting("profile", "")
             self.cfg["username"] = user
             self.cfg.pop("profile_name", None)
             self._requested_profile_name = ""
@@ -580,7 +575,6 @@ class SiloClient:
         for key in (
             "server",
             "username",
-            "profile",
             "token",
             "refresh_token",
             "profile_id",
@@ -654,10 +648,8 @@ class SiloClient:
         _set_setting("profile_id", self.cfg["profile_id"])
         _set_setting("profile_token", "")
 
-        # Also remember the selected name for the Settings page. This does not
-        # force automatic selection unless the user has configured a profile.
-        if not getattr(self, "_requested_profile_name", ""):
-            _set_setting("profile", str(chosen.get("name") or ""))
+        # The selected profile ID is stored internally. The visible settings
+        # page intentionally has no editable profile-name field.
 
         if chosen.get("has_pin"):
             self.verify_profile(chosen["id"])
