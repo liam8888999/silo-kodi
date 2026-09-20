@@ -449,7 +449,6 @@ class SiloClient:
         save_config(self.cfg)
 
 
-
     # Store the access/refresh token pair returned by Silo.
     def _store_tokens(self, data):
         access_token = str(data.get("access_token") or "")
@@ -897,7 +896,6 @@ class SiloClient:
 
         if key in self._details:
             return self._details[key]
-
         # The detail endpoint also prepares cast/crew artwork. Kodi only
         # needs small thumbnails for these person images, which keeps the
         # metadata response substantially smaller for large libraries.
@@ -1203,6 +1201,127 @@ class SiloClient:
             },
         }
 
+
+    # Replan an active session when the player reports sustained network trouble.
+
+    # Silo owns the quality decision; Kodi only supplies the current position and
+
+    # an observed effective bandwidth estimate.
+
+    def replan_playback(self, info, position, bandwidth_estimate_kbps, quality_preference="auto"):
+
+        plan = (info or {}).get("playback_plan") or {}
+        session_id = (info or {}).get("session_id") or plan.get("session_id")
+
+        if not session_id or not plan:
+            raise SiloError("Cannot replan playback without an active Silo plan.")
+
+        try:
+            bandwidth_estimate_kbps = int(bandwidth_estimate_kbps)
+        except (TypeError, ValueError):
+            raise SiloError("Invalid bandwidth estimate for playback replan.")
+
+        bandwidth_estimate_kbps = max(100, min(bandwidth_estimate_kbps, 1000000))
+
+        playback_attempt_id = str((info or {}).get("playback_attempt_id") or "")
+        plan_attempt_id = str((info or {}).get("plan_attempt_id") or "")
+
+        if not playback_attempt_id or not plan_attempt_id:
+            raise SiloError("Playback replan state is incomplete.")
+
+        current_plan_key = str(plan.get("plan_attempt_key") or "")
+        attempted_plan_keys = list((info or {}).get("attempted_plan_keys") or [])
+
+        if current_plan_key and current_plan_key not in attempted_plan_keys:
+            attempted_plan_keys.append(current_plan_key)
+
+        # Keep only the newest server-owned keys accepted by the v3 contract.
+        attempted_plan_keys = attempted_plan_keys[-16:]
+
+        try:
+            attempt_count = int((info or {}).get("attempt_count") or 1) + 1
+        except (TypeError, ValueError):
+            attempt_count = 2
+
+        attempt_count = max(1, min(attempt_count, 8))
+
+        body = {
+            "installation_id": self._installation_id(),
+            "protocol_version": 3,
+            "client_features": ["playback_plan_v3"],
+            "operation": "quality_change",
+            "playback_attempt_id": playback_attempt_id,
+            "replan_request_id": uuid.uuid4().hex,
+            "failed_plan_id": str(plan.get("plan_id") or ""),
+            "plan_attempt_id": plan_attempt_id,
+            "plan_attempt_key": current_plan_key,
+            "attempted_plan_keys": attempted_plan_keys,
+            "attempt_count": attempt_count,
+            "quality_preference": str(quality_preference or "auto"),
+            "position_seconds": max(0.0, float(position or 0.0)),
+            "metered": bool((info or {}).get("metered", False)),
+            "bandwidth_estimate_kbps": bandwidth_estimate_kbps,
+            "selected_tracks": plan.get("selected_tracks") or {},
+            "client_capabilities": (info or {}).get("client_capabilities") or {},
+            "client_playback_context": (info or {}).get("client_playback_context") or {},
+        }
+
+        data = self._json(
+            "POST",
+            "/api/v2/playback/%s/replan" % session_id,
+            body=body,
+        ) or {}
+
+        new_plan = data.get("playback_plan")
+        if not new_plan:
+            terminal = data.get("terminal") or data.get("outcome")
+            raise SiloError(
+                "Silo could not adapt playback: %s" % json.dumps(terminal)[:400]
+            )
+
+        stream = new_plan.get("stream") or {}
+        url = self.abs_url(stream.get("url"))
+
+        if not url:
+            raise SiloError("Silo returned an adaptive plan without a stream URL.")
+
+        headers = dict(stream.get("headers") or {})
+        auth_headers = self._headers()
+
+        for key in ("Authorization", "X-Profile-Id", "X-Profile-Token"):
+            value = auth_headers.get(key)
+            if value and key not in headers:
+                headers[key] = value
+
+        if headers:
+            url += "|" + "&".join(
+                "%s=%s" % (key, quote(str(value), safe=""))
+                for key, value in headers.items()
+            )
+
+        log(
+            "adaptive replan delivery=%s quality=%s bandwidth_estimate_kbps=%d position=%.3f"
+            % (
+                new_plan.get("delivery"),
+                quality_preference or "auto",
+                bandwidth_estimate_kbps,
+                float(position or 0.0),
+            )
+        )
+
+        return {
+            "url": url,
+            "session_id": data.get("session_id") or session_id,
+            "playback_plan": new_plan,
+            "playback_attempt_id": playback_attempt_id,
+            "plan_attempt_id": plan_attempt_id,
+            "attempted_plan_keys": attempted_plan_keys,
+            "attempt_count": attempt_count,
+            "metered": bool((info or {}).get("metered", False)),
+            "client_capabilities": (info or {}).get("client_capabilities") or {},
+            "client_playback_context": (info or {}).get("client_playback_context") or {},
+        }
+
     # Find playback fields mentioned by Silo's validation error.
     @staticmethod
     def _invalid_fields(err):
@@ -1276,6 +1395,16 @@ class SiloClient:
         return {
             "url": url,
             "session_id": data.get("session_id") or plan.get("session_id"),
+            "playback_plan": plan,
+            "playback_attempt_id": body.get("playback_attempt_id"),
+            # plan_attempt_id is client-owned; keep one stable ID for all
+            # replans in this playback session, matching Silo's other clients.
+            "plan_attempt_id": uuid.uuid4().hex,
+            "attempted_plan_keys": [],
+            "attempt_count": 1,
+            "metered": bool(body.get("metered", False)),
+            "client_capabilities": body.get("client_capabilities") or {},
+            "client_playback_context": body.get("client_playback_context") or {},
         }
 
     # Send the current Kodi playback position to Silo.
