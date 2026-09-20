@@ -2602,7 +2602,7 @@ def track_progress(client, session_id, playback_info=None):
     # input during an adaptive quality switch. Do not treat that short teardown
     # window as the end of the user's playback session.
     not_playing_since = None
-    playback_teardown_grace = 20.0
+    playback_teardown_grace = 120.0
 
     while True:
         if monitor.abortRequested():
@@ -2613,8 +2613,20 @@ def track_progress(client, session_id, playback_info=None):
         if not player.isPlaying():
             if not_playing_since is None:
                 not_playing_since = now
+                log(
+                    "Kodi temporarily reports playback stopped; keeping "
+                    "adaptive monitor alive during stream handoff.",
+                    xbmc.LOGDEBUG,
+                )
 
-            if now - not_playing_since >= playback_teardown_grace:
+            not_playing_for = now - not_playing_since
+
+            if not_playing_for >= playback_teardown_grace:
+                log(
+                    "Adaptive monitor ending after Kodi reported no active "
+                    "playback for %.1fs." % not_playing_for,
+                    xbmc.LOGWARNING,
+                )
                 break
 
             xbmc.sleep(100)
@@ -2942,6 +2954,15 @@ def track_progress(client, session_id, playback_info=None):
                 "Unexpected error stopping Silo playback session: %s" % exc,
                 xbmc.LOGWARNING,
             )
+
+    log(
+        "Adaptive playback monitor ended for session %s at quality=%s"
+        % (
+            session_id,
+            playback_info.get("adaptive_quality") or "unknown",
+        ),
+        xbmc.LOGDEBUG,
+    )
 
     cleanup_thread = threading.Thread(
         target=finish_session,
