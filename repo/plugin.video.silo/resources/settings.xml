@@ -1,45 +1,112 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <settings version="1">
-  <section id="plugin.video.silo" label="Silo Media Server">
-    <category id="connection" label="Connection">
-      <group id="1" label="Account">
-        <setting id="server" type="string" label="Server address" help="The URL of your Silo server.">
+  <section id="plugin.video.silo" label="30000">
+    <category id="connection" label="30001">
+      <group id="1" label="30002">
+        <setting id="server" type="string" label="30003" help="30004">
           <level>0</level>
-          <control type="edit" format="string" />
-        </setting>
-        <setting id="username" type="string" label="Username" help="Use username#profile to automatically select a profile.">
-          <level>0</level>
-          <control type="edit" format="string" />
-        </setting>
-        <setting id="profile" type="string" label="Profile name" help="Optional. Leave empty to use the normal profile selection dialog.">
-          <level>0</level>
-          <control type="edit" format="string" />
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30003</heading>
+          </control>
         </setting>
 
-        <setting id="device_id" type="string">
-          <level>4</level>
+        <setting id="username" type="string" label="30005" help="30006">
+          <level>0</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30005</heading>
+          </control>
         </setting>
-        <setting id="token" type="string">
-          <level>4</level>
+
+        <setting id="profile" type="string" label="30007" help="30008">
+          <level>0</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30007</heading>
+          </control>
         </setting>
-        <setting id="refresh_token" type="string">
+
+        <setting id="device_id" type="string" label="30003">
           <level>4</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30003</heading>
+          </control>
         </setting>
-        <setting id="profile_id" type="string">
+
+        <setting id="token" type="string" label="30005">
           <level>4</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30005</heading>
+          </control>
         </setting>
-        <setting id="profile_token" type="string">
+
+        <setting id="refresh_token" type="string" label="30005">
           <level>4</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30005</heading>
+          </control>
         </setting>
-        <setting id="start_overrides" type="string">
+
+        <setting id="profile_id" type="string" label="30007">
           <level>4</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30007</heading>
+          </control>
+        </setting>
+
+        <setting id="profile_token" type="string" label="30007">
+          <level>4</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30007</heading>
+          </control>
+        </setting>
+
+        <setting id="start_overrides" type="string" label="30011">
+          <level>4</level>
+          <default/>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>30011</heading>
+          </control>
         </setting>
       </group>
     </category>
 
-    <category id="pagination" label="Pagination">
-      <group id="1" label="Display">
-        <setting id="items_per_page" type="integer" label="Items per page" help="Number of items shown before a Next Page entry is added.">
+    <category id="pagination" label="30009">
+      <group id="1" label="30010">
+        <setting id="items_per_page" type="integer" label="30011" help="30012">
           <level>0</level>
           <default>200</default>
           <constraints>
@@ -47,7 +114,7 @@
             <step>10</step>
             <maximum>200</maximum>
           </constraints>
-          <control type="spinner" format="integer" />
+          <control type="spinner" format="integer"/>
         </setting>
       </group>
     </category>
