@@ -5,15 +5,24 @@
     <setting id="username" type="text" label="Username" default="" />
     <setting id="profile" type="text" label="Profile name (optional)" default="" />
   </category>
+
   <category label="Pagination">
-    <setting id="items_per_page" type="slider" label="Items per page" default="200" range="20,10,200" option="int" />
+    <setting
+      id="items_per_page"
+      type="slider"
+      label="Items per page"
+      default="200"
+      range="20,10,200"
+      option="int"
+    />
   </category>
+
   <category label="Internal">
-    <setting id="device_id" type="text" label="Device ID" option="hidden" default="" />
-    <setting id="token" type="text" label="Access token" option="hidden" default="" />
-    <setting id="refresh_token" type="text" label="Refresh token" option="hidden" default="" />
-    <setting id="profile_id" type="text" label="Profile ID" option="hidden" default="" />
-    <setting id="profile_token" type="text" label="Profile token" option="hidden" default="" />
-    <setting id="start_overrides" type="text" label="Playback overrides" option="hidden" default="" />
+    <setting id="device_id" type="text" label="Device ID" default="" visible="false" />
+    <setting id="token" type="text" label="Access token" default="" visible="false" />
+    <setting id="refresh_token" type="text" label="Refresh token" default="" visible="false" />
+    <setting id="profile_id" type="text" label="Profile ID" default="" visible="false" />
+    <setting id="profile_token" type="text" label="Profile token" default="" visible="false" />
+    <setting id="start_overrides" type="text" label="Playback overrides" default="" visible="false" />
   </category>
 </settings>
