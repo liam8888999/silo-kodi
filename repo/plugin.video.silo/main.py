@@ -2405,7 +2405,12 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
 
 
 def playback_session_was_terminated(exc):
-    """Return True only for Silo's explicit playback-session-not-found response."""
+    """Return True only for Silo's exact progress-session-not-found response.
+
+    After an admin terminates playback, the progress endpoint returns this
+    response because the playback session is no longer active. The admin UI's
+    human-readable "Playback authority revoked" message is not sent to Kodi.
+    """
     problem = getattr(exc, "problem", {}) or {}
     return (
         getattr(exc, "status", None) == 404
