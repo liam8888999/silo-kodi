@@ -329,7 +329,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30):
         if not self.base:
             self._prompt_account()
 
@@ -347,7 +347,7 @@ class SiloClient:
                 headers=self._headers(),
                 params=params,
                 json=body,
-                timeout=30,
+                timeout=timeout,
             )
         except requests.RequestException as e:
             raise SiloError("Cannot reach server: %s" % e)
@@ -1291,6 +1291,7 @@ class SiloClient:
             "POST",
             "/api/v2/playback/%s/replan" % session_id,
             body=body,
+            timeout=90,
         ) or {}
 
         new_plan = data.get("playback_plan")
