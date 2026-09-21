@@ -28,6 +28,7 @@ Endpoints used by this addon:
     GET  /api/v2/progress
     GET  /api/v2/playback/capabilities
     POST /api/v2/playback/start
+    POST /api/v2/playback/{sid}/replan
     POST /api/v2/playback/{sid}/progress
     DELETE /api/v2/playback/{sid}
 """
@@ -328,7 +329,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30):
         if not self.base:
             self._prompt_account()
 
@@ -346,7 +347,7 @@ class SiloClient:
                 headers=self._headers(),
                 params=params,
                 json=body,
-                timeout=30,
+                timeout=timeout,
             )
         except requests.RequestException as e:
             raise SiloError("Cannot reach server: %s" % e)
@@ -447,8 +448,6 @@ class SiloClient:
 
         self.cfg["server"] = server
         save_config(self.cfg)
-
-
 
     # Store the access/refresh token pair returned by Silo.
     def _store_tokens(self, data):
@@ -897,9 +896,7 @@ class SiloClient:
 
         if key in self._details:
             return self._details[key]
-
-        # The detail endpoint also prepares cast/crew artwork. Kodi only
-        # needs small thumbnails for these person images, which keeps the
+        # The detail endpoint also prepares cast/crew artwork. Kodi only        # needs small thumbnails for these person images, which keeps the
         # metadata response substantially smaller for large libraries.
         params = {"image_size": "small"}
 
@@ -1057,15 +1054,50 @@ class SiloClient:
             return 3
 
     # Build a protocol-v3 playback/start request.
-    def _start_body(self, file_id, start_position=0.0):
+    def _start_body(self, file_id, start_position=0.0, quality_preference="original"):
         caps = self.playback_caps()
         pv = self._protocol_version()
 
-        video = ["h264", "hevc", "vp9", "av1", "mpeg2video", "mpeg4", "vc1"]
-        audio = ["aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "mp3", "vorbis", "pcm"]
-        containers = ["mkv", "mp4", "avi", "ts", "webm", "mov"]
+        # JellyCon deliberately does not restrict DirectPlayProfiles by codec,
+        # container, resolution or decoder. Silo's current v3 planner requires
+        # non-empty flat capability lists for its direct-play eligibility gate,
+        # so use a broad Kodi software-playback vocabulary here rather than
+        # attempting to guess the capabilities of the current hardware.
+        #
+        # These are compatibility declarations, not hardware-acceleration
+        # claims. Direct playback remains preferred by Silo whenever the source
+        # matches these broad capabilities; otherwise Silo can fall through to
+        # remux/transcode.
+        video = [
+            "h264",
+            "hevc",
+            "vp9",
+            "av1",
+            "mpeg2video",
+            "mpeg4",
+            "vc1",
+        ]
+        audio = [
+            "aac",
+            "ac3",
+            "eac3",
+            "dts",
+            "truehd",
+            "flac",
+            "opus",
+            "mp3",
+            "vorbis",
+            "pcm",
+        ]
+        containers = [
+            "mkv",
+            "mp4",
+            "avi",
+            "ts",
+            "webm",
+            "mov",
+        ]
 
-        # Describe the HTTP/direct-play capability of this Kodi client.
         delivery_template = {
             "enabled": True,
             "supported_on_device": True,
@@ -1087,14 +1119,16 @@ class SiloClient:
             "transformations": [],
         }
 
-        # The capabilities response can contain a dict of delivery names.
-        # Preserve those actual names instead of accidentally iterating a dict
-        # as though it were a list of delivery objects.
+        # Preserve the server-advertised delivery objects where available.
+        # Silo maps its server delivery names to these client classes:
+        # original_http, progressive and hls.
         server_deliveries = caps.get("deliveries") or {}
 
         if isinstance(server_deliveries, dict):
             deliveries = {
-                name: dict(value) if isinstance(value, dict) else dict(delivery_template)
+                name: dict(value)
+                if isinstance(value, dict)
+                else dict(delivery_template)
                 for name, value in server_deliveries.items()
             }
         else:
@@ -1102,6 +1136,33 @@ class SiloClient:
                 name: dict(delivery_template)
                 for name in server_deliveries
             }
+
+        # Direct-play classes use the broad compatibility declaration above.
+        original_delivery = deliveries.get(
+            "original_http",
+            dict(delivery_template),
+        )
+        original_delivery.update(delivery_template)
+        deliveries["original_http"] = original_delivery
+
+        progressive_delivery = deliveries.get(
+            "progressive",
+            dict(delivery_template),
+        )
+        progressive_delivery.update(delivery_template)
+        deliveries["progressive"] = progressive_delivery
+
+        # HLS is only the fallback/transcode path. Silo's validated HLS
+        # transcode recipe produces H.264 video and AAC audio.
+        hls_delivery = deliveries.get(
+            "hls",
+            dict(delivery_template),
+        )
+        hls_delivery["containers"] = ["hls"]
+        hls_delivery["video_codecs"] = ["h264"]
+        hls_delivery["audio_decode_codecs"] = ["aac"]
+        hls_delivery["audio_passthrough_codecs"] = []
+        deliveries["hls"] = hls_delivery
 
         return {
             "installation_id": self._installation_id(),
@@ -1111,7 +1172,7 @@ class SiloClient:
             "profile_id": str(self.cfg["profile_id"]),
             "start_position": float(start_position),
             "playback_attempt_id": uuid.uuid4().hex,
-            "quality_preference": "original",
+            "quality_preference": str(quality_preference or "original"),
             "subtitle_fidelity_preference": "preserve",
             "metered": False,
             "progress_persistence": "server",
@@ -1123,7 +1184,6 @@ class SiloClient:
                 "codecs_audio": audio,
                 "containers": containers,
                 "hdr": True,
-                "max_resolution": "2160p",
             },
             "client_playback_context": {
                 "protocol_version": pv,
@@ -1138,6 +1198,151 @@ class SiloClient:
                 "output": {},
                 "deliveries": deliveries,
             },
+        }
+
+
+    # Replan an active session when the player reports sustained network trouble.
+
+    # Silo owns the quality decision; Kodi only supplies the current position and
+
+    # an observed effective bandwidth estimate.
+
+    def replan_playback(self, info, position, bandwidth_estimate_kbps, quality_preference="auto", operation="failure_recovery", failure=None):
+
+        plan = (info or {}).get("playback_plan") or {}
+        session_id = (info or {}).get("session_id") or plan.get("session_id")
+
+        if not session_id or not plan:
+            raise SiloError("Cannot replan playback without an active Silo plan.")
+
+        try:
+            bandwidth_estimate_kbps = int(bandwidth_estimate_kbps)
+        except (TypeError, ValueError):
+            raise SiloError("Invalid bandwidth estimate for playback replan.")
+
+        bandwidth_estimate_kbps = max(100, min(bandwidth_estimate_kbps, 1000000))
+
+        playback_attempt_id = str((info or {}).get("playback_attempt_id") or "")
+        plan_attempt_id = str((info or {}).get("plan_attempt_id") or "")
+
+        if not playback_attempt_id or not plan_attempt_id:
+            raise SiloError("Playback replan state is incomplete.")
+
+        current_plan_key = str(plan.get("plan_attempt_key") or "")
+
+        # Failure recovery uses attempted-plan loop prevention. Explicit
+        # quality changes are a fresh intent and must start a new replan chain.
+        is_failure_recovery = str(operation or "failure_recovery") in (
+            "failure_recovery",
+            "seek_failure_recovery",
+        )
+
+        if is_failure_recovery:
+            attempted_plan_keys = list((info or {}).get("attempted_plan_keys") or [])
+            if current_plan_key and current_plan_key not in attempted_plan_keys:
+                attempted_plan_keys.append(current_plan_key)
+            attempted_plan_keys = attempted_plan_keys[-16:]
+
+            try:
+                attempt_count = int((info or {}).get("attempt_count") or 1) + 1
+            except (TypeError, ValueError):
+                attempt_count = 2
+
+            attempt_count = max(1, min(attempt_count, 8))
+        else:
+            attempted_plan_keys = []
+            attempt_count = 1
+
+        # Silo requires every failure_recovery replan to carry a failure
+        # classification. Enforce that here as a final safeguard so callers
+        # cannot accidentally produce a malformed recovery request.
+        if str(operation or "failure_recovery") in (
+            "failure_recovery",
+            "seek_failure_recovery",
+        ) and not failure:
+            failure = {
+                "classification": "playback_recovery",
+                "message": "Kodi requested recovery from the current playback plan.",
+            }
+
+        body = {
+            "installation_id": self._installation_id(),
+            "protocol_version": 3,
+            "client_features": ["playback_plan_v3"],
+            "operation": str(operation or "failure_recovery"),
+            "playback_attempt_id": playback_attempt_id,
+            "replan_request_id": uuid.uuid4().hex,
+            "failed_plan_id": str(plan.get("plan_id") or ""),
+            "plan_attempt_id": plan_attempt_id,
+            "plan_attempt_key": current_plan_key,
+            "attempted_plan_keys": attempted_plan_keys,
+            "attempt_count": attempt_count,
+            "quality_preference": str(quality_preference or "auto"),
+            "position_seconds": max(0.0, float(position or 0.0)),
+            "metered": bool((info or {}).get("metered", False)),
+            "bandwidth_estimate_kbps": bandwidth_estimate_kbps,
+            "selected_tracks": plan.get("selected_tracks") or {},
+            "client_capabilities": (info or {}).get("client_capabilities") or {},
+            "client_playback_context": (info or {}).get("client_playback_context") or {},
+            **({"failure": failure} if failure else {}),
+        }
+
+        data = self._json(
+            "POST",
+            "/api/v2/playback/%s/replan" % session_id,
+            body=body,
+            timeout=90,
+        ) or {}
+
+        new_plan = data.get("playback_plan")
+        if not new_plan:
+            terminal = data.get("terminal") or data.get("outcome")
+            raise SiloError(
+                "Silo could not adapt playback: %s" % json.dumps(terminal)[:400],
+                problem=terminal if isinstance(terminal, dict) else {},
+            )
+
+        stream = new_plan.get("stream") or {}
+        url = self.abs_url(stream.get("url"))
+
+        if not url:
+            raise SiloError("Silo returned an adaptive plan without a stream URL.")
+
+        headers = dict(stream.get("headers") or {})
+        auth_headers = self._headers()
+
+        for key in ("Authorization", "X-Profile-Id", "X-Profile-Token"):
+            value = auth_headers.get(key)
+            if value and key not in headers:
+                headers[key] = value
+
+        if headers:
+            url += "|" + "&".join(
+                "%s=%s" % (key, quote(str(value), safe=""))
+                for key, value in headers.items()
+            )
+
+        log(
+            "adaptive replan delivery=%s quality=%s bandwidth_estimate_kbps=%d position=%.3f"
+            % (
+                new_plan.get("delivery"),
+                quality_preference or "auto",
+                bandwidth_estimate_kbps,
+                float(position or 0.0),
+            )
+        )
+
+        return {
+            "url": url,
+            "session_id": data.get("session_id") or session_id,
+            "playback_plan": new_plan,
+            "playback_attempt_id": playback_attempt_id,
+            "plan_attempt_id": plan_attempt_id,
+            "attempted_plan_keys": attempted_plan_keys,
+            "attempt_count": attempt_count,
+            "metered": bool((info or {}).get("metered", False)),
+            "client_capabilities": (info or {}).get("client_capabilities") or {},
+            "client_playback_context": (info or {}).get("client_playback_context") or {},
         }
 
     # Find playback fields mentioned by Silo's validation error.
@@ -1159,11 +1364,14 @@ class SiloClient:
         ]
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
-    def start_playback(self, file_id, start_position=0.0):
-        body = self._start_body(file_id, start_position)
+    def start_playback(self, file_id, start_position=0.0, quality_preference="original"):
+        body = self._start_body(
+            file_id,
+            start_position,
+            quality_preference=quality_preference,
+        )
 
-        data = self._json(
-            "POST",
+        data = self._json(            "POST",
             "/api/v2/playback/start",
             body=body,
         )
@@ -1213,6 +1421,17 @@ class SiloClient:
         return {
             "url": url,
             "session_id": data.get("session_id") or plan.get("session_id"),
+            "playback_plan": plan,
+            "file_id": str(file_id),
+            "playback_attempt_id": body.get("playback_attempt_id"),
+            # plan_attempt_id is client-owned; keep one stable ID for all
+            # replans in this playback session, matching Silo's other clients.
+            "plan_attempt_id": uuid.uuid4().hex,
+            "attempted_plan_keys": [],
+            "attempt_count": 1,
+            "metered": bool(body.get("metered", False)),
+            "client_capabilities": body.get("client_capabilities") or {},
+            "client_playback_context": body.get("client_playback_context") or {},
         }
 
     # Send the current Kodi playback position to Silo.
