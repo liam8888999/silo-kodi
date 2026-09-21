@@ -2630,11 +2630,15 @@ def track_progress(client, session_id, playback_info=None):
     last_down_replan_at = 0.0
     last_up_replan_at = 0.0
     last_upshift_at = 0.0
+    downshift_retry_at = 0.0
+    downshift_retry_count = 0
     down_cooldown = 10.0
     up_cooldown = 90.0
     stall_threshold = 8.0
     healthy_recovery_threshold = 90.0
     upshift_downshift_grace = 30.0
+    adaptive_retry_delay = 5.0
+    adaptive_retry_limit = 3
 
     healthy_since = time.time()
 
@@ -2757,6 +2761,7 @@ def track_progress(client, session_id, playback_info=None):
                 stall_started_at is not None
                 and stalled_for >= stall_threshold
                 and now - last_down_replan_at >= down_cooldown
+                and now >= downshift_retry_at
                 and (
                     last_upshift_at <= 0
                     or now - last_upshift_at >= upshift_downshift_grace
@@ -2775,6 +2780,8 @@ def track_progress(client, session_id, playback_info=None):
                         # We are already at the lowest published rung. Do not
                         # repeatedly ask Silo for another recovery plan.
                         last_down_replan_at = now
+                        downshift_retry_at = 0.0
+                        downshift_retry_count = 0
                     else:
                         recipe = plan.get("effective_recipe") or {}
 
@@ -2822,6 +2829,8 @@ def track_progress(client, session_id, playback_info=None):
                         ):
                             last_down_replan_at = time.time()
                             last_up_replan_at = 0.0
+                            downshift_retry_at = 0.0
+                            downshift_retry_count = 0
                             last_progress_position = None
                             last_progress_change_at = last_down_replan_at
                             progress_confirmed = False
@@ -2849,11 +2858,41 @@ def track_progress(client, session_id, playback_info=None):
                             )
 
                 except SiloError as exc:
-                    last_down_replan_at = now
-                    log(
-                        "Adaptive downshift failed: %s" % exc,
-                        xbmc.LOGWARNING,
+                    retryable = bool(
+                        isinstance(exc.problem, dict)
+                        and exc.problem.get("retryable") is True
                     )
+
+                    if retryable and downshift_retry_count < adaptive_retry_limit:
+                        downshift_retry_count += 1
+                        downshift_retry_at = now + adaptive_retry_delay
+                        # The retry timer, rather than the normal cooldown, controls
+                        # the next attempt for a retryable server-side startup failure.
+                        last_down_replan_at = now - down_cooldown
+                        log(
+                            "Adaptive downshift failed with retryable Silo error; "
+                            "retry %d/%d in %.1fs: %s"
+                            % (
+                                downshift_retry_count,
+                                adaptive_retry_limit,
+                                adaptive_retry_delay,
+                                exc,
+                            ),
+                            xbmc.LOGWARNING,
+                        )
+                    else:
+                        last_down_replan_at = now
+                        downshift_retry_at = 0.0
+                        if not retryable:
+                            downshift_retry_count = 0
+                        log(
+                            "Adaptive downshift failed%s: %s"
+                            % (
+                                " after retries" if retryable else "",
+                                exc,
+                            ),
+                            xbmc.LOGWARNING,
+                        )
                 except Exception as exc:
                     last_down_replan_at = now
                     log(
