@@ -2619,6 +2619,9 @@ def track_progress(client, session_id, playback_info=None):
     last_position = 0.0
     last_progress_position = None
     last_progress_change_at = time.time()
+    last_reported_paused = None
+    progress_report_interval = 5.0
+    next_progress_report_at = time.time()
     progress_confirmed = True
     stall_started_at = None
     caching_started_at = None
@@ -2656,6 +2659,20 @@ def track_progress(client, session_id, playback_info=None):
         now = time.time()
 
         if not player.isPlaying():
+            # A true stop removes the media from Kodi. A temporary false
+            # isPlaying() state during an adaptive handoff normally retains
+            # Player.HasMedia, so preserve the existing handoff grace only for
+            # that case.
+            has_media = xbmc.getCondVisibility("Player.HasMedia")
+
+            if not has_media:
+                log(
+                    "Kodi reports playback stopped; ending adaptive monitor "
+                    "and closing the Silo playback session.",
+                    xbmc.LOGDEBUG,
+                )
+                break
+
             if not_playing_since is None:
                 not_playing_since = now
                 log(
@@ -3051,20 +3068,33 @@ def track_progress(client, session_id, playback_info=None):
                     )
 
         last_position = max(last_position, position)
-        sequence += 1
+        pause_state_changed = (
+            last_reported_paused is not None
+            and bool(paused) != bool(last_reported_paused)
+        )
+        should_report_progress = (
+            now >= next_progress_report_at or pause_state_changed
+        )
 
-        try:
-            client.report_progress(
-                session_id,
-                sequence,
-                last_position,
-                paused,
-            )
-        except SiloError as exc:
-            log(
-                "Unable to report playback progress: %s" % exc,
-                xbmc.LOGWARNING,
-            )
+        if should_report_progress:
+            sequence += 1
+            try:
+                client.report_progress(
+                    session_id,
+                    sequence,
+                    last_position,
+                    paused,
+                )
+                last_reported_paused = bool(paused)
+                next_progress_report_at = now + progress_report_interval
+            except SiloError as exc:
+                log(
+                    "Unable to report playback progress: %s" % exc,
+                    xbmc.LOGWARNING,
+                )
+                # Keep the next scheduled report based on the current time so
+                # a slow/unreachable server does not alter adaptive monitoring.
+                next_progress_report_at = now + progress_report_interval
 
         for _ in range(50):
             if not player.isPlaying() or monitor.abortRequested():
