@@ -2620,6 +2620,7 @@ def track_progress(client, session_id, playback_info=None):
     last_progress_position = None
     last_progress_change_at = time.time()
     last_reported_paused = None
+    last_paused = None
     progress_report_interval = 5.0
     next_progress_report_at = time.time()
     progress_confirmed = True
@@ -2702,7 +2703,35 @@ def track_progress(client, session_id, playback_info=None):
             position = last_position
 
         position = max(0.0, position)
-        paused = xbmc.getCondVisibility("Player.Paused")
+        paused = bool(xbmc.getCondVisibility("Player.Paused"))
+
+        if paused:
+            # Paused time is not playback health and must never count as a
+            # buffering stall or toward the healthy recovery timer.
+            if last_paused is not True:
+                log(
+                    "Kodi playback paused; suspending adaptive quality timers.",
+                    xbmc.LOGDEBUG,
+                )
+
+            caching_started_at = None
+            stall_started_at = None
+            healthy_since = 0.0
+        elif last_paused is True:
+            # Start a completely fresh health/stall measurement when playback
+            # resumes. Without this reset, a pause longer than stall_threshold
+            # could make the unchanged paused position look like buffering.
+            last_progress_position = position
+            last_progress_change_at = now
+            caching_started_at = None
+            stall_started_at = None
+            healthy_since = now
+            log(
+                "Kodi playback resumed; resetting adaptive quality timers.",
+                xbmc.LOGDEBUG,
+            )
+
+        last_paused = paused
 
         if not paused:
             # Give Kodi a short handoff window after changing streams. During
