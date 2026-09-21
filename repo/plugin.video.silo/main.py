@@ -2414,8 +2414,9 @@ def playback_session_was_terminated(exc):
     problem = getattr(exc, "problem", {}) or {}
     return (
         getattr(exc, "status", None) == 404
-        and problem.get("error") == "session_not_found"
-        and problem.get("message") == "Playback session not found"
+        and problem.get("type")
+        == "https://siloserver.org/docs/api/v2/problems/not_found"
+        and problem.get("detail") == "Playback session not found"
     )
 
 def track_progress(
