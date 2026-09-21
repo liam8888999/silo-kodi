@@ -2397,16 +2397,19 @@ def track_progress(
     playback_info=None,
     resolved_item=None,
 ):
-    """Monitor Kodi playback, report progress, and adapt quality one rung at a time.
+    """Monitor Kodi playback, report progress, and learn a stable quality.
 
     Silo publishes the authoritative quality ladder in playback_plan.available_qualities.
     Kodi does not invent its own bitrate ladder. On sustained buffering we move one
-    published rung downward; after sustained healthy playback we move one rung upward.
-    The direction can reverse at any point and there is no artificial total adaptation
-    limit. The server's ladder boundaries are the only limits.
+    published rung downward. Upward changes are treated as probes: a higher rung must
+    survive a full confirmation period before it becomes the new trusted quality.
 
-    "original" is Silo's source-preserving ceiling. It is kept as the highest entry
-    and is used again when the source can be restored.
+    Each quality that causes a real sustained playback failure is remembered for this
+    video session. Its retry cooldown increases after repeated failures, which prevents
+    the controller from repeatedly bouncing between the same two rungs.
+
+    "original" is Silo's source-preserving ceiling. It remains the highest rung, but
+    it is not repeatedly retried simply because playback has been healthy for 90 seconds.
     """
     player = xbmc.Player()
     monitor = xbmc.Monitor()
@@ -2504,6 +2507,31 @@ def track_progress(
             return labels[0]
 
         return ""
+
+
+    # Per-video-session quality memory. A quality that actually caused a sustained
+    # stall is not immediately retried as an upward probe. Repeated failures extend
+    # its cooldown so the controller can settle on the highest quality that has
+    # demonstrated stable playback for this video.
+    quality_failures = {}
+    quality_failure_cooldowns = {}
+
+    # The currently trusted quality is the quality playback should fall back to
+    # if a higher probe fails. This starts as the actual initial server selection.
+    known_good_quality = ""
+    known_good_since = 0.0
+
+    # An upward switch is a probe until it remains healthy for the full
+    # confirmation interval. While a probe is active, another upward switch is
+    # forbidden and a stall returns directly to known_good_quality.
+    probe_quality = None
+
+    # A higher quality must prove itself for five minutes before becoming the
+    # trusted quality. Failed rungs get an increasing 10/20/40/60 minute cooldown.
+    quality_confirmation_threshold = 300.0
+    quality_failure_cooldown_base = 600.0
+    quality_failure_cooldown_max = 3600.0
+
 
     def next_quality_label(plan, current_label, direction):
         """Return the adjacent published rung.
@@ -2633,6 +2661,8 @@ def track_progress(
 
     # Determine the initial active quality from the server plan.
     playback_info["adaptive_quality"] = detect_quality_label(playback_info)
+    known_good_quality = playback_info["adaptive_quality"]
+    known_good_since = time.time()
 
     sequence = 0
     last_position = 0.0
@@ -2648,8 +2678,8 @@ def track_progress(
     post_switch_grace_until = 0.0
 
     # Downward changes happen relatively quickly once sustained buffering is
-    # detected. Upward changes require a sustained healthy period before trying
-    # the next higher published rung.
+    # detected. Upward changes require a longer healthy period and must also pass
+    # the per-quality failure cooldown before a higher rung is probed.
     last_down_replan_at = 0.0
     last_up_replan_at = 0.0
     last_upshift_at = 0.0
@@ -2659,7 +2689,10 @@ def track_progress(
     down_cooldown = 10.0
     up_cooldown = 90.0
     stall_threshold = 8.0
-    healthy_recovery_threshold = 90.0
+    # Five minutes of healthy playback is required before a higher rung can be
+    # probed. A successful probe has to satisfy the same full interval before
+    # becoming the new trusted quality.
+    healthy_recovery_threshold = quality_confirmation_threshold
     upshift_downshift_grace = 30.0
     adaptive_retry_delay = 5.0
     adaptive_retry_limit = 1
@@ -2753,6 +2786,39 @@ def track_progress(
         last_paused = paused
 
         if not paused:
+            # A probe becomes trusted only after Kodi has actually resumed
+            # advancing on the replacement stream and maintained healthy
+            # playback for the full confirmation threshold.
+            if (
+                probe_quality
+                and progress_confirmed
+                and healthy_since > 0
+                and now - healthy_since >= quality_confirmation_threshold
+            ):
+                known_good_quality = probe_quality
+                known_good_since = now
+
+                # A long successful probe clears the quality's previous failure
+                # history, because the current network conditions have now
+                # demonstrated that the higher rung is sustainable.
+                quality_failures.pop(probe_quality, None)
+                quality_failure_cooldowns.pop(probe_quality, None)
+
+                log(
+                    "Adaptive quality probe confirmed: %s is now the "
+                    "trusted quality after %.0fs of healthy playback"
+                    % (
+                        probe_quality,
+                        now - healthy_since,
+                    )
+                )
+
+                probe_quality = None
+
+                # Start a fresh recovery interval so another upward probe is
+                # never launched immediately after confirming one.
+                healthy_since = now
+
             # Give Kodi a short handoff window after changing streams. During
             # this period the old player state may still be visible even though
             # the replacement URL has already been requested.
@@ -2841,18 +2907,34 @@ def track_progress(
                 and now >= downshift_retry_at
                 and not downshift_retry_exhausted
                 and (
-                    last_upshift_at <= 0
+                    # A failed upward probe is allowed to fall back immediately;
+                    # the normal grace still protects ordinary post-switch playback
+                    # from false-positive stalls.
+                    probe_quality == detect_quality_label(playback_info)
+                    or last_upshift_at <= 0
                     or now - last_upshift_at >= upshift_downshift_grace
                 )
             ):
                 try:
                     plan = playback_info.get("playback_plan") or {}
                     current_label = detect_quality_label(playback_info)
-                    target_label = next_quality_label(
-                        plan,
-                        current_label,
-                        1,
-                    )
+
+                    # If the current rung is an upward probe, return directly
+                    # to the last trusted quality. This avoids testing another
+                    # rung in the same direction after a failed probe.
+                    if (
+                        probe_quality
+                        and current_label == probe_quality
+                        and known_good_quality
+                        and known_good_quality != current_label
+                    ):
+                        target_label = known_good_quality
+                    else:
+                        target_label = next_quality_label(
+                            plan,
+                            current_label,
+                            1,
+                        )
 
                     if target_label is None:
                         # We are already at the lowest published rung. Do not
@@ -2906,7 +2988,44 @@ def track_progress(
                                 target_label,
                             )
                         ):
-                            last_down_replan_at = time.time()
+                            switch_time = time.time()
+
+                            # A successful downshift proves that the previous
+                            # quality was not sustainable under the conditions
+                            # that caused the stall. Remember this quality so it
+                            # is not immediately selected again as an upshift.
+                            failure_count = quality_failures.get(
+                                current_label,
+                                0,
+                            ) + 1
+                            quality_failures[current_label] = failure_count
+
+                            cooldown = min(
+                                quality_failure_cooldown_max,
+                                quality_failure_cooldown_base
+                                * (2 ** min(failure_count - 1, 3)),
+                            )
+                            quality_failure_cooldowns[current_label] = (
+                                switch_time + cooldown
+                            )
+
+                            log(
+                                "Adaptive quality %s marked unstable after "
+                                "sustained stall #%d; upward probe blocked for %.0fs"
+                                % (
+                                    current_label,
+                                    failure_count,
+                                    cooldown,
+                                )
+                            )
+
+                            # The selected lower rung becomes the trusted
+                            # fallback. Any active upward probe is abandoned.
+                            known_good_quality = target_label
+                            known_good_since = switch_time
+                            probe_quality = None
+
+                            last_down_replan_at = switch_time
                             last_up_replan_at = 0.0
                             downshift_retry_at = 0.0
                             downshift_retry_count = 0
@@ -2992,6 +3111,7 @@ def track_progress(
             if (
                 stall_started_at is None
                 and healthy_since > 0
+                and probe_quality is None
                 and now - healthy_since >= healthy_recovery_threshold
                 and now - last_up_replan_at >= up_cooldown
             ):
@@ -3009,6 +3129,27 @@ def track_progress(
                         # nothing higher to request until a future downshift.
                         last_up_replan_at = now
                         healthy_since = now
+                    elif now < quality_failure_cooldowns.get(target_label, 0.0):
+                        # This rung previously caused a sustained stall. Do not
+                        # immediately probe it again just because the current
+                        # quality has been healthy for five minutes.
+                        remaining = max(
+                            0.0,
+                            quality_failure_cooldowns[target_label] - now,
+                        )
+
+                        last_up_replan_at = now
+
+                        log(
+                            "Adaptive upward probe held at %s: target quality "
+                            "%s remains on failure cooldown for %.0fs"
+                            % (
+                                current_label,
+                                target_label,
+                                remaining,
+                            ),
+                            xbmc.LOGDEBUG,
+                        )
                     else:
                         log(
                             "Adaptive upshift eligible: %s -> %s after %.1fs healthy playback"
@@ -3073,6 +3214,23 @@ def track_progress(
                             healthy_since = 0.0
                             post_switch_grace_until = now + 15.0
 
+                            # The higher rung is now a probe. It must actually
+                            # advance and then remain healthy for the full
+                            # confirmation interval before replacing the current
+                            # trusted quality.
+                            probe_quality = target_label
+
+                            log(
+                                "Adaptive quality probe started: %s -> %s; "
+                                "target must remain healthy for %.0fs before "
+                                "becoming trusted"
+                                % (
+                                    current_label,
+                                    target_label,
+                                    quality_confirmation_threshold,
+                                )
+                            )
+
                             log(
                                 "Adaptive upshift complete: %s -> %s "
                                 "(server recipe height=%s bitrate=%s)"
@@ -3101,9 +3259,13 @@ def track_progress(
                 except SiloError as exc:
                     last_up_replan_at = now
                     healthy_since = now
+
+                    # A failed replan request is not enough evidence that the
+                    # target quality itself is unstable. The server may simply
+                    # have failed to create the replacement transport.
                     log(
-                        "Adaptive quality recovery failed for requested rung: %s"
-                        % exc,
+                        "Adaptive quality probe request failed for %s: %s"
+                        % (target_label, exc),
                         xbmc.LOGWARNING,
                     )
                 except Exception as exc:
