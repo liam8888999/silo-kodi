@@ -1054,7 +1054,7 @@ class SiloClient:
             return 3
 
     # Build a protocol-v3 playback/start request.
-    def _start_body(self, file_id, start_position=0.0, quality_preference="original"):
+    def _start_body(self, file_id, start_position=0.0, quality_preference="original", direct_play_only=False):
         caps = self.playback_caps()
         pv = self._protocol_version()
 
@@ -1163,6 +1163,18 @@ class SiloClient:
         hls_delivery["audio_decode_codecs"] = ["aac"]
         hls_delivery["audio_passthrough_codecs"] = []
         deliveries["hls"] = hls_delivery
+
+        if direct_play_only:
+            # In direct-play-only mode, tell Silo that transcoding/remux-style
+            # delivery is not an acceptable fallback. The returned plan is
+            # still validated below, so this remains fail-closed if a server
+            # ignores or does not understand the delivery declaration.
+            original_delivery["enabled"] = True
+            original_delivery["supported_on_device"] = True
+            progressive_delivery["enabled"] = False
+            progressive_delivery["supported_on_device"] = False
+            hls_delivery["enabled"] = False
+            hls_delivery["supported_on_device"] = False
 
         return {
             "installation_id": self._installation_id(),
@@ -1364,11 +1376,12 @@ class SiloClient:
         ]
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
-    def start_playback(self, file_id, start_position=0.0, quality_preference="original"):
+    def start_playback(self, file_id, start_position=0.0, quality_preference="original", direct_play_only=False):
         body = self._start_body(
             file_id,
             start_position,
             quality_preference=quality_preference,
+            direct_play_only=direct_play_only,
         )
 
         data = self._json(            "POST",
@@ -1382,6 +1395,12 @@ class SiloClient:
             raise SiloError(
                 "Server refused playback: %s"
                 % json.dumps(data.get("terminal") or data.get("outcome"))[:300]
+            )
+
+        if direct_play_only and str(plan.get("delivery") or "").strip().lower() != "original_http":
+            raise SiloError(
+                "Direct play only is enabled, but Silo selected %s delivery." %
+                (plan.get("delivery") or "an unsupported")
             )
 
         stream = plan.get("stream") or {}

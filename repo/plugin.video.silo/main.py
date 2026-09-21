@@ -75,6 +75,15 @@ MAX_PAGE_SIZE = 200
 ADDON = xbmcaddon.Addon()
 
 
+def direct_play_only_enabled():
+    """Return whether playback must remain on Silo's original/direct stream."""
+    return str(ADDON.getSetting("direct_play_only") or "").strip().lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
+
 def get_directory_page_size():
     """Return the configured Kodi page size, clamped to 20-200.
 
@@ -2306,9 +2315,12 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
     # Silo starts the transport at zero in both modes. This is important:
     # Resume is implemented by Kodi seeking the resolved item to the fresh
     # Silo position, while Start from beginning receives no resume point.
+    direct_play_only = direct_play_only_enabled()
+
     info = client.start_playback(
         file_id,
         start_position=0.0,
+        direct_play_only=direct_play_only,
     )
 
     if not info.get("url"):
@@ -2414,8 +2426,13 @@ def track_progress(
     player = xbmc.Player()
     monitor = xbmc.Monitor()
 
+    direct_play_only = direct_play_only_enabled()
+
     playback_info = dict(playback_info or {})
     playback_info["session_id"] = session_id
+
+    if direct_play_only:
+        log("Direct-play-only mode enabled; adaptive quality switching is disabled.")
 
     # Wait for Kodi to actually begin playing the resolved stream.
     for _ in range(60):
@@ -2901,7 +2918,8 @@ def track_progress(
 
             # -------------------------------------------------- downshift
             if (
-                stall_started_at is not None
+                not direct_play_only
+                and stall_started_at is not None
                 and stalled_for >= stall_threshold
                 and now - last_down_replan_at >= down_cooldown
                 and now >= downshift_retry_at
@@ -3109,7 +3127,8 @@ def track_progress(
 
             # ---------------------------------------------------- upshift
             if (
-                stall_started_at is None
+                not direct_play_only
+                and stall_started_at is None
                 and healthy_since > 0
                 and probe_quality is None
                 and now - healthy_since >= healthy_recovery_threshold

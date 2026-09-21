@@ -4,6 +4,10 @@
     <setting id="items_per_page" type="slider" label="Items per page" default="200" range="20,10,200" option="int" />
   </category>
 
+  <category label="Playback">
+    <setting id="direct_play_only" type="bool" label="Only allow direct play" default="false" />
+  </category>
+
   <category label="Connection">
     <setting id="server" type="text" label="Server address" default="" enable="false" />
     <setting id="username" type="text" label="Username" default="" enable="false" />
