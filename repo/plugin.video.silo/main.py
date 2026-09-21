@@ -2525,8 +2525,6 @@ def track_progress(
     # confirmation interval. While a probe is active, another upward switch is
     # forbidden and a stall returns directly to known_good_quality.
     probe_quality = None
-    probe_started_at = 0.0
-    probe_confirmed = False
 
     # A higher quality must prove itself for five minutes before becoming the
     # trusted quality. Failed rungs get an increasing 10/20/40/60 minute cooldown.
@@ -2816,8 +2814,6 @@ def track_progress(
                 )
 
                 probe_quality = None
-                probe_started_at = 0.0
-                probe_confirmed = False
 
                 # Start a fresh recovery interval so another upward probe is
                 # never launched immediately after confirming one.
@@ -2911,7 +2907,11 @@ def track_progress(
                 and now >= downshift_retry_at
                 and not downshift_retry_exhausted
                 and (
-                    last_upshift_at <= 0
+                    # A failed upward probe is allowed to fall back immediately;
+                    # the normal grace still protects ordinary post-switch playback
+                    # from false-positive stalls.
+                    probe_quality == detect_quality_label(playback_info)
+                    or last_upshift_at <= 0
                     or now - last_upshift_at >= upshift_downshift_grace
                 )
             ):
@@ -3024,8 +3024,6 @@ def track_progress(
                             known_good_quality = target_label
                             known_good_since = switch_time
                             probe_quality = None
-                            probe_started_at = 0.0
-                            probe_confirmed = False
 
                             last_down_replan_at = switch_time
                             last_up_replan_at = 0.0
@@ -3221,8 +3219,6 @@ def track_progress(
                             # confirmation interval before replacing the current
                             # trusted quality.
                             probe_quality = target_label
-                            probe_started_at = now
-                            probe_confirmed = False
 
                             log(
                                 "Adaptive quality probe started: %s -> %s; "
