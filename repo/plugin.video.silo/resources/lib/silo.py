@@ -1298,7 +1298,8 @@ class SiloClient:
         if not new_plan:
             terminal = data.get("terminal") or data.get("outcome")
             raise SiloError(
-                "Silo could not adapt playback: %s" % json.dumps(terminal)[:400]
+                "Silo could not adapt playback: %s" % json.dumps(terminal)[:400],
+                problem=terminal if isinstance(terminal, dict) else {},
             )
 
         stream = new_plan.get("stream") or {}
