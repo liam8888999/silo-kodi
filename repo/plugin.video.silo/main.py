@@ -1213,6 +1213,10 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
 
+    Silo is authoritative for both watched state and the resume point. In
+    particular, a missing Silo progress record means there is no server resume
+    point, so any stale Kodi-local resume point must be explicitly cleared.
+
     Kodi uses the VideoInfoTag methods setPlaycount() and setResumePoint().
     The exact capitalization matters: it is setPlaycount, not setPlayCount.
 
@@ -1220,12 +1224,18 @@ def set_watch_state(list_item, progress, content_type=None):
     fresh server lookup immediately before playback, so the displayed value is
     never trusted as the final resume position.
     """
+    tag = list_item.getVideoInfoTag()
+
+    # A missing Silo progress record is authoritative: the item is unwatched
+    # and has no resume point. Do not leave Kodi's previously remembered local
+    # bookmark in place.
     if not progress:
+        tag.setPlaycount(0)
+        tag.setResumePoint(0.0, 0.0)
         return
 
     completed = bool(progress.get("completed", False))
     position, duration = get_progress_position(progress)
-    tag = list_item.getVideoInfoTag()
 
     # Runtime is independent of resume state. Use Kodi's native
     # VideoInfoTag duration field so directory views receive the duration.
@@ -1234,17 +1244,22 @@ def set_watch_state(list_item, progress, content_type=None):
         tag.setDuration(duration_int)
 
     if completed:
-        # Silo says the item is fully watched.
+        # Silo says the item is fully watched. Also clear any stale resume
+        # point that Kodi may have retained locally.
         tag.setPlaycount(1)
+        tag.setResumePoint(0.0, 0.0)
         return
 
     # Anything incomplete is explicitly unwatched/in progress.
     tag.setPlaycount(0)
 
-    # Store the server resume marker so Kodi/skins can show the item as
-    # partially played. Kodi documents setResumePoint(time, totalTime) for this.
-    if position > 0 and duration > 0:
+    # Always write the Silo resume point, including zero. Previously this was
+    # only called when position > 0, which allowed an old Kodi-local bookmark
+    # to survive when Silo reported position 0 / no progress.
+    if duration > 0:
         tag.setResumePoint(position, duration)
+    else:
+        tag.setResumePoint(0.0, 0.0)
 
 
 def get_content_id(item):
