@@ -2403,6 +2403,22 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
         )
 
 
+
+def playback_session_was_terminated(exc):
+    """Return True only for Silo's exact progress-session-not-found response.
+
+    After an admin terminates playback, the progress endpoint returns this
+    response because the playback session is no longer active. The admin UI's
+    human-readable "Playback authority revoked" message is not sent to Kodi.
+    """
+    problem = getattr(exc, "problem", {}) or {}
+    return (
+        getattr(exc, "status", None) == 404
+        and problem.get("type")
+        == "https://siloserver.org/docs/api/v2/problems/not_found"
+        and problem.get("detail") == "Playback session not found"
+    )
+
 def track_progress(
     client,
     session_id,
@@ -3317,6 +3333,22 @@ def track_progress(
                 last_reported_paused = bool(paused)
                 next_progress_report_at = now + progress_report_interval
             except SiloError as exc:
+                if playback_session_was_terminated(exc):
+                    log(
+                        "Silo playback session was terminated by the server; "
+                        "stopping Kodi playback.",
+                        xbmc.LOGWARNING,
+                    )
+                    try:
+                        player.stop()
+                    except Exception as stop_exc:
+                        log(
+                            "Unable to stop Kodi playback after server termination: %s"
+                            % stop_exc,
+                            xbmc.LOGWARNING,
+                        )
+                    break
+
                 log(
                     "Unable to report playback progress: %s" % exc,
                     xbmc.LOGWARNING,
