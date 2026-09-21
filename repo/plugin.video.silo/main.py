@@ -2632,13 +2632,14 @@ def track_progress(client, session_id, playback_info=None):
     last_upshift_at = 0.0
     downshift_retry_at = 0.0
     downshift_retry_count = 0
+    downshift_retry_exhausted = False
     down_cooldown = 10.0
     up_cooldown = 90.0
     stall_threshold = 8.0
     healthy_recovery_threshold = 90.0
     upshift_downshift_grace = 30.0
     adaptive_retry_delay = 5.0
-    adaptive_retry_limit = 3
+    adaptive_retry_limit = 1
 
     healthy_since = time.time()
 
@@ -2754,6 +2755,17 @@ def track_progress(client, session_id, playback_info=None):
                     if healthy_since <= 0 and progress_confirmed:
                         healthy_since = now
 
+                    # A new healthy playback interval starts a fresh adaptive
+                    # retry budget for the next independent stall.
+                    if downshift_retry_exhausted:
+                        downshift_retry_exhausted = False
+                        downshift_retry_count = 0
+                        downshift_retry_at = 0.0
+                        log(
+                            "Adaptive retry budget reset after playback recovery",
+                            xbmc.LOGDEBUG,
+                        )
+
                     stalled_for = 0.0
 
             # -------------------------------------------------- downshift
@@ -2762,6 +2774,7 @@ def track_progress(client, session_id, playback_info=None):
                 and stalled_for >= stall_threshold
                 and now - last_down_replan_at >= down_cooldown
                 and now >= downshift_retry_at
+                and not downshift_retry_exhausted
                 and (
                     last_upshift_at <= 0
                     or now - last_upshift_at >= upshift_downshift_grace
@@ -2782,6 +2795,7 @@ def track_progress(client, session_id, playback_info=None):
                         last_down_replan_at = now
                         downshift_retry_at = 0.0
                         downshift_retry_count = 0
+                        downshift_retry_exhausted = False
                     else:
                         recipe = plan.get("effective_recipe") or {}
 
@@ -2831,6 +2845,7 @@ def track_progress(client, session_id, playback_info=None):
                             last_up_replan_at = 0.0
                             downshift_retry_at = 0.0
                             downshift_retry_count = 0
+                            downshift_retry_exhausted = False
                             last_progress_position = None
                             last_progress_change_at = last_down_replan_at
                             progress_confirmed = False
@@ -2883,16 +2898,24 @@ def track_progress(client, session_id, playback_info=None):
                     else:
                         last_down_replan_at = now
                         downshift_retry_at = 0.0
-                        if not retryable:
+                        if retryable:
+                            # A retryable startup failure gets one immediate retry
+                            # for this stall episode. If that also fails, wait for
+                            # playback to recover before allowing another retry cycle.
+                            downshift_retry_exhausted = True
                             downshift_retry_count = 0
-                        log(
-                            "Adaptive downshift failed%s: %s"
-                            % (
-                                " after retries" if retryable else "",
-                                exc,
-                            ),
-                            xbmc.LOGWARNING,
-                        )
+                            log(
+                                "Adaptive downshift retry failed; waiting for "
+                                "playback recovery before trying again: %s" % exc,
+                                xbmc.LOGWARNING,
+                            )
+                        else:
+                            downshift_retry_count = 0
+                            downshift_retry_exhausted = False
+                            log(
+                                "Adaptive downshift failed: %s" % exc,
+                                xbmc.LOGWARNING,
+                            )
                 except Exception as exc:
                     last_down_replan_at = now
                     log(
