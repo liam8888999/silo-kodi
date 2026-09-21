@@ -2381,6 +2381,7 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             client,
             session_id,
             playback_info=info,
+            resolved_item=resolved_item,
         )
     else:
         log(
@@ -2390,7 +2391,12 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
         )
 
 
-def track_progress(client, session_id, playback_info=None):
+def track_progress(
+    client,
+    session_id,
+    playback_info=None,
+    resolved_item=None,
+):
     """Monitor Kodi playback, report progress, and adapt quality one rung at a time.
 
     Silo publishes the authoritative quality ladder in playback_plan.available_qualities.
@@ -2558,10 +2564,23 @@ def track_progress(client, session_id, playback_info=None):
             )
         )
 
-        # StartOffset is handled internally by Kodi when the ListItem is
-        # opened, so the replacement stream starts at the correct playback
-        # position instead of visibly starting at 0 and then seeking forward.
-        list_item = xbmcgui.ListItem(path=new_url)
+        # Reuse the original resolved ListItem so Kodi keeps the movie's
+        # title, artwork, video info and other metadata across an adaptive
+        # quality change. Only its playback path is replaced.
+        list_item = resolved_item
+        if list_item is None:
+            # Defensive fallback for callers that do not provide the original
+            # item; normal plugin playback always does.
+            list_item = xbmcgui.ListItem(path=new_url)
+
+        try:
+            list_item.setPath(new_url)
+        except Exception:
+            # Older Kodi builds may not expose setPath() on ListItem. In that
+            # case fall back to a new item rather than failing the quality
+            # switch entirely.
+            list_item = xbmcgui.ListItem(path=new_url)
+
         list_item.setProperty("IsPlayable", "true")
         list_item.setProperty(
             "StartOffset",
