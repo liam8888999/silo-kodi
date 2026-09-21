@@ -27,7 +27,10 @@ https://liam8888999.github.io/silo-kodi/
 * ▶️ Play media directly through Kodi
 * 🔌 Connect to a Silo Server instance
 * 🌐 Access media from your Silo Server directly through Kodi
-
+*  Transcode Support
+*  Adaptive quality switching if you have a bad network connection or something cant be played
+* Option to only allow direct plays from the server (always preferred over transcoding anyway)
+  
 ---
 
 ## 📋 Requirements
@@ -321,7 +324,9 @@ Common causes include:
 
 If the library can be browsed but playback fails, first verify that the media can be accessed successfully through Silo Server.
 
-Then check the Kodi log for additional information.
+If it still wont play go to settings and enable "only allow direct play" under the play back settings which will disable transcoding completely and hopefully give a better experience
+
+If that still doesnt work then check the Kodi log for additional information.
 
 When reporting a playback problem, include the relevant Kodi log output where possible.
 
