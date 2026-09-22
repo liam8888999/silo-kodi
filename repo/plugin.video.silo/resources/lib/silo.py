@@ -778,6 +778,26 @@ class SiloClient:
                 return libraries
 
 
+    # Return the profile-wide Home sections. These combine content across
+    # all libraries visible to the selected profile.
+    def home_sections(self, image_size="medium"):
+        data = self._json(
+            "GET",
+            "/api/v2/home/sections",
+            params={"image_size": image_size},
+        ) or {}
+        return data.get("sections", [])
+
+    # Return one profile-wide Home section and its cards.
+    def home_section_items(self, section_id, image_size="medium"):
+        data = self._json(
+            "GET",
+            "/api/v2/home/sections/%s/items"
+            % quote(str(section_id), safe=""),
+            params={"image_size": image_size},
+        ) or {}
+        return data
+
     # Search the profile-visible catalog across all accessible libraries.
     # Silo performs the search server-side, so the addon does not need to
     # download and scan every library itself.
