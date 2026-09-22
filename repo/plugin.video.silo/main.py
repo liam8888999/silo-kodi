@@ -2328,6 +2328,15 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
 
     resolved_item = xbmcgui.ListItem(path=info["url"])
 
+    # The item Kodi originally clicked may already contain a locally cached
+    # resume point. Kodi normally merges the resolved ListItem's metadata with
+    # that original item, which means an old local resume point can survive when
+    # Silo now reports no resume data. Override the original video InfoTag so the
+    # fresh server state below completely replaces Kodi's cached resume state.
+    # This is also what lets a server-side reset to position 0 actually take
+    # effect instead of falling back to Kodi's stale local bookmark.
+    resolved_item.setProperty("OverrideInfotag", "true")
+
     if detail:
         try:
             set_catalog_metadata(resolved_item, detail, client)
