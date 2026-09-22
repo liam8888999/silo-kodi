@@ -2557,8 +2557,8 @@ def list_merged_library_sections(client):
                 continue
             groups.setdefault(key, []).append(section)
 
-    # Only expose a merged folder when the same section exists in at least
-    # two libraries. Unique sections remain visible from their library.
+    # Expose each distinct section once. Sections present in multiple libraries
+    # are represented by one combined folder.
     merged = list(groups.values())
     merged.sort(key=lambda entries: (entries[0].get("title") or entries[0].get("section_type") or "").casefold())
 
@@ -2572,7 +2572,6 @@ def list_merged_library_sections(client):
         item.setProperty("Silo.MergedSection", "true")
         item.setProperty("Silo.MergedSectionType", str(first.get("section_type") or ""))
         item.setProperty("Silo.MergedSectionCount", str(len(entries)))
-        library_ids = [str(x.get("library_id")) for x in entries if x.get("library_id")]
         batch.append((build_url(action="merged_library_section", section_key=_section_merge_key(first)), item, True))
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
