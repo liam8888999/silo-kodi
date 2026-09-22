@@ -2826,13 +2826,11 @@ def add_grouped_home_sections(sections):
 def _sort_merged_home_items(items, detail_map, group_key):
     """Apply the correct global date ordering for a merged recent Home category."""
     if group_key == "recently added":
+        # Silo's authoritative library-added timestamp is added_at.
+        # Do not fall back to release/air/updated dates here: this row means
+        # when the item was added to the Silo library.
         fields = (
-            "date_added",
             "added_at",
-            "updated_at",
-            "release_date",
-            "air_date",
-            "first_air_date",
         )
     elif group_key == "recently released":
         fields = (
