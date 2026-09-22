@@ -2618,8 +2618,8 @@ def add_grouped_home_sections(sections):
         )
 
 
-def _sort_merged_home_items(items, group_key):
-    """Apply a useful global order after combining library Home sections."""
+def _sort_merged_home_items(items, detail_map, group_key):
+    """Apply a global order after Home item details are available."""
     recent = group_key in (
         "recently added",
         "recently released",
@@ -2627,48 +2627,39 @@ def _sort_merged_home_items(items, group_key):
         "recently_added",
         "recently_released",
     )
-
-    if recent:
-        def date_key(item):
-            for field in (
-                "release_date",
-                "air_date",
-                "date_added",
-                "added_at",
-                "updated_at",
-            ):
-                value = item.get(field)
-                if value:
-                    return str(value)
-            return ""
-
-        items.sort(key=date_key, reverse=True)
+    if not recent:
         return
 
-    # For ranked/random sections Silo's per-section ordering is meaningful, but
-    # there is no guaranteed common numeric score in the Home item contract.
-    # Round-robin the source lists to avoid one library dominating the top.
-    buckets = {}
+    def date_key(item):
+        detail = detail_map.get(str(get_content_id(item))) or {}
+        for field in (
+            "release_date",
+            "air_date",
+            "first_air_date",
+            "date_added",
+            "added_at",
+            "updated_at",
+        ):
+            value = item.get(field) or detail.get(field)
+            if value:
+                return (1, str(value))
+        return (0, "")
+
+    # Dated cards are ordered newest-first. Cards without a usable server date
+    # are placed afterwards instead of being allowed to retain a library block.
+    items.sort(key=date_key, reverse=True)
+
+    # Python's reverse sort puts the undated (0, "") group first; move it to
+    # the end while retaining its original order.
+    dated = []
+    undated = []
     for item in items:
-        bucket = str(item.get("Silo.HomeSourceSection") or "")
-        buckets.setdefault(bucket, []).append(item)
+        key = date_key(item)
+        (dated if key[0] else undated).append(item)
 
-    interleaved = []
-    keys = list(buckets)
-    position = 0
-    while True:
-        added = False
-        for bucket in keys:
-            values = buckets[bucket]
-            if position < len(values):
-                interleaved.append(values[position])
-                added = True
-        if not added:
-            break
-        position += 1
+    dated.sort(key=lambda item: date_key(item)[1], reverse=True)
+    items[:] = dated + undated
 
-    if interleaved:
-        items[:] = interleaved
 
 
 def list_home_section_group(client, group_key):
@@ -2700,12 +2691,14 @@ def list_home_section_group(client, group_key):
             item["Silo.HomeSourceSection"] = str(section_id)
             combined.append(item)
 
-    _sort_merged_home_items(combined, str(group_key or ""))
+    # Sorting is done after detail metadata is fetched by the shared renderer.
+
     title = _home_section_group_title(matching[0]) if matching else str(group_key or "Home")
     _render_catalog_items(
         client,
         {"title": title, "section_type": matching[0].get("section_type") if matching else "", "items": combined},
         section_title=title,
+        merged_group_key=str(group_key or ""),
     )
 
 
@@ -2800,7 +2793,7 @@ def add_home_section_folder(section):
     )
 
 
-def _render_catalog_items(client, data, section_title=None):
+def _render_catalog_items(client, data, section_title=None, merged_group_key=None):
     """Display a profile-wide Silo Home section using the shared catalog renderer."""
     data = data or {}
     section_title = section_title or data.get("title") or data.get("section_type") or "Section"
@@ -2829,6 +2822,9 @@ def _render_catalog_items(client, data, section_title=None):
     xbmcplugin.setContent(HANDLE, "videos")
 
     detail_map = fetch_detail_metadata(client, items, None)
+    if merged_group_key:
+        _sort_merged_home_items(items, detail_map, str(merged_group_key))
+
 
     try:
         in_progress_map = client.in_progress_map()
