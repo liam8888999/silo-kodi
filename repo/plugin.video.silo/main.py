@@ -973,6 +973,121 @@ def set_catalog_metadata(list_item, item, client):
         for key, value in unique_ids.items():
             list_item.setProperty("Silo.%sID" % key.upper(), value)
 
+    # Preserve catalog viewer state that has no direct VideoInfoTag setter.
+    user_state = item.get("user_state")
+    if isinstance(user_state, dict):
+        for key in (
+            "played",
+            "is_favorite",
+            "in_watchlist",
+        ):
+            if key in user_state:
+                list_item.setProperty(
+                    "Silo.UserState.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    "true" if bool(user_state[key]) else "false",
+                )
+
+    play_content_id = item.get("play_content_id")
+    if play_content_id:
+        list_item.setProperty("Silo.PlayContentID", str(play_content_id))
+
+    series_id = item.get("series_id")
+    if series_id:
+        list_item.setProperty("Silo.SeriesID", str(series_id))
+
+    content_id = item.get("content_id") or item.get("id")
+    if content_id:
+        list_item.setProperty("Silo.ContentID", str(content_id))
+
+    # Keep the server's catalog progress fields available even when the
+    # native watch marker is applied separately by set_watch_state().
+    for key in (
+        "position_seconds",
+        "duration_seconds",
+        "progress_updated_at",
+    ):
+        value = item.get(key)
+        if value not in (None, ""):
+            list_item.setProperty(
+                "Silo.%s" % "".join(
+                    part.title() for part in key.split("_")
+                ),
+                str(value),
+            )
+
+    if item.get("added_at"):
+        try:
+            tag.setDateAdded(str(item["added_at"]))
+        except Exception:
+            list_item.setProperty(
+                "Silo.AddedAt",
+                str(item["added_at"]),
+            )
+
+    for key in (
+        "poster_thumbhash",
+        "backdrop_thumbhash",
+    ):
+        value = item.get(key)
+        if value:
+            list_item.setProperty(
+                "Silo.%s" % "".join(
+                    part.title() for part in key.split("_")
+                ),
+                str(value),
+            )
+
+    badges = item.get("badges") or []
+    if badges:
+        list_item.setProperty(
+            "Silo.Badges",
+            " / ".join(str(value) for value in badges if value),
+        )
+
+    sort_metrics = item.get("sort_metrics")
+    if isinstance(sort_metrics, dict):
+        for key in (
+            "release_date",
+            "runtime_minutes",
+            "resolution",
+            "bitrate_kbps",
+            "progress_ratio",
+            "viewed_at",
+            "play_count",
+            "author",
+            "narrator",
+            "series_name",
+        ):
+            value = sort_metrics.get(key)
+            if value not in (None, ""):
+                list_item.setProperty(
+                    "Silo.Sort.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    str(value),
+                )
+
+    upcoming = item.get("upcoming_event")
+    if isinstance(upcoming, dict):
+        for key in (
+            "type",
+            "air_date",
+            "air_time",
+            "episode_title",
+            "season_number",
+            "episode_number",
+        ):
+            value = upcoming.get(key)
+            if value not in (None, ""):
+                list_item.setProperty(
+                    "Silo.Upcoming.%s" % "".join(
+                        part.title() for part in key.split("_")
+                    ),
+                    str(value),
+                )
+
     # The catalog has a few useful fields with no dedicated Kodi video-info
     # field. Expose them as ListItem properties so skins can still access them.
     if item.get("networks"):
@@ -1532,6 +1647,115 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             pass
 
 
+def set_season_metadata(list_item, season, client, series_id=None):
+    """Populate a Kodi season ListItem from Silo's season response."""
+    if not isinstance(season, dict):
+        return
+
+    tag = list_item.getVideoInfoTag()
+    tag.setMediaType("season")
+
+    season_number = season.get(
+        "season_number",
+        season.get("number"),
+    )
+
+    if season_number is not None:
+        try:
+            tag.setSeason(int(season_number))
+        except (TypeError, ValueError):
+            pass
+
+    title = season.get("title")
+    if title:
+        tag.setTitle(str(title))
+
+    overview = season.get("overview")
+    if overview:
+        try:
+            tag.setPlot(str(overview))
+            tag.setPlotOutline(str(overview))
+        except Exception:
+            pass
+
+    air_date = season.get("air_date")
+    if air_date:
+        try:
+            tag.setPremiered(str(air_date))
+        except Exception:
+            pass
+
+    episode_count = season.get("episode_count")
+    try:
+        episode_count = max(0, int(episode_count or 0))
+    except (TypeError, ValueError):
+        episode_count = 0
+
+    if episode_count > 0:
+        # Keep the standard Kodi episode-count fields available to skins.
+        for key, value in (
+            ("totalepisodes", episode_count),
+            ("numepisodes", episode_count),
+        ):
+            list_item.setProperty(key, str(value))
+        list_item.setProperty("Silo.EpisodeCount", str(episode_count))
+
+    content_id = get_content_id(season)
+    if content_id:
+        list_item.setProperty("Silo.ContentID", str(content_id))
+
+    play_content_id = season.get("play_content_id")
+    if play_content_id:
+        list_item.setProperty(
+            "Silo.PlayContentID",
+            str(play_content_id),
+        )
+
+    if series_id:
+        list_item.setProperty("Silo.SeriesID", str(series_id))
+
+    list_item.setProperty(
+        "Silo.IsSpecials",
+        "true" if bool(season.get("is_specials", False)) else "false",
+    )
+
+    poster_url = season.get("poster_url")
+    poster_thumbhash = season.get("poster_thumbhash")
+
+    if poster_url:
+        set_art(
+            list_item,
+            client,
+            poster=poster_url,
+        )
+
+    if poster_thumbhash:
+        list_item.setProperty(
+            "Silo.PosterThumbhash",
+            str(poster_thumbhash),
+        )
+
+    # Preserve every season field supplied by the endpoint so skins/add-ons
+    # can access the server data even where Kodi has no native setter.
+    for key in (
+        "content_id",
+        "play_content_id",
+        "series_id",
+        "season_number",
+        "title",
+        "overview",
+        "air_date",
+        "episode_count",
+        "is_specials",
+    ):
+        value = season.get(key)
+        if value not in (None, ""):
+            property_name = "Silo.Season.%s" % "".join(
+                part.title() for part in key.split("_")
+            )
+            list_item.setProperty(property_name, str(value))
+
+
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
 
@@ -2054,6 +2278,23 @@ def list_root(client, page=None):
         title = library.get("name") or library.get("title") or "Library"
         item = xbmcgui.ListItem(label=title)
 
+        # Preserve the library metadata supplied by the user-libraries call.
+        if library.get("id") is not None:
+            item.setProperty(
+                "Silo.LibraryID",
+                str(library.get("id")),
+            )
+        if library.get("type"):
+            item.setProperty(
+                "Silo.LibraryType",
+                str(library.get("type")),
+            )
+        if library.get("sort_order") is not None:
+            item.setProperty(
+                "Silo.LibrarySortOrder",
+                str(library.get("sort_order")),
+            )
+
         # Silo provides a library-level poster_url for custom library artwork.
         # Apply it as Kodi's poster, thumbnail and icon so the artwork is used
         # consistently by skins that prefer different art keys.
@@ -2366,13 +2607,12 @@ def list_seasons(client, series_id, library_id, page=None):
         title = season.get("title") or "Season %s" % season_number
         item = xbmcgui.ListItem(label=title)
 
-        season_tag = item.getVideoInfoTag()
-        season_tag.setMediaType("season")
-        season_tag.setTitle(title)
-        try:
-            season_tag.setSeason(int(season_number))
-        except (TypeError, ValueError):
-            pass
+        set_season_metadata(
+            item,
+            season,
+            client,
+            series_id=series_id,
+        )
 
         set_container_watch_state(
             item,
