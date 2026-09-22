@@ -2367,34 +2367,52 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             "Kodi requested Resume; applied fresh Silo resume position "
             "to the resolved item for content %s" % content_id
         )
+    elif resume:
+        # Kodi showed its native Resume prompt because a local cached resume
+        # point exists, but Silo has no current progress record. Treat this
+        # exactly like a server-side resume-point change: replace Kodi's local
+        # value with a new server-authoritative resume point at 1 second.
+        try:
+            resume_duration = max(0.0, float(duration_seconds or 0))
+        except (TypeError, ValueError):
+            resume_duration = 0.0
+
+        if resume_duration <= 0 and detail:
+            version = _detail_version(detail, file_id)
+            try:
+                resume_duration = max(0.0, float(version.get("duration") or 0))
+            except (TypeError, ValueError):
+                resume_duration = 0.0
+            if resume_duration <= 0:
+                resume_duration = get_runtime_seconds(detail)
+
+        synthetic_progress = {
+            "completed": False,
+            "position_seconds": 1.0,
+            "duration_seconds": resume_duration,
+        }
+        apply_fresh_resume_to_resolved_item(
+            resolved_item,
+            synthetic_progress,
+            fallback_duration=resume_duration,
+        )
+        log(
+            "Kodi requested Resume but Silo returned no progress; "
+            "replaced Kodi's cached resume position with 1.000s for "
+            "content %s" % content_id
+        )
     else:
         # Start from beginning must not carry a Kodi/Silo resume point.
         try:
             tag = resolved_item.getVideoInfoTag()
             tag.setPlaycount(0)
             tag.setResumePoint(0.0, 0.0)
-
-            # If Kodi showed its Resume dialog because it has a stale local
-            # bookmark, it still passes resume=true into this plugin after the
-            # user selects Resume. Clearing the InfoTag alone is too late:
-            # Kodi can apply the original cached bookmark when it opens the
-            # resolved URL. StartOffset is Kodi's explicit playback offset and
-            # setting it to zero here overrides that cached seek.
-            if resume and not latest_progress:
-                resolved_item.setProperty("StartOffset", "0")
         except Exception:
             pass
-
-        if resume:
-            log(
-                "Kodi requested Resume but Silo returned no progress; "
-                "starting from the beginning for content %s" % content_id
-            )
-        else:
-            log(
-                "Kodi requested Start from beginning; no resume point applied "
-                "for content %s" % content_id
-            )
+        log(
+            "Kodi requested Start from beginning; no resume point applied "
+            "for content %s" % content_id
+        )
 
     resolved_item.setProperty("IsPlayable", "true")
 
@@ -2412,7 +2430,7 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             session_id,
             playback_info=info,
             resolved_item=resolved_item,
-            force_start_zero=bool(resume and not latest_progress),
+            force_start_zero=False,
         )
     else:
         log(
