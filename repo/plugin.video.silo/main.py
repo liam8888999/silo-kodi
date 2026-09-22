@@ -2679,9 +2679,15 @@ def _home_item_richness(item):
 
 
 def _merge_home_catalog_items(existing, candidate):
-    """Choose one duplicate deterministically while retaining useful source information."""
-    existing_score = _home_item_richness(existing)
-    candidate_score = _home_item_richness(candidate)
+    """Keep the duplicate that occurs highest in the already-sorted combined list.
+
+    For merged recent sections, callers invoke this only after the complete
+    combined list has been globally sorted. Therefore the first copy is the
+    one that appears higher on the final Kodi page and must remain the primary
+    copy. Later duplicates can contribute missing metadata and source IDs.
+    """
+    # The list has already been sorted before this function is called.
+    chosen = dict(existing)
 
     existing_library = _extract_home_library_id(existing)
     candidate_library = _extract_home_library_id(candidate)
@@ -2689,29 +2695,9 @@ def _merge_home_catalog_items(existing, candidate):
     existing_section = str(existing.get("_silo_home_source_section_id") or "")
     candidate_section = str(candidate.get("_silo_home_source_section_id") or "")
 
-    if candidate_score > existing_score:
-        chosen = dict(candidate)
-    elif candidate_score < existing_score:
-        chosen = dict(existing)
-    else:
-        # Stable tie-breakers: prefer an identified library, then lexical
-        # library/section IDs instead of depending on response ordering.
-        candidate_key = (
-            1 if candidate_library else 0,
-            candidate_library,
-            candidate_section,
-        )
-        existing_key = (
-            1 if existing_library else 0,
-            existing_library,
-            existing_section,
-        )
-        chosen = dict(candidate if candidate_key < existing_key else existing)
-
-    # Fill missing fields from the other copy without overwriting the chosen
-    # copy's values, then retain every source section/library ID for skins and
-    # diagnostics.
-    other = existing if chosen.get("_silo_home_source_section_id") == candidate_section else candidate
+    # Fill missing fields from the later copy without changing the selected
+    # copy's position, library, or existing values.
+    other = candidate
 
     for key, value in other.items():
         if key.startswith("_silo_home_"):
@@ -2947,15 +2933,10 @@ def list_home_section_group(client, group_key):
                 candidate["_silo_home_source_library_id"] = source_library_id
                 candidate["_silo_home_source_library_ids"] = [source_library_id]
 
-            if key not in seen:
-                seen[key] = len(combined)
-                combined.append(candidate)
-            else:
-                index = seen[key]
-                combined[index] = _merge_home_catalog_items(
-                    combined[index],
-                    candidate,
-                )
+            # Keep every occurrence until the merged list has been globally
+            # sorted. The first copy after sorting is the one that sits highest
+            # on the final combined page and should be the copy we display.
+            combined.append(candidate)
 
     title = _home_section_group_title(matching[0])
     _render_catalog_items(
@@ -3140,18 +3121,23 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     section_title = section_title or data.get("title") or data.get("section_type") or "Section"
     source_items = data.get("items") or []
 
-    # Preserve Silo's ordering exactly, but remove duplicate content IDs that
-    # can otherwise produce duplicate cards inside a single section.
+    # For a merged recent section, keep every occurrence until after the
+    # global date sort. This means a duplicate keeps whichever copy is higher
+    # on the final combined page. Non-merged sections retain their original
+    # first-occurrence deduplication behaviour.
     items = []
-    seen = set()
-    for catalog_item in source_items:
-        content_id = get_content_id(catalog_item)
-        key = str(content_id) if content_id else None
-        if key and key in seen:
-            continue
-        if key:
-            seen.add(key)
-        items.append(catalog_item)
+    if merged_group_key:
+        items = list(source_items)
+    else:
+        seen = set()
+        for catalog_item in source_items:
+            content_id = get_content_id(catalog_item)
+            key = str(content_id) if content_id else None
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            items.append(catalog_item)
 
     if not items:
         xbmcplugin.setPluginCategory(HANDLE, section_title)
@@ -3174,6 +3160,28 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
 
     if merged_group_key:
         _sort_merged_home_items(items, detail_map, str(merged_group_key))
+
+        # Deduplicate only after the global merged sort. The first occurrence
+        # is therefore the card that appears highest on the combined page.
+        deduped = []
+        seen = {}
+        for catalog_item in items:
+            content_id = get_content_id(catalog_item)
+            key = str(content_id) if content_id else None
+
+            if key and key in seen:
+                index = seen[key]
+                deduped[index] = _merge_home_catalog_items(
+                    deduped[index],
+                    catalog_item,
+                )
+                continue
+
+            if key:
+                seen[key] = len(deduped)
+            deduped.append(catalog_item)
+
+        items = deduped
 
 
     try:
