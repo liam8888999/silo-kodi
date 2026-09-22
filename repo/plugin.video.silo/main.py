@@ -582,14 +582,43 @@ def fetch_home_added_at_by_section(client, section, card_items):
         )
         return {}
 
+    returned_items = data.get("items") or []
+
+    log(
+        "Home added_at catalog response section=%s returned=%d wanted=%d"
+        % (section_id, len(returned_items), len(wanted)),
+        xbmc.LOGDEBUG,
+    )
+
     result = {}
-    for catalog_item in data.get("items") or []:
+    for catalog_item in returned_items:
         content_id = get_content_id(catalog_item)
+        item_type = str(
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        )
+        added_at = catalog_item.get("added_at")
+
+        # Log every returned catalog item so we can see exactly what Silo sent,
+        # including items that are not part of the limited Home card row.
+        log(
+            "Home added_at catalog item section=%s id=%s type=%s added_at=%s wanted=%s"
+            % (
+                section_id,
+                content_id,
+                item_type,
+                added_at,
+                "yes" if content_id and str(content_id) in wanted else "no",
+            ),
+            xbmc.LOGDEBUG,
+        )
+
         if not content_id or str(content_id) not in wanted:
             continue
-        value = catalog_item.get("added_at")
-        if value:
-            result[str(content_id)] = value
+
+        if added_at:
+            result[str(content_id)] = added_at
 
     log(
         "Home added_at lookup section=%s matched=%d/%d"
