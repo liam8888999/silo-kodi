@@ -2527,6 +2527,111 @@ def list_root(client, page=None):
         _hide_login_loading()
 
 
+def _section_merge_key(section):
+    """Return a stable key for matching section folders across libraries."""
+    section_type = str(section.get("section_type") or "").strip().lower()
+    title = str(section.get("title") or section_type or "").strip().casefold()
+    return section_type, title
+
+
+def list_merged_library_sections(client):
+    """Display matching library sections as one combined folder when enabled."""
+    libraries = client.libraries()
+    groups = {}
+
+    for library in libraries:
+        library_id = library.get("id")
+        if not library_id:
+            continue
+        try:
+            sections = client.library_sections(library_id, image_size="medium")
+        except SiloError as exc:
+            log("Unable to load sections for library %s: %s" % (library_id, exc), xbmc.LOGWARNING)
+            continue
+        for section in sections:
+            section = dict(section or {})
+            section["library_id"] = library_id
+            section["library_name"] = library.get("name") or library.get("title") or "Library"
+            key = _section_merge_key(section)
+            if not key[1]:
+                continue
+            groups.setdefault(key, []).append(section)
+
+    # Only expose a merged folder when the same section exists in at least
+    # two libraries. Unique sections remain visible from their library.
+    merged = [entries for entries in groups.values() if len(entries) > 1]
+    merged.sort(key=lambda entries: (entries[0].get("title") or entries[0].get("section_type") or "").casefold())
+
+    xbmcplugin.setPluginCategory(HANDLE, "Combined Sections")
+    xbmcplugin.setContent(HANDLE, "files")
+    batch = []
+    for entries in merged:
+        first = entries[0]
+        title = first.get("title") or first.get("section_type") or "Section"
+        item = xbmcgui.ListItem(label=title)
+        item.setProperty("Silo.MergedSection", "true")
+        item.setProperty("Silo.MergedSectionType", str(first.get("section_type") or ""))
+        item.setProperty("Silo.MergedSectionCount", str(len(entries)))
+        library_ids = [str(x.get("library_id")) for x in entries if x.get("library_id")]
+        batch.append((build_url(action="merged_library_section", section_key=_section_merge_key(first)), item, True))
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_merged_library_section(client, section_key):
+    """Combine matching section items, then sort deterministically."""
+    try:
+        key = tuple(section_key)
+    except (TypeError, ValueError):
+        key = ("", str(section_key or "").casefold())
+
+    libraries = client.libraries()
+    combined = []
+    source_order = []
+    seen = set()
+    for library in libraries:
+        library_id = library.get("id")
+        if not library_id:
+            continue
+        try:
+            sections = client.library_sections(library_id, image_size="medium")
+        except SiloError:
+            continue
+        for section in sections:
+            if _section_merge_key(section) != key:
+                continue
+            source_order.append((library_id, section))
+
+    for library_id, section in source_order:
+        section_id = section.get("id") or section.get("section_id")
+        if not section_id:
+            continue
+        data = client.library_section_items(library_id, section_id, image_size="medium")
+        for item in data.get("items") or []:
+            content_id = get_content_id(item)
+            dedupe_key = str(content_id) if content_id else None
+            if dedupe_key and dedupe_key in seen:
+                continue
+            if dedupe_key:
+                seen.add(dedupe_key)
+            item = dict(item)
+            item.setdefault("library_id", library_id)
+            combined.append(item)
+
+    # Server order is preserved within each library; libraries are then ordered
+    # by their stable Silo library order, followed by title as a deterministic
+    # fallback. This avoids random changes between Kodi refreshes.
+    combined.sort(key=lambda item: (
+        str(item.get("library_id") or ""),
+        str(item.get("sort_title") or item.get("title") or item.get("name") or "").casefold(),
+    ))
+
+    # Reuse the normal Home renderer by constructing a temporary section payload.
+    data = {"title": key[1].title(), "section_type": key[0], "items": combined}
+    _render_catalog_items(client, data, section_title=data["title"])
+
+
 def list_libraries(client):
     """Display the accessible Silo libraries inside the Libraries folder."""
     libraries = client.libraries()
@@ -2607,10 +2712,10 @@ def add_home_section_folder(section):
     )
 
 
-def list_home_section(client, section_id):
+def _render_catalog_items(client, data, section_title=None):
     """Display a profile-wide Silo Home section using the shared catalog renderer."""
-    data = client.home_section_items(section_id, image_size="medium") or {}
-    section_title = data.get("title") or data.get("section_type") or section_id
+    data = data or {}
+    section_title = section_title or data.get("title") or data.get("section_type") or "Section"
     source_items = data.get("items") or []
 
     # Preserve Silo's ordering exactly, but remove duplicate content IDs that
