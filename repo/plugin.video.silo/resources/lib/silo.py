@@ -329,7 +329,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True):
         if not self.base:
             self._prompt_account()
 
@@ -360,19 +360,20 @@ class SiloClient:
                 save_config(self.cfg)
                 self.login()
 
-            return self._send(method, path, params, body, need_profile, False)
+            return self._send(method, path, params, body, need_profile, False, timeout, log_not_found)
 
         # A locked profile may need a fresh profile-verification token.
         if r.status_code == 403 and retry and "profile_verification" in r.text:
             self.cfg.pop("profile_token", None)
             self.verify_profile(self.cfg.get("profile_id"))
-            return self._send(method, path, params, body, need_profile, False)
+            return self._send(method, path, params, body, need_profile, False, timeout, log_not_found)
 
         if not r.ok:
-            log(
-                "%s %s -> %s" % (method, path, r.text[:1200]),
-                xbmc.LOGWARNING,
-            )
+            if not (r.status_code == 404 and not log_not_found):
+                log(
+                    "%s %s -> %s" % (method, path, r.text[:1200]),
+                    xbmc.LOGWARNING,
+                )
 
             try:
                 problem = r.json()
@@ -778,6 +779,57 @@ class SiloClient:
                 return libraries
 
 
+    # Return the profile-wide Home sections. These combine content across
+    # all libraries visible to the selected profile.
+    def home_sections(self, image_size="medium"):
+        data = self._json(
+            "GET",
+            "/api/v2/home/sections",
+            params={"image_size": image_size},
+        ) or {}
+        return data.get("sections", [])
+
+    # Return one profile-wide Home section and its cards.
+    def home_section_items(self, section_id, image_size="medium"):
+        data = self._json(
+            "GET",
+            "/api/v2/home/sections/%s/items"
+            % quote(str(section_id), safe=""),
+            params={"image_size": image_size},
+        ) or {}
+        return data
+
+    # Return one Home section through Silo's full catalog-card endpoint.
+    # Unlike /home/sections/{id}/items, this response uses CatalogItem and
+    # includes added_at. For Recently Added TV sections, Silo's resolver sets
+    # that timestamp to the episode/event that caused the series to be recent.
+    def home_section_catalog_items(self, section_id, image_size="medium", limit=200):
+        """Return full catalog cards for one profile-scoped Home section."""
+        try:
+            limit = max(1, min(int(limit or 200), 200))
+        except (TypeError, ValueError):
+            limit = 200
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params={
+                "source": "section",
+                "scope": "home",
+                "section_id": section_id,
+                "limit": limit,
+                "skip_total": "true",
+                "image_size": image_size,
+            },
+        ) or {}
+
+        # The stable v2 catalog response is normally the collection itself.
+        # Accept a body envelope as well for compatibility with older builds.
+        if isinstance(data, dict) and isinstance(data.get("body"), dict):
+            data = data["body"]
+
+        return data
+
     # Search the profile-visible catalog across all accessible libraries.
     # Silo performs the search server-side, so the addon does not need to
     # download and scan every library itself.
@@ -862,11 +914,12 @@ class SiloClient:
                 return items
 
     # Return all seasons for a series.
-    def seasons(self, series_id, library_id=None):
+    def seasons(self, series_id, library_id=None, suppress_not_found=False):
         data = self._json(
             "GET",
             "/api/v2/catalog/series/%s/seasons" % quote(series_id, safe=":"),
             params={"library_id": library_id} if library_id else None,
+            log_not_found=not suppress_not_found,
         ) or {}
 
         return data.get("items", [])
