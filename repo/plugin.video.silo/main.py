@@ -2469,6 +2469,17 @@ def list_root(client, page=None):
         True,
     )
 
+    # Keep all user libraries under one folder so the root stays focused on
+    # global actions and profile-wide Home sections.
+    libraries_item = xbmcgui.ListItem(label="Libraries")
+    libraries_item.setProperty("Silo.LibraryFolder", "true")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="libraries"),
+        libraries_item,
+        True,
+    )
+
     # Silo Home sections are profile-wide: they combine content across all
     # libraries visible to the selected profile. This keeps Continue Watching,
     # Recently Added, Recommended, Next Up, etc. from being split by library.
@@ -2480,17 +2491,6 @@ def list_root(client, page=None):
 
     for section in home_sections:
         add_home_section_folder(section)
-
-    # Keep all user libraries under one folder so the root stays focused on
-    # global actions and profile-wide Home sections.
-    libraries_item = xbmcgui.ListItem(label="Libraries")
-    libraries_item.setProperty("Silo.LibraryFolder", "true")
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="libraries"),
-        libraries_item,
-        True,
-    )
 
     profile_item = xbmcgui.ListItem(label="Switch Profile")
     xbmcplugin.addDirectoryItem(
