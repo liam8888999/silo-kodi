@@ -1426,6 +1426,19 @@ def list_search_results(client, query, page=1):
         None,
     )
 
+    # Match normal library browsing: fetch the current in-progress
+    # server records so search results reflect watch activity that was added
+    # on Silo after the search results were generated.
+    try:
+        in_progress_map = client.in_progress_map()
+    except SiloError as exc:
+        log(
+            "Unable to retrieve in-progress Silo records for search results: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
+        in_progress_map = {}
+
     # Keep all media types in the same result page, but group them into
     # Movies, TV Shows and Episodes so a common title (for example "Christmas")
     # is immediately distinguishable.
@@ -1553,12 +1566,19 @@ def list_search_results(client, query, page=1):
                 client,
             )
 
-        # Search results are already profile-scoped by Silo. Use the catalog
-        # watch state directly so this search does not download the full
-        # progress table spanning every library.
+        # Start with the catalog snapshot, then prefer the current
+        # in-progress server record exactly as normal library browsing does.
+        # This makes search show a partial-watch state when Silo has progress
+        # that was not present when the search results were loaded.
+        display_progress = catalog_progress(catalog_item)
+        server_progress = in_progress_map.get(str(content_id))
+
+        if server_progress:
+            display_progress = server_progress
+
         set_watch_state(
             item,
-            catalog_progress(catalog_item),
+            display_progress,
             media_type,
         )
 
@@ -1571,7 +1591,7 @@ def list_search_results(client, query, page=1):
                     or content_id
                 ),
                 resume_available=int(
-                    has_usable_resume(catalog_progress(catalog_item))
+                    has_usable_resume(display_progress)
                 ),
             )
             batch.append((url, item, False))
