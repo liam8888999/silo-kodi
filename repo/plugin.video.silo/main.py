@@ -2531,7 +2531,7 @@ def _section_merge_key(section):
     """Return a stable key for matching section folders across libraries."""
     section_type = str(section.get("section_type") or "").strip().lower()
     title = str(section.get("title") or section_type or "").strip().casefold()
-    return section_type, title
+    return "%s|%s" % (section_type, title)
 
 
 def list_merged_library_sections(client):
@@ -2553,7 +2553,7 @@ def list_merged_library_sections(client):
             section["library_id"] = library_id
             section["library_name"] = library.get("name") or library.get("title") or "Library"
             key = _section_merge_key(section)
-            if not key[1]:
+            if not key.split("|", 1)[-1]:
                 continue
             groups.setdefault(key, []).append(section)
 
@@ -2581,10 +2581,8 @@ def list_merged_library_sections(client):
 
 def list_merged_library_section(client, section_key):
     """Combine matching section items, then sort deterministically."""
-    try:
-        key = tuple(section_key)
-    except (TypeError, ValueError):
-        key = ("", str(section_key or "").casefold())
+    raw_key = str(section_key or "")
+    section_type, _, title = raw_key.partition("|")
 
     libraries = client.libraries()
     combined = []
@@ -2599,7 +2597,7 @@ def list_merged_library_section(client, section_key):
         except SiloError:
             continue
         for section in sections:
-            if _section_merge_key(section) != key:
+            if _section_merge_key(section) != raw_key:
                 continue
             source_order.append((library_id, section))
 
@@ -2628,8 +2626,14 @@ def list_merged_library_section(client, section_key):
     ))
 
     # Reuse the normal Home renderer by constructing a temporary section payload.
-    data = {"title": key[1].title(), "section_type": key[0], "items": combined}
+    data = {"title": title.title(), "section_type": section_type, "items": combined}
     _render_catalog_items(client, data, section_title=data["title"])
+
+
+def list_home_section(client, section_id):
+    """Display one profile-wide Silo Home section."""
+    data = client.home_section_items(section_id, image_size="medium") or {}
+    _render_catalog_items(client, data)
 
 
 def list_libraries(client):
@@ -2640,6 +2644,11 @@ def list_libraries(client):
     xbmcplugin.setContent(HANDLE, "files")
 
     batch = []
+
+    if ADDON.getSettingBool("combine_library_sections"):
+        combined_item = xbmcgui.ListItem(label="Combined Sections")
+        combined_item.setProperty("Silo.CombinedLibrarySections", "true")
+        batch.append((build_url(action="merged_library_sections"), combined_item, True))
 
     for library in libraries:
         library_id = library.get("id")
@@ -4681,6 +4690,14 @@ def router(client):
             client,
             params.get("section_id"),
         )
+        return
+
+    if action == "merged_library_sections":
+        list_merged_library_sections(client)
+        return
+
+    if action == "merged_library_section":
+        list_merged_library_section(client, params.get("section_key"))
         return
 
     if action == "libraries":
