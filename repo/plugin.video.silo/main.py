@@ -80,12 +80,72 @@ ADDON = xbmcaddon.Addon()
 _SKIN_EPISODE_NUMBER_DETECTION = None
 
 
+def _tag_blocks(text, tag_name):
+    """Return simple XML tag blocks for one tag name."""
+    blocks = []
+    opening = "<" + tag_name
+    closing = "</" + tag_name + ">"
+    position = 0
+
+    while True:
+        begin = text.find(opening, position)
+        if begin < 0:
+            return blocks
+
+        finish = text.find(closing, begin)
+        if finish < 0:
+            return blocks
+
+        finish += len(closing)
+        blocks.append(text[begin:finish])
+        position = finish
+
+
+def _tag_attribute(block, name):
+    """Read one simple XML attribute without relying on a quote-sensitive regex."""
+    lower_block = block.lower()
+    marker = name.lower() + "="
+    start = lower_block.find(marker)
+    if start < 0:
+        return ""
+
+    start += len(marker)
+
+    while start < len(block) and block[start].isspace():
+        start += 1
+
+    if start >= len(block):
+        return ""
+
+    quote = block[start]
+    if quote in ("'", '"'):
+        finish = block.find(quote, start + 1)
+        if finish < 0:
+            return ""
+        return block[start + 1:finish]
+
+    finish = start
+    while finish < len(block) and not block[finish].isspace() and block[finish] != ">":
+        finish += 1
+
+    return block[start:finish]
+
+
+def _label_expression_uses_episode_number(block):
+    """Return True when one rendered label expression contains episode + title."""
+    lower = block.lower()
+    return (
+        "listitem.episode" in lower
+        and "listitem.title" in lower
+    )
+
+
 def skin_episode_number_in_label():
     """Return True when the active skin already puts episode number in its label.
-    
-    Kodi skins can build an episode label from ListItem.Episode/ListItem.Season
-    themselves. The add-on cannot ask Kodi whether the rendered label contains
-    those fields, so inspect the active skin's XML once and cache the result.
+
+    Only a label expression that is applicable to normal episode directory
+    rendering counts. Playlist-only expressions must not suppress the add-on's
+    episode-number prefix.
     """
     global _SKIN_EPISODE_NUMBER_DETECTION
 
@@ -100,8 +160,10 @@ def skin_episode_number_in_label():
 
         while pending and not detected:
             directory = pending.pop()
+
             if directory in visited:
                 continue
+
             visited.add(directory)
 
             try:
@@ -126,71 +188,63 @@ def skin_episode_number_in_label():
 
                     if isinstance(data, bytes):
                         data = data.decode("utf-8", "ignore")
-                    text_data = str(data)
+
+                    lower = str(data).lower()
                 except Exception:
                     continue
 
-                lower = text_data.lower()
+                # First inspect the dedicated ListLabelVar. The previous
+                # implementation checked the whole variable at once, which
+                # incorrectly matched playlist-only values in Estuary.
+                for variable in _tag_blocks(lower, "variable"):
+                    name = _tag_attribute(variable, "name").strip().lower()
 
-                # Prefer the common ListLabelVar convention. We deliberately
-                # avoid a regex here because skin XML contains both quote styles,
-                # and simple XML-text checks are safer across Python/Kodi versions.
-                variable_start = 0
+                    if name != "listlabelvar":
+                        continue
 
-                while True:
-                    variable_start = lower.find("<variable", variable_start)
-                    if variable_start < 0:
-                        break
+                    for value in _tag_blocks(variable, "value"):
+                        if not _label_expression_uses_episode_number(value):
+                            continue
 
-                    variable_end = lower.find("</variable>", variable_start)
-                    if variable_end < 0:
-                        break
+                        condition = _tag_attribute(value, "condition").lower()
 
-                    variable_block = lower[variable_start:variable_end + len("</variable>")]
+                        # A playlist-only label does not affect a normal
+                        # directory opened by this add-on.
+                        if "window.isactive(videoplaylist)" in condition:
+                            continue
 
-                    if (
-                        "listlabelvar" in variable_block
-                        and "listitem.episode" in variable_block
-                        and "listitem.title" in variable_block
-                    ):
                         detected = True
                         break
 
-                    variable_start = variable_end + len("</variable>")
+                    if detected:
+                        break
 
                 if detected:
                     break
 
-                # Some skins put the label directly in an itemlayout
-                # instead of using ListLabelVar.
-                layout_start = 0
+                # Some skins place the rendered label directly inside an
+                # itemlayout. Inspect actual <label> controls rather than
+                # treating every ListItem.Episode reference in the layout as
+                # evidence that the number is displayed beside the title.
+                for layout in _tag_blocks(lower, "itemlayout"):
+                    for label in _tag_blocks(layout, "label"):
+                        if _label_expression_uses_episode_number(label):
+                            detected = True
+                            break
 
-                while True:
-                    layout_start = lower.find("<itemlayout", layout_start)
-                    if layout_start < 0:
+                    if detected:
                         break
-
-                    layout_end = lower.find("</itemlayout>", layout_start)
-                    if layout_end < 0:
-                        break
-
-                    layout_block = lower[layout_start:layout_end + len("</itemlayout>")]
-
-                    if (
-                        "listitem.episode" in layout_block
-                        and "listitem.title" in layout_block
-                    ):
-                        detected = True
-                        break
-
-                    layout_start = layout_end + len("</itemlayout>")
 
                 if detected:
                     break
 
         log(
             "Skin episode-number label detection: %s"
-            % ("already supplied by skin" if detected else "not supplied by skin")
+            % (
+                "already supplied by skin"
+                if detected
+                else "not supplied by skin"
+            )
         )
     except Exception as exc:
         # If the skin cannot be inspected, prefer adding the episode number so
