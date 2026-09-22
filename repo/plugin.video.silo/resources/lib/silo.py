@@ -798,6 +798,35 @@ class SiloClient:
         ) or {}
         return data
 
+    # Return the layout for one library, including its configured sections.
+    def library_layout(self, library_id, image_size="medium"):
+        return self._json(
+            "GET",
+            "/api/v2/library/%s/layout" % quote(str(library_id), safe=""),
+            params={"image_size": image_size},
+        ) or {}
+
+    # Return the configured sections for one library.
+    def library_sections(self, library_id, image_size="medium"):
+        data = self._json(
+            "GET",
+            "/api/v2/library/%s/sections" % quote(str(library_id), safe=""),
+            params={"image_size": image_size},
+        ) or {}
+        return data.get("sections") or data.get("items") or []
+
+    # Return the contents of one library-scoped section.
+    def library_section_items(self, library_id, section_id, image_size="medium"):
+        return self._json(
+            "GET",
+            "/api/v2/library/%s/sections/%s/items"
+            % (
+                quote(str(library_id), safe=""),
+                quote(str(section_id), safe=""),
+            ),
+            params={"image_size": image_size},
+        ) or {}
+
     # Search the profile-visible catalog across all accessible libraries.
     # Silo performs the search server-side, so the addon does not need to
     # download and scan every library itself.
