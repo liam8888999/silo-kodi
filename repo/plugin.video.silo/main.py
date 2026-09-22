@@ -1427,6 +1427,20 @@ def list_search_results(client, query, page=1):
         None,
     )
 
+    # Search responses can omit the detailed partial position even when Silo
+    # has an active in-progress record. Fetch those records once for the whole
+    # search result page so Kodi's native resume prompt is based on Silo data,
+    # not a stale Kodi-local bookmark.
+    try:
+        search_in_progress_map = client.in_progress_map()
+    except SiloError as exc:
+        log(
+            "Unable to retrieve in-progress Silo records for search results: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
+        search_in_progress_map = {}
+
     # Keep all media types in the same result page, but group them into
     # Movies, TV Shows and Episodes so a common title (for example "Christmas")
     # is immediately distinguishable.
@@ -1554,12 +1568,18 @@ def list_search_results(client, query, page=1):
                 client,
             )
 
-        # Search results are already profile-scoped by Silo. Use the catalog
-        # watch state directly so this search does not download the full
-        # progress table spanning every library.
+        # Use the fast catalog snapshot first, but prefer the detailed
+        # server-side in-progress record when one exists. Search results often
+        # omit the partial position required for Kodi's native resume prompt.
+        display_progress = catalog_progress(catalog_item)
+        server_progress = search_in_progress_map.get(str(content_id))
+
+        if server_progress:
+            display_progress = server_progress
+
         set_watch_state(
             item,
-            catalog_progress(catalog_item),
+            display_progress,
             media_type,
         )
 
@@ -1571,9 +1591,7 @@ def list_search_results(client, query, page=1):
                     catalog_item.get("play_content_id")
                     or content_id
                 ),
-                resume_available=silo_resume_available(
-                    catalog_progress(catalog_item)
-                ),
+                resume_available=silo_resume_available(display_progress),
             )
             batch.append((url, item, False))
         elif media_type == "series":
