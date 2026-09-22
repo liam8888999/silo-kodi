@@ -677,6 +677,7 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
                 seasons = client.seasons(
                     series_id,
                     candidate_library_id,
+                    suppress_not_found=True,
                 ) or []
             except SiloError as exc:
                 log(
