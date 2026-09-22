@@ -1314,7 +1314,7 @@ def add_catalog_item(client, item, library_id):
                 library_id=library_id,
             ),
             list_item,
-            False,
+            True,
         )
         return
 
@@ -1579,9 +1579,8 @@ def list_search_results(client, query, page=1):
                     catalog_item.get("play_content_id")
                     or content_id
                 ),
-                resume_available=silo_resume_available(display_progress),
-            )
-            batch.append((url, item, False))
+                            )
+            batch.append((url, item, True))
         elif media_type == "series":
             url = build_url(
                 action="seasons",
@@ -1871,9 +1870,8 @@ def list_library(client, library_id, cursor=None):
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
-                resume_available=silo_resume_available(display_progress),
-            )
-            batch.append((url, list_item, False))
+                            )
+            batch.append((url, list_item, True))
         else:
             url = build_url(
                 action="seasons",
@@ -2146,12 +2144,11 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         if episode.get("duration_seconds") is not None:
             params["duration_seconds"] = episode.get("duration_seconds")
 
-        params["resume_available"] = silo_resume_available(display_progress)
 
         batch.append((
             build_url(**params),
             item,
-            False,
+            True,
         ))
 
         if len(batch) >= batch_size:
