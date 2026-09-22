@@ -536,6 +536,7 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
                 "unplayed_count": unplayed_count,
                 "in_progress_count": in_progress_count,
                 "total_count": total_count,
+                "season_count": len(season_map),
             },
             season_map,
         )
@@ -596,21 +597,44 @@ def set_container_watch_state(list_item, rollup):
     )
     unwatched_count = max(0, total_count - watched_count)
 
-    # These are the standard ListItem properties used by Kodi skins for
-    # TV-show/season watched counts. Keep the Silo-specific copies too.
+    # Populate Kodi's native TV-show/season episode-count properties so
+    # skins can display the same watched/total information they use for items
+    # from Kodi's own video database.
+    watched_percent = (
+        (watched_count * 100.0) / float(total_count)
+        if total_count > 0
+        else 0.0
+    )
+
     properties = {
+        "totalepisodes": str(total_count),
+        "numepisodes": str(total_count),
+        "watchedepisodes": str(watched_count),
+        "unwatchedepisodes": str(unwatched_count),
+        "inprogressepisodes": str(in_progress_count),
+        "watchedepisodepercent": str(int(round(watched_percent))),
         "WatchedEpisodes": str(watched_count),
         "UnWatchedEpisodes": str(unwatched_count),
         "UnwatchedEpisodes": str(unwatched_count),
         "InProgressEpisodes": str(in_progress_count),
         "InProgressCount": str(in_progress_count),
         "TotalEpisodes": str(total_count),
+        "Silo.EpisodeCount": str(total_count),
         "Silo.WatchedEpisodes": str(watched_count),
         "Silo.UnwatchedEpisodes": str(unwatched_count),
         "Silo.InProgressEpisodes": str(in_progress_count),
+        "Silo.WatchedEpisodePercent": str(int(round(watched_percent))),
         "Silo.TotalEpisodes": str(total_count),
         "Silo.PartiallyWatched": "true" if partial else "false",
     }
+
+    season_count = rollup.get("season_count")
+    if season_count is not None:
+        properties.update({
+            "totalseasons": str(int(season_count)),
+            "numseasons": str(int(season_count)),
+            "Silo.SeasonCount": str(int(season_count)),
+        })
 
     for key, value in properties.items():
         list_item.setProperty(key, value)
