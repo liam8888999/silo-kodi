@@ -2531,47 +2531,35 @@ def list_root(client, page=None):
 
 
 def _home_section_group_key(section):
-    """Return the user-facing Home category key used for cross-library merging."""
+    """Return a merge key only for Recently Added and Recently Released."""
     section_type = str(section.get("section_type") or "").strip().lower()
     title = str(section.get("title") or section_type or "").strip()
-
-    # Common generated library Home rows intentionally differ only by library
-    # name and/or media-type wording. Collapse those into one category.
     lowered = title.casefold()
-    for prefix in (
-        "recently added",
-        "recently released",
-        "new to",
-        "recommended for you",
-        "random picks",
-        "top rated",
-    ):
-        if lowered.startswith(prefix):
-            return prefix
 
-    if section_type in ("recently_added", "recently_released", "recommended_for_you", "random", "most_watched"):
-        return section_type
+    # These are the only Home categories that are combined across libraries.
+    if section_type == "recently_added" or lowered.startswith("recently added"):
+        return "recently added"
 
-    return lowered
+    if section_type == "recently_released" or lowered.startswith("recently released"):
+        return "recently released"
+
+    # Every other section keeps its own Silo section ID. This prevents its
+    # title from being rewritten or accidentally merged with another section.
+    return "unique:" + str(section.get("id") or section.get("section_id") or title)
 
 
 def _home_section_group_title(section):
-    """Return a clean common title for a grouped Home category."""
+    """Return the common title for a merged category, otherwise Silo's title."""
     key = _home_section_group_key(section)
-    titles = {
-        "recently added": "Recently Added",
-        "recently released": "Recently Released",
-        "new to": "New to Library",
-        "recommended for you": "Recommended for You",
-        "random picks": "Random Picks",
-        "top rated": "Top Rated",
-        "recently_added": "Recently Added",
-        "recently_released": "Recently Released",
-        "recommended_for_you": "Recommended for You",
-        "random": "Random Picks",
-        "most_watched": "Most Watched",
-    }
-    return titles.get(key, section.get("title") or section.get("section_type") or "Home")
+
+    if key == "recently added":
+        return "Recently Added"
+
+    if key == "recently released":
+        return "Recently Released"
+
+    # Non-merged sections must retain the exact title supplied by Silo.
+    return section.get("title") or section.get("section_type") or "Home"
 
 
 def add_grouped_home_sections(sections):
