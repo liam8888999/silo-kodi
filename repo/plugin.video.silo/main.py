@@ -1532,6 +1532,95 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             pass
 
 
+def set_season_metadata(list_item, season, client, series_id=None):
+    """Populate a Kodi season ListItem from Silo's season response."""
+    if not isinstance(season, dict):
+        return
+
+    tag = list_item.getVideoInfoTag()
+    tag.setMediaType("season")
+
+    season_number = season.get(
+        "season_number",
+        season.get("number"),
+    )
+
+    if season_number is not None:
+        try:
+            tag.setSeason(int(season_number))
+        except (TypeError, ValueError):
+            pass
+
+    title = season.get("title")
+    if title:
+        tag.setTitle(str(title))
+
+    overview = season.get("overview")
+    if overview:
+        try:
+            tag.setPlot(str(overview))
+            tag.setPlotOutline(str(overview))
+        except Exception:
+            pass
+
+    air_date = season.get("air_date")
+    if air_date:
+        try:
+            tag.setPremiered(str(air_date))
+        except Exception:
+            pass
+
+    episode_count = season.get("episode_count")
+    try:
+        episode_count = max(0, int(episode_count or 0))
+    except (TypeError, ValueError):
+        episode_count = 0
+
+    if episode_count > 0:
+        # Keep the standard Kodi episode-count fields available to skins.
+        for key, value in (
+            ("totalepisodes", episode_count),
+            ("numepisodes", episode_count),
+        ):
+            list_item.setProperty(key, str(value))
+        list_item.setProperty("Silo.EpisodeCount", str(episode_count))
+
+    content_id = get_content_id(season)
+    if content_id:
+        list_item.setProperty("Silo.ContentID", str(content_id))
+
+    play_content_id = season.get("play_content_id")
+    if play_content_id:
+        list_item.setProperty(
+            "Silo.PlayContentID",
+            str(play_content_id),
+        )
+
+    if series_id:
+        list_item.setProperty("Silo.SeriesID", str(series_id))
+
+    list_item.setProperty(
+        "Silo.IsSpecials",
+        "true" if bool(season.get("is_specials", False)) else "false",
+    )
+
+    poster_url = season.get("poster_url")
+    poster_thumbhash = season.get("poster_thumbhash")
+
+    if poster_url:
+        set_art(
+            list_item,
+            client,
+            poster=poster_url,
+        )
+
+    if poster_thumbhash:
+        list_item.setProperty(
+            "Silo.PosterThumbhash",
+            str(poster_thumbhash),
+        )
+
+
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
 
@@ -2366,13 +2455,12 @@ def list_seasons(client, series_id, library_id, page=None):
         title = season.get("title") or "Season %s" % season_number
         item = xbmcgui.ListItem(label=title)
 
-        season_tag = item.getVideoInfoTag()
-        season_tag.setMediaType("season")
-        season_tag.setTitle(title)
-        try:
-            season_tag.setSeason(int(season_number))
-        except (TypeError, ValueError):
-            pass
+        set_season_metadata(
+            item,
+            season,
+            client,
+            series_id=series_id,
+        )
 
         set_container_watch_state(
             item,
