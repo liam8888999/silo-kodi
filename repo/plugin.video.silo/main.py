@@ -2705,11 +2705,6 @@ def list_libraries(client):
 
     batch = []
 
-    if ADDON.getSettingBool("combine_library_sections"):
-        combined_item = xbmcgui.ListItem(label="Combined Sections")
-        combined_item.setProperty("Silo.CombinedLibrarySections", "true")
-        batch.append((build_url(action="merged_library_sections"), combined_item, True))
-
     for library in libraries:
         library_id = library.get("id")
         if not library_id:
