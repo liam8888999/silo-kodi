@@ -5,7 +5,7 @@
   </category>
 
   <category label="Home">
-    <setting id="combine_home_sections" type="bool" label="Combine matching Home sections across libraries" default="false" />
+    <setting id="combine_home_sections" type="bool" label="Combine matching Home sections across libraries (Recommended)" default="false" />
   </category>
 
   <category label="Playback">
