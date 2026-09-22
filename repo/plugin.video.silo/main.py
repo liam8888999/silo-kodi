@@ -2223,15 +2223,11 @@ def choose_file(client, content_id, library_id):
 
 
 def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0.0):
-    """Put the freshly retrieved Silo resume state onto the resolved item.
+    """Apply Silo's fresh watch state and explicit Kodi playback offset.
 
-    Kodi itself owns the resume dialog. We deliberately do not show our own
-    yes/no dialog because Kodi will ask once using this freshly supplied
-    resume point when its normal "Ask if resumable" behaviour is enabled.
-
-    We also do not use StartOffset here. StartOffset would bypass the normal
-    Kodi resume decision. The native Kodi resume system should perform the
-    seek after the user chooses Resume.
+    Kodi 21 can fall back to its local video-database bookmark when an item is
+    marked for resume but has no usable resume point. Silo is authoritative,
+    so explicitly set StartOffset to either the fresh Silo position or zero.
     """
     tag = list_item.getVideoInfoTag()
 
@@ -2241,43 +2237,37 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         fallback_duration = 0.0
 
     if not progress:
-        # An unwatched item may have no progress record, but the catalog still
-        # supplies its runtime. Pass that runtime to Kodi independently.
         if fallback_duration > 0:
-            duration_int = int(round(fallback_duration))
-            tag.setDuration(duration_int)
+            tag.setDuration(int(round(fallback_duration)))
 
         tag.setPlaycount(0)
         tag.setResumePoint(0.0, 0.0)
+        list_item.setProperty("StartOffset", "0.0")
         return
 
     completed = bool(progress.get("completed", False))
     position, duration = get_progress_position(progress)
 
-    # Prefer the fresh progress duration when available; otherwise use the
-    # catalog duration carried through the plugin URL.
     if duration <= 0:
         duration = fallback_duration
 
     if duration > 0:
-        duration_int = int(round(duration))
-        tag.setDuration(duration_int)
+        tag.setDuration(int(round(duration)))
 
     if completed:
-        # A completed item must not be offered as resumable.
         tag.setPlaycount(1)
         tag.setResumePoint(0.0, 0.0)
+        list_item.setProperty("StartOffset", "0.0")
         return
 
     tag.setPlaycount(0)
 
     if position > 0 and duration > 0:
-        # This is the fresh server position. Kodi's own resume prompt will use
-        # this value and perform the seek if the user selects Resume.
         tag.setResumePoint(position, duration)
+        list_item.setProperty("StartOffset", "%.3f" % position)
     else:
-        # Incomplete but with no usable resume position.
         tag.setResumePoint(0.0, 0.0)
+        list_item.setProperty("StartOffset", "0.0")
 
 
 def play(
@@ -2428,6 +2418,9 @@ def play(
             tag = resolved_item.getVideoInfoTag()
             tag.setPlaycount(0)
             tag.setResumePoint(0.0, 0.0)
+            # Explicit zero prevents Kodi from using a stale local bookmark
+            # after Silo says there is no resume state.
+            resolved_item.setProperty("StartOffset", "0.0")
         except Exception:
             pass
 
