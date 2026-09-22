@@ -364,6 +364,300 @@ def has_usable_resume(progress):
     return position > 0 and duration > 0
 
 
+def normalize_watch_rollup(user_data, fallback_episode_count=0):
+    """Normalize Silo's aggregate season/series viewer state."""
+    if not isinstance(user_data, dict):
+        user_data = {}
+
+    def as_int(value):
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    watched_count = as_int(user_data.get("watched_count"))
+    unplayed_count = as_int(user_data.get("unplayed_count"))
+    in_progress_count = as_int(user_data.get("in_progress_count"))
+
+    if watched_count + unplayed_count <= 0:
+        unplayed_count = as_int(fallback_episode_count)
+
+    total_count = watched_count + unplayed_count
+
+    return {
+        "played": bool(user_data.get("played", False)) or (
+            total_count > 0 and watched_count >= total_count
+        ),
+        "watched_count": min(watched_count, total_count),
+        "unplayed_count": max(0, total_count - watched_count),
+        "in_progress_count": min(
+            in_progress_count,
+            max(0, total_count - watched_count),
+        ),
+        "total_count": total_count,
+    }
+
+
+def merge_season_watch_rollup(existing, candidate):
+    """Keep the richest aggregate row when the same season is seen twice."""
+    if existing is None:
+        return candidate
+
+    existing_score = (
+        existing.get("total_count", 0),
+        existing.get("watched_count", 0),
+        existing.get("in_progress_count", 0),
+    )
+    candidate_score = (
+        candidate.get("total_count", 0),
+        candidate.get("watched_count", 0),
+        candidate.get("in_progress_count", 0),
+    )
+
+    return candidate if candidate_score > existing_score else existing
+
+
+def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
+    """Fetch Silo's season rollups and aggregate them to each series."""
+    series_ids = []
+    seen = set()
+
+    for item in items:
+        media_type = (
+            item.get("type")
+            or item.get("media_type")
+            or ""
+        ).lower()
+
+        if media_type == "series":
+            series_id = get_content_id(item)
+        elif media_type == "season":
+            series_id = item.get("series_id")
+        else:
+            continue
+
+        if not series_id:
+            continue
+
+        key = str(series_id)
+        if key not in seen:
+            seen.add(key)
+            series_ids.append(series_id)
+
+    if not series_ids:
+        return {}, {}
+
+    if library_id:
+        library_ids = [library_id]
+    else:
+        try:
+            library_ids = [
+                library.get("id")
+                for library in client.libraries()
+                if library.get("id")
+            ]
+        except SiloError as exc:
+            log(
+                "Unable to retrieve libraries for series watch-state lookup: %s"
+                % exc,
+                xbmc.LOGWARNING,
+            )
+            return {}, {}
+
+    if not library_ids:
+        return {}, {}
+
+    def fetch_one(series_id):
+        season_map = {}
+
+        for candidate_library_id in library_ids:
+            try:
+                seasons = client.seasons(
+                    series_id,
+                    candidate_library_id,
+                ) or []
+            except SiloError as exc:
+                log(
+                    "Unable to retrieve seasons for series %s in library %s: %s"
+                    % (series_id, candidate_library_id, exc),
+                    xbmc.LOGDEBUG,
+                )
+                continue
+
+            for season in seasons:
+                season_content_id = get_content_id(season)
+                season_number = season.get(
+                    "season_number",
+                    season.get("number"),
+                )
+                rollup = normalize_watch_rollup(
+                    season.get("user_data"),
+                    season.get("episode_count") or 0,
+                )
+                candidate = {
+                    "content_id": (
+                        str(season_content_id)
+                        if season_content_id
+                        else ""
+                    ),
+                    "series_id": str(series_id),
+                    "season_number": season_number,
+                    **rollup,
+                }
+                key = (
+                    str(season_content_id)
+                    if season_content_id
+                    else "%s:%s" % (series_id, season_number)
+                )
+                season_map[key] = merge_season_watch_rollup(
+                    season_map.get(key),
+                    candidate,
+                )
+
+        watched_count = 0
+        unplayed_count = 0
+        in_progress_count = 0
+
+        for season in season_map.values():
+            watched_count += season.get("watched_count", 0)
+            unplayed_count += season.get("unplayed_count", 0)
+            in_progress_count += season.get("in_progress_count", 0)
+
+        total_count = watched_count + unplayed_count
+
+        return (
+            str(series_id),
+            {
+                "played": (
+                    total_count > 0
+                    and watched_count >= total_count
+                ),
+                "watched_count": watched_count,
+                "unplayed_count": unplayed_count,
+                "in_progress_count": in_progress_count,
+                "total_count": total_count,
+                "season_count": len(season_map),
+            },
+            season_map,
+        )
+
+    worker_count = max(
+        1,
+        min(int(max_workers or 4), len(series_ids)),
+    )
+    series_map = {}
+    season_map = {}
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(fetch_one, series_id)
+            for series_id in series_ids
+        ]
+
+        for future in as_completed(futures):
+            series_key, series_rollup, series_seasons = future.result()
+            series_map[series_key] = series_rollup
+
+            for key, season in series_seasons.items():
+                season_map[key] = merge_season_watch_rollup(
+                    season_map.get(key),
+                    season,
+                )
+
+    return series_map, season_map
+
+
+def set_container_watch_state(list_item, rollup):
+    """Apply Silo's aggregate watch state to a series or season folder."""
+    if not rollup:
+        return
+
+    watched_count = max(0, int(rollup.get("watched_count", 0) or 0))
+    unplayed_count = max(0, int(rollup.get("unplayed_count", 0) or 0))
+    in_progress_count = max(
+        0,
+        int(rollup.get("in_progress_count", 0) or 0),
+    )
+    total_count = max(
+        0,
+        int(
+            rollup.get("total_count")
+            or watched_count + unplayed_count
+            or 0
+        ),
+    )
+
+    if total_count <= 0:
+        return
+
+    completed = watched_count >= total_count
+    partial = (
+        not completed
+        and (watched_count > 0 or in_progress_count > 0)
+    )
+    unwatched_count = max(0, total_count - watched_count)
+
+    # Populate Kodi's native TV-show/season episode-count properties so
+    # skins can display the same watched/total information they use for items
+    # from Kodi's own video database.
+    watched_percent = (
+        (watched_count * 100.0) / float(total_count)
+        if total_count > 0
+        else 0.0
+    )
+
+    properties = {
+        "totalepisodes": str(total_count),
+        "numepisodes": str(total_count),
+        "watchedepisodes": str(watched_count),
+        "unwatchedepisodes": str(unwatched_count),
+        "inprogressepisodes": str(in_progress_count),
+        "watchedepisodepercent": str(int(round(watched_percent))),
+        "WatchedEpisodes": str(watched_count),
+        "UnWatchedEpisodes": str(unwatched_count),
+        "UnwatchedEpisodes": str(unwatched_count),
+        "InProgressEpisodes": str(in_progress_count),
+        "InProgressCount": str(in_progress_count),
+        "TotalEpisodes": str(total_count),
+        "Silo.EpisodeCount": str(total_count),
+        "Silo.WatchedEpisodes": str(watched_count),
+        "Silo.UnwatchedEpisodes": str(unwatched_count),
+        "Silo.InProgressEpisodes": str(in_progress_count),
+        "Silo.WatchedEpisodePercent": str(int(round(watched_percent))),
+        "Silo.TotalEpisodes": str(total_count),
+        "Silo.PartiallyWatched": "true" if partial else "false",
+    }
+
+    season_count = rollup.get("season_count")
+    if season_count is not None:
+        properties.update({
+            "totalseasons": str(int(season_count)),
+            "numseasons": str(int(season_count)),
+            "Silo.SeasonCount": str(int(season_count)),
+        })
+
+    for key, value in properties.items():
+        list_item.setProperty(key, value)
+
+    tag = list_item.getVideoInfoTag()
+
+    if completed:
+        tag.setPlaycount(1)
+        tag.setResumePoint(0.0, 0.0)
+        return
+
+    tag.setPlaycount(0)
+
+    if partial:
+        fraction = (
+            watched_count + (0.5 * in_progress_count)
+        ) / float(total_count)
+        fraction = min(0.999, max(0.001, fraction))
+        tag.setResumePoint(fraction, 1.0)
+    else:
+        tag.setResumePoint(0.0, 0.0)
+
+
 def _art_url(client, value):
     """Return an artwork URL from either a string or a small artwork dict."""
     if not value:
@@ -435,16 +729,35 @@ def catalog_progress(item):
     if not item:
         return None
 
-    user_state = item.get("user_state") or {}
+    # Catalog listings expose viewer flags as user_state, while the
+    # series-season and season-episode endpoints expose the same watched
+    # state as user_data. Accept both shapes.
+    user_state = item.get("user_state")
+    user_data = item.get("user_data")
 
-    # A profile-scoped catalog should normally contain user_state. If it is
-    # absent, return None rather than guessing the watch state.
     if not isinstance(user_state, dict) or not user_state:
+        user_state = user_data if isinstance(user_data, dict) else {}
+
+    if not user_state:
         return None
 
-    # Silo's catalog exposes the current resume position directly.
-    position = item.get("position_seconds", 0)
-    duration = item.get("duration_seconds", 0)
+    # Silo exposes the current resume position directly when available.
+    # Dedicated in-progress records are still preferred by the callers that
+    # need an exact position.
+    position = (
+        item.get("position_seconds")
+        if item.get("position_seconds") is not None
+        else user_data.get("position_seconds", 0)
+        if isinstance(user_data, dict)
+        else 0
+    )
+    duration = (
+        item.get("duration_seconds")
+        if item.get("duration_seconds") is not None
+        else user_data.get("duration_seconds", 0)
+        if isinstance(user_data, dict)
+        else 0
+    )
 
     try:
         position = max(0.0, float(position or 0))
@@ -1439,6 +1752,13 @@ def list_search_results(client, query, page=1):
         )
         in_progress_map = {}
 
+    # Fetch the same authoritative season rollups used by library browsing
+    # so TV shows returned by search can also show server-side watch state.
+    series_watch_map, season_watch_map = fetch_series_watch_data(
+        client,
+        items,
+    )
+
     # Keep all media types in the same result page, but group them into
     # Movies, TV Shows and Episodes so a common title (for example "Christmas")
     # is immediately distinguishable.
@@ -1582,6 +1902,26 @@ def list_search_results(client, query, page=1):
             media_type,
         )
 
+        if media_type == "series":
+            set_container_watch_state(
+                item,
+                series_watch_map.get(str(content_id)),
+            )
+        elif media_type == "season":
+            season_rollup = (
+                season_watch_map.get(str(content_id))
+                or season_watch_map.get(
+                    "%s:%s" % (
+                        catalog_item.get("series_id"),
+                        catalog_item.get("season_number"),
+                    )
+                )
+            )
+            set_container_watch_state(
+                item,
+                season_rollup,
+            )
+
         if media_type in PLAYABLE:
             item.setProperty("IsPlayable", "true")
             url = build_url(
@@ -1599,6 +1939,13 @@ def list_search_results(client, query, page=1):
             url = build_url(
                 action="seasons",
                 series_id=content_id,
+            )
+            batch.append((url, item, True))
+        elif media_type == "season":
+            url = build_url(
+                action="season",
+                series_id=catalog_item.get("series_id") or "",
+                season_number=catalog_item.get("season_number"),
             )
             batch.append((url, item, True))
         else:
@@ -1807,6 +2154,14 @@ def list_library(client, library_id, cursor=None):
         library_id,
     )
 
+    # Fetch authoritative series watch totals from Silo so a show can
+    # display partial/watched state even when Kodi has no local TV library data.
+    series_watch_map, _season_watch_map = fetch_series_watch_data(
+        client,
+        items,
+        library_id=library_id,
+    )
+
     # Build Kodi entries first, then send them in batches. A batch size keeps
     # memory usage reasonable for very large libraries while still avoiding
     # thousands of individual Kodi plugin calls.
@@ -1876,6 +2231,12 @@ def list_library(client, library_id, cursor=None):
             display_progress,
             media_type,
         )
+
+        if media_type == "series":
+            set_container_watch_state(
+                list_item,
+                series_watch_map.get(str(content_id)),
+            )
 
         if media_type in PLAYABLE:
             list_item.setProperty("IsPlayable", "true")
@@ -2004,6 +2365,22 @@ def list_seasons(client, series_id, library_id, page=None):
 
         title = season.get("title") or "Season %s" % season_number
         item = xbmcgui.ListItem(label=title)
+
+        season_tag = item.getVideoInfoTag()
+        season_tag.setMediaType("season")
+        season_tag.setTitle(title)
+        try:
+            season_tag.setSeason(int(season_number))
+        except (TypeError, ValueError):
+            pass
+
+        set_container_watch_state(
+            item,
+            normalize_watch_rollup(
+                season.get("user_data"),
+                season.get("episode_count") or 0,
+            ),
+        )
 
         xbmcplugin.addDirectoryItem(
             HANDLE,
