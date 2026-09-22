@@ -1211,39 +1211,25 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
 
 def set_watch_state(list_item, progress, content_type=None):
-    """Apply Silo watched state without a Kodi-native resume point."""
+    """Apply Silo's watched state without storing a Kodi resume bookmark.
+
+    The directory may stay open while the server-side watch state changes.
+    Kodi's native resume point would become stale in that situation, so the
+    actual resume decision is deferred until play() performs a fresh Silo query.
+    """
     tag = list_item.getVideoInfoTag()
 
     if not progress:
         tag.setPlaycount(0)
-        tag.setResumePoint(0.0, 0.0)
         return
 
     completed = bool(progress.get("completed", False))
-    position, duration = get_progress_position(progress)
+    _, duration = get_progress_position(progress)
 
     if duration > 0:
         tag.setDuration(int(round(duration)))
 
-    if completed:
-        tag.setPlaycount(1)
-        tag.setResumePoint(0.0, 0.0)
-        return
-
-    # Do not set a native Kodi resume point. The directory can remain open
-    # while Silo changes its progress state, making that point stale.
-    tag.setPlaycount(0)
-    list_item.setProperty("Silo.ResumePosition", "%.3f" % position)
-    list_item.setProperty("Silo.ResumeDuration", "%.3f" % duration)
-
-def silo_resume_available(progress):
-    """Return whether Silo supplied a usable native Kodi resume point."""
-    if not progress or bool(progress.get("completed", False)):
-        return False
-
-    position, duration = get_progress_position(progress)
-    return position > 0 and duration > 0
-
+    tag.setPlaycount(1 if completed else 0)
 
 def get_content_id(item):
     """Return a Silo catalog item's content ID."""
@@ -2379,6 +2365,7 @@ def play(
             session_id,
             playback_info=info,
             resolved_item=resolved_item,
+            initial_start_position=start_position,
         )
     else:
         log(
@@ -2407,6 +2394,7 @@ def track_progress(
     session_id,
     playback_info=None,
     resolved_item=None,
+    initial_start_position=0.0,
 ):
     """Monitor Kodi playback, report progress, and learn a stable quality.
 
@@ -2449,6 +2437,59 @@ def track_progress(
             xbmc.LOGWARNING,
         )
         return
+
+    # Apply the server-authoritative start position after Kodi has opened the
+    # concrete stream. This deliberately happens after playback starts because
+    # Kodi can otherwise apply a stale resume seek inherited from an older
+    # directory item. A second pass shortly afterward protects against delayed
+    # native-resume handling while the player is still initializing.
+    try:
+        initial_start_position = max(
+            0.0,
+            float(initial_start_position or 0.0),
+        )
+    except (TypeError, ValueError):
+        initial_start_position = 0.0
+
+    try:
+        player.seekTime(initial_start_position)
+        log(
+            "Applied initial Silo playback position %.3f to Kodi"
+            % initial_start_position
+        )
+    except Exception as exc:
+        log(
+            "Unable to apply initial Silo playback position: %s" % exc,
+            xbmc.LOGWARNING,
+        )
+
+    xbmc.sleep(750)
+
+    if player.isPlaying():
+        try:
+            current_time = float(player.getTime())
+        except Exception:
+            current_time = initial_start_position
+
+        # Always enforce zero for a no-resume session. For a real resume, only
+        # seek again when Kodi did not land near the server-authoritative target.
+        if (
+            initial_start_position == 0.0
+            or abs(current_time - initial_start_position) > 2.0
+        ):
+            try:
+                player.seekTime(initial_start_position)
+                log(
+                    "Re-applied initial Silo playback position %.3f to Kodi "
+                    "(current=%.3f)"
+                    % (initial_start_position, current_time)
+                )
+            except Exception as exc:
+                log(
+                    "Unable to re-apply initial Silo playback position: %s"
+                    % exc,
+                    xbmc.LOGWARNING,
+                )
 
     def quality_ladder(plan):
         """Return Silo's published quality ladder in server order."""
