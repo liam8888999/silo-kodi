@@ -1211,17 +1211,7 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
 
 def set_watch_state(list_item, progress, content_type=None):
-    """Apply Silo's current watched/resume state to a Kodi ListItem.
-
-    Silo is authoritative for both watched state and the resume point. A
-    missing Silo progress record clears Kodi's stale local resume bookmark,
-    while an active Silo progress record is written to the item so Kodi can
-    offer its native Resume/Start-from-beginning choice.
-
-    This state is primarily for Kodi's directory UI. play() performs a fresh
-    server lookup immediately before playback, so the displayed value is
-    never trusted as the final server position.
-    """
+    """Apply Silo watched state without a Kodi-native resume point."""
     tag = list_item.getVideoInfoTag()
 
     if not progress:
@@ -1240,13 +1230,11 @@ def set_watch_state(list_item, progress, content_type=None):
         tag.setResumePoint(0.0, 0.0)
         return
 
+    # Do not set a native Kodi resume point. The directory can remain open
+    # while Silo changes its progress state, making that point stale.
     tag.setPlaycount(0)
-
-    if duration > 0:
-        tag.setResumePoint(position, duration)
-    else:
-        tag.setResumePoint(0.0, 0.0)
-
+    list_item.setProperty("Silo.ResumePosition", "%.3f" % position)
+    list_item.setProperty("Silo.ResumeDuration", "%.3f" % duration)
 
 def silo_resume_available(progress):
     """Return whether Silo supplied a usable native Kodi resume point."""
