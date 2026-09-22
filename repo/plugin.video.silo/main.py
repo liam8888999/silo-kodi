@@ -3915,6 +3915,25 @@ def play(
                 client,
                 file_id=file_id,
             )
+
+            # Apply the same Silo artwork to the actual playback ListItem.
+            # The directory item already has artwork, but Kodi can create/use
+            # this separate resolved item for playback, so copy all available
+            # poster/backdrop/logo/still artwork here as well.
+            set_art(
+                resolved_item,
+                client,
+                poster=(
+                    detail.get("poster_url")
+                    or detail.get("poster")
+                    or detail.get("image")
+                    or detail.get("artwork")
+                    or detail.get("thumbnail")
+                ),
+                backdrop=detail.get("backdrop_url") or detail.get("backdrop"),
+                logo=detail.get("logo_url") or detail.get("logo"),
+                still=detail.get("still_url") or detail.get("still"),
+            )
         except Exception as exc:
             log(
                 "Unable to apply extended playback metadata for %s: %s" % (
