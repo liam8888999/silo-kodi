@@ -2388,7 +2388,7 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
 
         synthetic_progress = {
             "completed": False,
-            "position_seconds": 1.0,
+            "position_seconds": 0.1,
             "duration_seconds": resume_duration,
         }
         apply_fresh_resume_to_resolved_item(
@@ -2398,7 +2398,7 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
         )
         log(
             "Kodi requested Resume but Silo returned no progress; "
-            "replaced Kodi's cached resume position with 1.000s for "
+            "replaced Kodi's cached resume position with 0.1s for "
             "content %s" % content_id
         )
     else:
