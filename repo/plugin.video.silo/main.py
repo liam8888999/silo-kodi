@@ -3313,6 +3313,25 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     if merged_group_key:
         _sort_merged_home_items(items, detail_map, str(merged_group_key))
 
+        if str(merged_group_key) == "recently added":
+            log(
+                "Recently Added merged sort result count=%d"
+                % len(items),
+                xbmc.LOGINFO,
+            )
+            for position, catalog_item in enumerate(items[:50], 1):
+                log(
+                    "Recently Added sorted #%d id=%s type=%s added_at=%s library=%s"
+                    % (
+                        position,
+                        get_content_id(catalog_item),
+                        catalog_item.get("type") or catalog_item.get("media_type") or "",
+                        catalog_item.get("_silo_home_added_at") or "",
+                        catalog_item.get("_silo_home_source_library_id") or "",
+                    ),
+                    xbmc.LOGINFO,
+                )
+
         # Deduplicate only after the global merged sort. The first occurrence
         # is therefore the card that appears highest on the combined page.
         deduped = []
