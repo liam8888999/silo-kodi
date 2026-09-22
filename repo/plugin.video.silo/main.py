@@ -1293,7 +1293,8 @@ def add_catalog_item(client, item, library_id):
         # This is intentionally a non-playable plugin file. Kodi calls our
         # play action, allowing us to query Silo's current state first instead
         # of applying a cached Kodi resume point.
-        list_item.setProperty("IsPlayable", "false")
+        list_item.setProperty("IsPlayable", "true")
+        list_item.setProperty("StartOffset", "0.0")
 
         xbmcplugin.addDirectoryItem(
             HANDLE,
@@ -1561,14 +1562,15 @@ def list_search_results(client, query, page=1):
         )
 
         if media_type in PLAYABLE:
-            item.setProperty("IsPlayable", "false")
+            item.setProperty("IsPlayable", "true")
+            item.setProperty("StartOffset", "0.0")
             url = build_url(
                 action="play",
                 content_id=(
                     catalog_item.get("play_content_id")
                     or content_id
                 ),
-                            )
+            )
             batch.append((url, item, False))
         elif media_type == "series":
             url = build_url(
@@ -1853,13 +1855,14 @@ def list_library(client, library_id, cursor=None):
         )
 
         if media_type in PLAYABLE:
-            list_item.setProperty("IsPlayable", "false")
+            list_item.setProperty("IsPlayable", "true")
+            list_item.setProperty("StartOffset", "0.0")
             url = build_url(
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
-                            )
+            )
             batch.append((url, list_item, False))
         else:
             url = build_url(
@@ -2115,7 +2118,8 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             "episode",
         )
 
-        item.setProperty("IsPlayable", "false")
+        item.setProperty("IsPlayable", "true")
+        item.setProperty("StartOffset", "0.0")
 
         # Reuse an already-known single file when the episode exposes one.
         files = episode.get("files") or []
