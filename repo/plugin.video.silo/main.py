@@ -2902,10 +2902,18 @@ def list_home_section_group(client, group_key):
                 # The Home-card endpoint does not expose Silo's added_at
                 # timestamp. The catalog section endpoint does, and uses the
                 # same Recently Added section membership/order as Silo.
+                try:
+                    section_limit = max(1, int(section.get("item_limit") or 20))
+                except (TypeError, ValueError):
+                    section_limit = 20
+
+                # Request only the cards Silo would place in this Home row.
+                # The catalog section response still supplies the authoritative
+                # added_at value needed to merge multiple libraries globally.
                 data = client.home_section_catalog_items(
                     section_id,
                     image_size="medium",
-                    limit=max(200, int(section.get("item_limit") or 0)),
+                    limit=section_limit,
                 ) or {}
             else:
                 data = client.home_section_items(
