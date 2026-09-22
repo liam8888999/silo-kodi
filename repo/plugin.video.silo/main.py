@@ -2563,6 +2563,189 @@ def _home_section_group_title(section):
     return section.get("title") or section.get("section_type") or "Home"
 
 
+def _extract_home_library_id(source):
+    """Read an explicit library ID from a Home section/item when one is supplied."""
+    if not isinstance(source, dict):
+        return ""
+
+    for key in (
+        "library_id",
+        "source_library_id",
+        "home_origin_library_id",
+    ):
+        value = source.get(key)
+        if value not in (None, ""):
+            return str(value)
+
+    library_ids = source.get("library_ids") or source.get("source_library_ids")
+    if isinstance(library_ids, (list, tuple)) and len(library_ids) == 1:
+        value = library_ids[0]
+        if value not in (None, ""):
+            return str(value)
+
+    return ""
+
+
+def _resolve_home_section_library_id(client, section, libraries=None):
+    """Resolve a Home section's originating library when Silo exposes enough information.
+
+    Current Silo Home section cards do not include library_id. The default
+    library-generated Home titles do include the library name, so use that as
+    a deterministic fallback for Recently Added/Recently Released sections.
+    """
+    library_id = _extract_home_library_id(section)
+    if library_id:
+        return library_id
+
+    if not isinstance(section, dict):
+        return ""
+
+    section_type = str(section.get("section_type") or "").strip().lower()
+    title = str(section.get("title") or "").strip()
+
+    library_name = ""
+    if section_type == "recently_added":
+        prefix = "Recently Added "
+        if title.startswith(prefix):
+            library_name = title[len(prefix):].strip()
+    elif section_type == "recently_released":
+        prefix = "Recently Released "
+        if title.startswith(prefix):
+            library_name = title[len(prefix):].strip()
+    elif section_type == "custom_filter":
+        prefix = "Recently Released Episodes in "
+        if title.startswith(prefix):
+            library_name = title[len(prefix):].strip()
+
+    if not library_name:
+        return ""
+
+    if libraries is None:
+        try:
+            libraries = client.libraries()
+        except SiloError as exc:
+            log(
+                "Unable to resolve Home section library %r: %s"
+                % (title, exc),
+                xbmc.LOGDEBUG,
+            )
+            return ""
+
+    wanted = library_name.casefold()
+
+    for library in libraries or []:
+        candidate_name = str(
+            library.get("name")
+            or library.get("title")
+            or ""
+        ).strip()
+
+        if candidate_name and candidate_name.casefold() == wanted:
+            value = library.get("id")
+            if value not in (None, ""):
+                return str(value)
+
+    return ""
+
+
+def _home_item_richness(item):
+    """Return a deterministic quality score used when duplicate Home cards collide."""
+    detail_fields = (
+        "overview",
+        "genres",
+        "keywords",
+        "studios",
+        "networks",
+        "rating_imdb",
+        "rating_tmdb",
+        "poster_url",
+        "backdrop_url",
+        "logo_url",
+        "runtime",
+        "duration_seconds",
+        "play_content_id",
+    )
+
+    score = 0
+    for field in detail_fields:
+        value = item.get(field)
+        if value not in (None, "", [], {}):
+            score += 1
+
+    if _extract_home_library_id(item):
+        score += 4
+
+    return score
+
+
+def _merge_home_catalog_items(existing, candidate):
+    """Choose one duplicate deterministically while retaining useful source information."""
+    existing_score = _home_item_richness(existing)
+    candidate_score = _home_item_richness(candidate)
+
+    existing_library = _extract_home_library_id(existing)
+    candidate_library = _extract_home_library_id(candidate)
+
+    existing_section = str(existing.get("_silo_home_source_section_id") or "")
+    candidate_section = str(candidate.get("_silo_home_source_section_id") or "")
+
+    if candidate_score > existing_score:
+        chosen = dict(candidate)
+    elif candidate_score < existing_score:
+        chosen = dict(existing)
+    else:
+        # Stable tie-breakers: prefer an identified library, then lexical
+        # library/section IDs instead of depending on response ordering.
+        candidate_key = (
+            1 if candidate_library else 0,
+            candidate_library,
+            candidate_section,
+        )
+        existing_key = (
+            1 if existing_library else 0,
+            existing_library,
+            existing_section,
+        )
+        chosen = dict(candidate if candidate_key < existing_key else existing)
+
+    # Fill missing fields from the other copy without overwriting the chosen
+    # copy's values, then retain every source section/library ID for skins and
+    # diagnostics.
+    other = existing if chosen.get("_silo_home_source_section_id") == candidate_section else candidate
+
+    for key, value in other.items():
+        if key.startswith("_silo_home_"):
+            continue
+        if chosen.get(key) in (None, "", [], {}) and value not in (None, "", [], {}):
+            chosen[key] = value
+
+    source_sections = set(
+        existing.get("_silo_home_source_section_ids") or []
+    )
+    source_sections.update(
+        candidate.get("_silo_home_source_section_ids") or []
+    )
+    if existing_section:
+        source_sections.add(existing_section)
+    if candidate_section:
+        source_sections.add(candidate_section)
+    chosen["_silo_home_source_section_ids"] = sorted(source_sections)
+
+    source_libraries = set(
+        existing.get("_silo_home_source_library_ids") or []
+    )
+    source_libraries.update(
+        candidate.get("_silo_home_source_library_ids") or []
+    )
+    if existing_library:
+        source_libraries.add(existing_library)
+    if candidate_library:
+        source_libraries.add(candidate_library)
+    chosen["_silo_home_source_library_ids"] = sorted(source_libraries)
+
+    return chosen
+
+
 def add_grouped_home_sections(sections):
     """Merge same-category Home sections into one folder while preserving order."""
     groups = {}
@@ -2596,6 +2779,39 @@ def add_grouped_home_sections(sections):
         item.setProperty("Silo.HomeSectionGroupKey", key)
         item.setProperty("Silo.HomeSectionCount", str(len(entries)))
 
+        total_count = 0
+        has_total = False
+        any_featured = False
+        any_custom = False
+        any_customized = False
+        item_limit = 0
+
+        for entry in entries:
+            value = entry.get("total_count")
+            try:
+                if value is not None:
+                    total_count += max(0, int(value))
+                    has_total = True
+            except (TypeError, ValueError):
+                pass
+
+            any_featured = any_featured or bool(entry.get("featured"))
+            any_custom = any_custom or bool(entry.get("is_custom"))
+            any_customized = any_customized or bool(entry.get("customized"))
+
+            try:
+                item_limit = max(item_limit, int(entry.get("item_limit") or 0))
+            except (TypeError, ValueError):
+                pass
+
+        item.setProperty("Silo.HomeSectionFeatured", "true" if any_featured else "false")
+        item.setProperty("Silo.HomeSectionIsCustom", "true" if any_custom else "false")
+        item.setProperty("Silo.HomeSectionCustomized", "true" if any_customized else "false")
+        if item_limit:
+            item.setProperty("Silo.HomeSectionItemLimit", str(item_limit))
+        if has_total:
+            item.setProperty("Silo.HomeSectionTotalCount", str(total_count))
+
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(
@@ -2608,40 +2824,40 @@ def add_grouped_home_sections(sections):
 
 
 def _sort_merged_home_items(items, detail_map, group_key):
-    """Apply a global order after Home item details are available."""
-    recent = group_key in (
-        "recently added",
-        "recently released",
-        "new to",
-        "recently_added",
-        "recently_released",
-    )
-    if not recent:
+    """Apply the correct global date ordering for a merged recent Home category."""
+    if group_key == "recently added":
+        fields = (
+            "date_added",
+            "added_at",
+            "updated_at",
+            "release_date",
+            "air_date",
+            "first_air_date",
+        )
+    elif group_key == "recently released":
+        fields = (
+            "release_date",
+            "air_date",
+            "first_air_date",
+            "updated_at",
+            "added_at",
+        )
+    else:
         return
 
     def date_key(item):
         detail = detail_map.get(str(get_content_id(item))) or {}
-        for field in (
-            "release_date",
-            "air_date",
-            "first_air_date",
-            "date_added",
-            "added_at",
-            "updated_at",
-        ):
+        for field in fields:
             value = item.get(field) or detail.get(field)
             if value:
                 return (1, str(value))
         return (0, "")
 
-    # Dated cards are ordered newest-first. Cards without a usable server date
-    # are placed afterwards instead of being allowed to retain a library block.
-    items.sort(key=date_key, reverse=True)
-
-    # Python's reverse sort puts the undated (0, "") group first; move it to
-    # the end while retaining its original order.
+    # Cards with a usable date are ordered newest-first. Undated cards stay
+    # after dated cards and retain their deterministic source order.
     dated = []
     undated = []
+
     for item in items:
         key = date_key(item)
         (dated if key[0] else undated).append(item)
@@ -2650,52 +2866,184 @@ def _sort_merged_home_items(items, detail_map, group_key):
     items[:] = dated + undated
 
 
-
 def list_home_section_group(client, group_key):
     """Load and combine all Home sections represented by one category folder."""
-    sections = client.home_sections(image_size="medium")
+    try:
+        sections = client.home_sections(image_size="medium")
+    except SiloError as exc:
+        log("Unable to load Home sections for grouped view: %s" % exc, xbmc.LOGWARNING)
+        notify("Home section unavailable")
+        xbmcplugin.setPluginCategory(HANDLE, "Home")
+        xbmcplugin.setContent(HANDLE, "videos")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
     matching = [
-        section for section in sections
+        section
+        for section in sections
         if _home_section_group_key(section) == str(group_key or "")
     ]
 
+    if not matching:
+        notify("Home section no longer exists")
+        xbmcplugin.setPluginCategory(HANDLE, "Home")
+        xbmcplugin.setContent(HANDLE, "videos")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    try:
+        libraries = client.libraries()
+    except SiloError as exc:
+        log("Unable to load libraries for Home source resolution: %s" % exc, xbmc.LOGDEBUG)
+        libraries = []
+
     combined = []
-    seen = set()
+    seen = {}
 
     for section in matching:
         section_id = section.get("id") or section.get("section_id")
         if not section_id:
             continue
 
-        data = client.home_section_items(section_id, image_size="medium") or {}
-        for catalog_item in data.get("items") or []:
+        source_library_id = _resolve_home_section_library_id(
+            client,
+            section,
+            libraries=libraries,
+        )
+
+        try:
+            data = client.home_section_items(
+                section_id,
+                image_size="medium",
+            ) or {}
+        except SiloError as exc:
+            log(
+                "Unable to load Home section %s: %s"
+                % (section_id, exc),
+                xbmc.LOGWARNING,
+            )
+            continue
+
+        section_data = data.get("section") if isinstance(data.get("section"), dict) else data
+        source_items = (
+            data.get("items")
+            or (
+                section_data.get("items")
+                if isinstance(section_data, dict)
+                else []
+            )
+            or []
+        )
+
+        for catalog_item in source_items:
             content_id = get_content_id(catalog_item)
             key = str(content_id) if content_id else None
-            if key and key in seen:
+            if not key:
                 continue
-            if key:
-                seen.add(key)
 
-            item = dict(catalog_item)
-            item["Silo.HomeSourceSection"] = str(section_id)
-            combined.append(item)
+            candidate = dict(catalog_item)
+            candidate["_silo_home_source_section_id"] = str(section_id)
+            candidate["_silo_home_source_section_ids"] = [str(section_id)]
 
-    # Sorting is done after detail metadata is fetched by the shared renderer.
+            if source_library_id:
+                candidate["_silo_home_source_library_id"] = source_library_id
+                candidate["_silo_home_source_library_ids"] = [source_library_id]
 
-    title = _home_section_group_title(matching[0]) if matching else str(group_key or "Home")
+            if key not in seen:
+                seen[key] = len(combined)
+                combined.append(candidate)
+            else:
+                index = seen[key]
+                combined[index] = _merge_home_catalog_items(
+                    combined[index],
+                    candidate,
+                )
+
+    title = _home_section_group_title(matching[0])
     _render_catalog_items(
         client,
-        {"title": title, "section_type": matching[0].get("section_type") if matching else "", "items": combined},
+        {
+            "title": title,
+            "section_type": matching[0].get("section_type"),
+            "items": combined,
+        },
         section_title=title,
         merged_group_key=str(group_key or ""),
     )
 
-
 def list_home_section(client, section_id):
-    """Display one profile-wide Silo Home section."""
-    data = client.home_section_items(section_id, image_size="medium") or {}
-    _render_catalog_items(client, data)
+    """Display one profile-wide Silo Home section with resilient source metadata."""
+    try:
+        data = client.home_section_items(
+            section_id,
+            image_size="medium",
+        ) or {}
+    except SiloError as exc:
+        log(
+            "Unable to load Home section %s: %s"
+            % (section_id, exc),
+            xbmc.LOGWARNING,
+        )
+        notify("Home section unavailable")
+        xbmcplugin.setPluginCategory(HANDLE, "Home")
+        xbmcplugin.setContent(HANDLE, "videos")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
 
+    section = data.get("section") if isinstance(data.get("section"), dict) else {}
+    if not section:
+        try:
+            section = next(
+                (
+                    candidate
+                    for candidate in client.home_sections(image_size="medium")
+                    if str(candidate.get("id") or candidate.get("section_id") or "") == str(section_id)
+                ),
+                {},
+            )
+        except SiloError as exc:
+            log(
+                "Unable to resolve Home section metadata %s: %s"
+                % (section_id, exc),
+                xbmc.LOGDEBUG,
+            )
+
+    source_library_id = _resolve_home_section_library_id(client, section)
+
+    source_items = (
+        data.get("items")
+        or (
+            section.get("items")
+            if isinstance(section, dict)
+            else []
+        )
+        or []
+    )
+
+    annotated_items = []
+    for catalog_item in source_items:
+        item = dict(catalog_item)
+        item["_silo_home_source_section_id"] = str(section_id)
+        item["_silo_home_source_section_ids"] = [str(section_id)]
+
+        if source_library_id:
+            item["_silo_home_source_library_id"] = source_library_id
+            item["_silo_home_source_library_ids"] = [source_library_id]
+
+        annotated_items.append(item)
+
+    normalized = dict(data)
+    normalized["items"] = annotated_items
+    if section:
+        normalized.update(
+            {
+                key: value
+                for key, value in section.items()
+                if key != "items"
+            }
+        )
+
+    _render_catalog_items(client, normalized)
 
 def list_libraries(client):
     """Display the accessible Silo libraries inside the Libraries folder."""
@@ -2768,6 +3116,17 @@ def add_home_section_folder(section):
         item.setProperty("Silo.HomeSectionItemLimit", str(section.get("item_limit")))
     if total_count is not None:
         item.setProperty("Silo.SectionTotalCount", str(total_count))
+        item.setProperty("Silo.HomeSectionTotalCount", str(total_count))
+    if section.get("is_custom") is not None:
+        item.setProperty(
+            "Silo.HomeSectionIsCustom",
+            "true" if section.get("is_custom") else "false",
+        )
+    if section.get("customized") is not None:
+        item.setProperty(
+            "Silo.HomeSectionCustomized",
+            "true" if section.get("customized") else "false",
+        )
 
     xbmcplugin.addDirectoryItem(
         HANDLE,
@@ -2805,7 +3164,16 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     xbmcplugin.setPluginCategory(HANDLE, section_title)
     xbmcplugin.setContent(HANDLE, "videos")
 
-    detail_map = fetch_detail_metadata(client, items, None)
+    try:
+        detail_map = fetch_detail_metadata(client, items, None)
+    except Exception as exc:
+        log(
+            "Unable to prefetch Home detail metadata: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
+        detail_map = {}
+
     if merged_group_key:
         _sort_merged_home_items(items, detail_map, str(merged_group_key))
 
@@ -2816,7 +3184,19 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         log("Unable to retrieve in-progress Silo records for Home section: %s" % exc, xbmc.LOGWARNING)
         in_progress_map = {}
 
-    series_watch_map, season_watch_map = fetch_series_watch_data(client, items)
+    try:
+        series_watch_map, season_watch_map = fetch_series_watch_data(
+            client,
+            items,
+        )
+    except Exception as exc:
+        log(
+            "Unable to retrieve Home series watch-state rollups: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
+        series_watch_map, season_watch_map = {}, {}
+
     batch = []
 
     for catalog_item in items:
@@ -2833,9 +3213,20 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
 
         detail = detail_map.get(str(content_id))
         item_library_id = (
-            catalog_item.get("library_id")
-            or (detail or {}).get("library_id")
+            _extract_home_library_id(catalog_item)
+            or _extract_home_library_id(detail)
             or ""
+        )
+
+        source_library_ids = set(
+            catalog_item.get("_silo_home_source_library_ids") or []
+        )
+        source_library_ids.update(
+            item_library_id and [str(item_library_id)] or []
+        )
+
+        source_section_ids = sorted(
+            set(catalog_item.get("_silo_home_source_section_ids") or [])
         )
 
         item, media_type, content_id, title, display_progress = build_catalog_list_item(
@@ -2850,6 +3241,17 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         if item_library_id:
             item.setProperty("Silo.LibraryID", str(item_library_id))
             item.setProperty("Silo.HomeOriginLibraryID", str(item_library_id))
+
+        if source_library_ids:
+            item.setProperty(
+                "Silo.HomeOriginLibraryIDs",
+                ",".join(sorted(str(value) for value in source_library_ids)),
+            )
+        if source_section_ids:
+            item.setProperty(
+                "Silo.HomeSourceSections",
+                ",".join(source_section_ids),
+            )
 
         if media_type in PLAYABLE:
             item.setProperty("IsPlayable", "true")
