@@ -545,6 +545,60 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2, per_item_lib
 
     return details
 
+def fetch_home_added_at_by_section(client, section, card_items):
+    """Return added_at values only for cards already present in a Home row.
+
+    The Home-card endpoint limits the displayed items but omits added_at.
+    Silo's section-backed catalog endpoint exposes added_at, so use it only
+    as a metadata lookup and never add its extra catalogue items to Kodi.
+    """
+    if not card_items:
+        return {}
+
+    section_id = section.get("id") or section.get("section_id")
+    if not section_id:
+        return {}
+
+    wanted = set()
+    for item in card_items:
+        content_id = get_content_id(item)
+        if content_id:
+            wanted.add(str(content_id))
+
+    if not wanted:
+        return {}
+
+    try:
+        data = client.home_section_catalog_items(
+            section_id,
+            image_size="medium",
+            limit=200,
+        ) or {}
+    except SiloError as exc:
+        log(
+            "Unable to retrieve added_at lookup for Home section %s: %s"
+            % (section_id, exc),
+            xbmc.LOGDEBUG,
+        )
+        return {}
+
+    result = {}
+    for catalog_item in data.get("items") or []:
+        content_id = get_content_id(catalog_item)
+        if not content_id or str(content_id) not in wanted:
+            continue
+        value = catalog_item.get("added_at")
+        if value:
+            result[str(content_id)] = value
+
+    log(
+        "Home added_at lookup section=%s matched=%d/%d"
+        % (section_id, len(result), len(wanted)),
+        xbmc.LOGDEBUG,
+    )
+    return result
+
+
 def get_runtime_seconds(item):
     """Convert Silo's catalog runtime (minutes) into Kodi seconds."""
     if not item:
@@ -2872,8 +2926,8 @@ def _sort_merged_home_items(items, detail_map, group_key):
 
     # Cards with a usable date are ordered newest-first. Undated cards stay
     # after dated cards and retain their deterministic source order.
-    # Recently Added section catalog responses from Silo provide added_at,
-    # allowing movies and TV to be interleaved by the same server timestamp.
+    # Recently Added timestamps are populated from the source-section lookup
+    # above, allowing movies and TV to be interleaved by the same timestamp.
     dated = []
     undated = []
 
@@ -2982,6 +3036,18 @@ def list_home_section_group(client, group_key):
             "title": title,
             "section_type": matching[0].get("section_type"),
             "items": combined,
+            "_silo_home_source_sections": [
+                {
+                    "section": section,
+                    "items": [
+                        item
+                        for item in combined
+                        if str(item.get("_silo_home_source_section_id") or "") ==
+                           str(section.get("id") or section.get("section_id") or "")
+                    ],
+                }
+                for section in matching
+            ],
         },
         section_title=title,
         merged_group_key=str(group_key or ""),
@@ -3186,42 +3252,27 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     xbmcplugin.setContent(HANDLE, "videos")
 
     try:
-        if merged_group_key:
-            # Fetch the detail endpoint once for every card occurrence using
-            # that card's source library. The detail response contains the
-            # occurrence-specific added_at used to globally sort the merged row.
-            occurrence_details = fetch_detail_metadata(
-                client,
-                items,
-                None,
-                max_workers=4,
-                per_item_library=True,
-            )
-            detail_map = {}
+        # Keep the normal detail prefetch for artwork, cast, crew, runtime and
+        # stream metadata. Its result is also reused by the card renderer.
+        detail_map = fetch_detail_metadata(client, items, None)
 
-            for index, catalog_item in enumerate(items):
-                content_id = get_content_id(catalog_item)
-                if not content_id:
-                    continue
-
-                library_id = catalog_item.get("_silo_home_source_library_id") or ""
-                request_key = "%s|%s|%s" % (
-                    str(content_id),
-                    str(library_id),
-                    index,
+        if merged_group_key == "recently added":
+            # For ordering, look up added_at from each source Home section,
+            # but only apply timestamps to the cards already present in this
+            # combined Home result. Do not replace or expand the Home card list.
+            source_sections = data.get("_silo_home_source_sections") or []
+            for source_section in source_sections:
+                section = source_section.get("section") or {}
+                source_items = source_section.get("items") or []
+                added_at_map = fetch_home_added_at_by_section(
+                    client,
+                    section,
+                    source_items,
                 )
-                detail = occurrence_details.get(request_key)
-
-                if detail:
-                    added_at = detail.get("added_at")
-                    if added_at:
-                        catalog_item["_silo_home_added_at"] = added_at
-
-                    # Keep the first detail for the normal renderer's metadata
-                    # lookups after duplicate cards have been collapsed.
-                    detail_map.setdefault(str(content_id), detail)
-        else:
-            detail_map = fetch_detail_metadata(client, items, None)
+                for catalog_item in source_items:
+                    content_id = get_content_id(catalog_item)
+                    if content_id and str(content_id) in added_at_map:
+                        catalog_item["_silo_home_added_at"] = added_at_map[str(content_id)]
     except Exception as exc:
         log(
             "Unable to prefetch Home detail metadata: %s"
