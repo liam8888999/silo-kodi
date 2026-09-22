@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<addons><addon id="plugin.video.silo" name="Silo Media Server" version="0.1.10" provider-name="liam8888999">
+<addons><addon id="plugin.video.silo" name="Silo Media Server" version="0.1.11" provider-name="liam8888999">
   <requires>
     <import addon="xbmc.python" version="3.0.0" />
     <import addon="script.module.requests" version="2.31.0" />
