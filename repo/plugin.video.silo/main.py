@@ -2362,7 +2362,14 @@ def play(
 
     resolved_item.setProperty("IsPlayable", "true")
 
-    xbmcplugin.setResolvedUrl(HANDLE, True, resolved_item)
+    # Play the concrete Silo stream directly instead of returning it through
+    # Kodi's plugin resolver. The resolver can reuse the resume state attached
+    # to the original directory item, which may be stale because the directory
+    # was loaded before Silo's progress changed.
+    xbmc.Player().play(
+        info["url"],
+        resolved_item,
+    )
 
     session_id = info.get("session_id")
 
@@ -3384,24 +3391,6 @@ def track_progress(
     cleanup_thread.daemon = True
     cleanup_thread.start()
 
-def kodi_requested_resume():
-    """Return Kodi's native resume choice for the current plugin request.
-
-    Kodi passes this to plugin scripts as the fourth argument:
-        resume:true  -> the user chose Resume
-        resume:false -> the user chose Start from beginning
-    """
-    if len(sys.argv) < 4:
-        return False
-
-    value = str(sys.argv[3] or "").strip().lower()
-
-    if value.startswith("resume:"):
-        value = value.split(":", 1)[1]
-
-    return value == "true"
-
-
 def router(client):
     """Route Kodi's current plugin request to the appropriate addon action."""
     query = sys.argv[2]
@@ -3487,11 +3476,6 @@ def router(client):
             params.get("file_id"),
             params.get("library_id"),
             params.get("duration_seconds"),
-            resume=kodi_requested_resume(),
-            resume_available=(
-                str(params.get("resume_available") or "").strip().lower()
-                in ("true", "1", "yes")
-            ),
         )
         return
 
