@@ -450,6 +450,9 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2):
                 )
 
                 if detail:
+                    # Silo's v2 item detail embeds CatalogItem, including
+                    # added_at. The merged Recently Added sorter consumes this
+                    # value from detail_map.
                     return content_id, detail
 
                 # An empty document is unusual but should get one retry.
@@ -2812,9 +2815,9 @@ def add_grouped_home_sections(sections):
 def _sort_merged_home_items(items, detail_map, group_key):
     """Apply the correct global date ordering for a merged recent Home category."""
     if group_key == "recently added":
-        # Silo's authoritative library-added timestamp is added_at.
-        # Do not fall back to release/air/updated dates here: this row means
-        # when the item was added to the Silo library.
+        # The Home card itself does not expose added_at. Use the per-card
+        # /api/v2/catalog/items/{id} detail response, which does expose it.
+        # Do not fall back to release/air/updated dates here.
         fields = (
             "added_at",
         )
@@ -2898,28 +2901,12 @@ def list_home_section_group(client, group_key):
         )
 
         try:
-            if str(group_key or "") == "recently added":
-                # The Home-card endpoint does not expose Silo's added_at
-                # timestamp. The catalog section endpoint does, and uses the
-                # same Recently Added section membership/order as Silo.
-                try:
-                    section_limit = max(1, int(section.get("item_limit") or 20))
-                except (TypeError, ValueError):
-                    section_limit = 20
-
-                # Request only the cards Silo would place in this Home row.
-                # The catalog section response still supplies the authoritative
-                # added_at value needed to merge multiple libraries globally.
-                data = client.home_section_catalog_items(
-                    section_id,
-                    image_size="medium",
-                    limit=section_limit,
-                ) or {}
-            else:
-                data = client.home_section_items(
-                    section_id,
-                    image_size="medium",
-                ) or {}
+            # Keep exactly the cards Silo returned for this Home row. Extended
+            # card metadata, including added_at, is fetched separately below.
+            data = client.home_section_items(
+                section_id,
+                image_size="medium",
+            ) or {}
         except SiloError as exc:
             log(
                 "Unable to load Home section %s: %s"
