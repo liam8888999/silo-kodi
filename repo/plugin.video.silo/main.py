@@ -355,15 +355,6 @@ def get_progress_position(progress):
     return position, duration
 
 
-def has_usable_resume(progress):
-    """Return whether a progress record contains a real resume position."""
-    if not progress or bool(progress.get("completed", False)):
-        return False
-
-    position, duration = get_progress_position(progress)
-    return position > 0 and duration > 0
-
-
 def _art_url(client, value):
     """Return an artwork URL from either a string or a small artwork dict."""
     if not value:
@@ -1323,7 +1314,6 @@ def add_catalog_item(client, item, library_id):
                 action="play",
                 content_id=play_content_id,
                 library_id=library_id,
-                resume_available=int(has_usable_resume(catalog_progress(item))),
             ),
             list_item,
             False,
@@ -1571,9 +1561,6 @@ def list_search_results(client, query, page=1):
                     catalog_item.get("play_content_id")
                     or content_id
                 ),
-                resume_available=int(
-                    has_usable_resume(catalog_progress(catalog_item))
-                ),
             )
             batch.append((url, item, False))
         elif media_type == "series":
@@ -1589,16 +1576,6 @@ def list_search_results(client, query, page=1):
                 action="search",
                 query=query,
                 page=page_number,
-            )
-            url = build_url(
-                action="play",
-                content_id=(
-                    catalog_item.get("play_content_id")
-                    or content_id
-                ),
-                resume_available=int(
-                    has_usable_resume(catalog_progress(catalog_item))
-                ),
             )
             batch.append((url, item, False))
 
@@ -1875,7 +1852,6 @@ def list_library(client, library_id, cursor=None):
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
-                resume_available=int(has_usable_resume(display_progress)),
             )
             batch.append((url, list_item, False))
         else:
@@ -2140,7 +2116,6 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             "action": "play",
             "content_id": content_id,
             "library_id": library_id,
-            "resume_available": int(has_usable_resume(display_progress)),
         }
 
         if len(files) == 1:
@@ -2271,15 +2246,7 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         tag.setResumePoint(0.0, 0.0)
 
 
-def play(
-    client,
-    content_id,
-    file_id,
-    library_id,
-    duration_seconds=None,
-    resume=False,
-    resume_available=False,
-):
+def play(client, content_id, file_id, library_id, duration_seconds=None, resume=False):
     """Play media using Kodi's native Resume/Start-over choice.
 
     Kodi passes resume:true when the user chose Resume and resume:false when
@@ -2388,19 +2355,7 @@ def play(
                 xbmc.LOGWARNING,
             )
 
-    fresh_server_resume = has_usable_resume(latest_progress)
-
-    if (
-        latest_progress
-        and (
-            resume
-            or (
-                not resume
-                and not resume_available
-                and fresh_server_resume
-            )
-        )
-    ):
+    if resume and latest_progress:
         # Replace Kodi's potentially stale local resume position with the
         # position we just fetched from Silo.
         apply_fresh_resume_to_resolved_item(
@@ -2408,36 +2363,10 @@ def play(
             latest_progress,
             fallback_duration=duration_seconds,
         )
-
-        if resume:
-            log(
-                "Kodi requested Resume; applied fresh Silo resume position "
-                "to the resolved item for content %s" % content_id
-            )
-        else:
-            # Kodi considered the item unresumable when the directory was
-            # loaded, so it did not show its native Resume prompt. Silo now
-            # has a usable resume point, meaning progress was added while the
-            # directory was open. Use that fresh server position directly.
-            try:
-                fresh_position, _fresh_duration = get_progress_position(
-                    latest_progress
-                )
-                resolved_item.setProperty(
-                    "StartOffset",
-                    "%.3f" % fresh_position,
-                )
-            except Exception:
-                pass
-
-            log(
-                "Kodi saw no resume point when the item was loaded, but Silo "
-                "now has a fresh resume position; applied %.3fs for content %s"
-                % (
-                    get_progress_position(latest_progress)[0],
-                    content_id,
-                )
-            )
+        log(
+            "Kodi requested Resume; applied fresh Silo resume position "
+            "to the resolved item for content %s" % content_id
+        )
     else:
         # Start from beginning must not carry a Kodi/Silo resume point.
         try:
@@ -3637,8 +3566,6 @@ def router(client):
             params.get("library_id"),
             params.get("duration_seconds"),
             resume=kodi_requested_resume(),
-            resume_available=str(params.get("resume_available", "")).strip().lower()
-            in ("1", "true", "yes"),
         )
         return
 
