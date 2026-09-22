@@ -2095,6 +2095,68 @@ def search_silo(client):
     list_search_results(client, query, 1)
 
 
+def display_title_for_catalog_item(catalog_item):
+    """Build the same visible label used by Search for catalog items."""
+    title = (
+        catalog_item.get("title")
+        or catalog_item.get("name")
+        or "Unknown"
+    )
+    media_type = (
+        catalog_item.get("type")
+        or catalog_item.get("media_type")
+        or ""
+    ).lower()
+
+    if media_type == "movie":
+        return "[Movie] %s" % title
+
+    if media_type == "series":
+        return "[TV Show] %s" % title
+
+    if media_type == "episode":
+        series_title = (
+            catalog_item.get("series_title")
+            or catalog_item.get("series_name")
+            or ""
+        )
+        season_number = catalog_item.get("season_number")
+        episode_number = catalog_item.get("episode_number")
+
+        episode_code = ""
+        if season_number is not None and episode_number is not None:
+            try:
+                episode_code = "S%02dE%02d" % (
+                    int(season_number),
+                    int(episode_number),
+                )
+            except (TypeError, ValueError):
+                episode_code = ""
+
+        if series_title and episode_code:
+            return "[Episode] %s - %s - %s" % (
+                series_title,
+                episode_code,
+                title,
+            )
+
+        if series_title:
+            return "[Episode] %s - %s" % (
+                series_title,
+                title,
+            )
+
+        if episode_code:
+            return "[Episode] %s - %s" % (
+                episode_code,
+                title,
+            )
+
+        return "[Episode] %s" % title
+
+    return title
+
+
 def list_search_results(client, query, page=1):
     """Display one page of Silo's server-side library-wide search results."""
     query = str(query or "").strip()
@@ -2231,52 +2293,7 @@ def list_search_results(client, query, page=1):
             or ""
         ).lower()
 
-        # Make each result's media type obvious. Episodes also include their
-        # parent series and season/episode number so dozens of identically
-        # titled episodes can be distinguished immediately.
-        display_title = title
-
-        if media_type == "movie":
-            display_title = "[Movie] %s" % title
-        elif media_type == "series":
-            display_title = "[TV Show] %s" % title
-        elif media_type == "episode":
-            series_title = (
-                catalog_item.get("series_title")
-                or catalog_item.get("series_name")
-                or ""
-            )
-            season_number = catalog_item.get("season_number")
-            episode_number = catalog_item.get("episode_number")
-
-            episode_code = ""
-            if season_number is not None and episode_number is not None:
-                try:
-                    episode_code = "S%02dE%02d" % (
-                        int(season_number),
-                        int(episode_number),
-                    )
-                except (TypeError, ValueError):
-                    episode_code = ""
-
-            if series_title and episode_code:
-                display_title = "[Episode] %s - %s - %s" % (
-                    series_title,
-                    episode_code,
-                    title,
-                )
-            elif series_title:
-                display_title = "[Episode] %s - %s" % (
-                    series_title,
-                    title,
-                )
-            elif episode_code:
-                display_title = "[Episode] %s - %s" % (
-                    episode_code,
-                    title,
-                )
-            else:
-                display_title = "[Episode] %s" % title
+        display_title = display_title_for_catalog_item(catalog_item)
 
         item = xbmcgui.ListItem(label=display_title)
         tag = item.getVideoInfoTag()
@@ -2468,6 +2485,18 @@ def list_root(client, page=None):
         True,
     )
 
+    # Silo Home sections are profile-wide: they combine content across all
+    # libraries visible to the selected profile. This keeps Continue Watching,
+    # Recently Added, Recommended, Next Up, etc. from being split by library.
+    try:
+        home_sections = client.home_sections(image_size="medium")
+    except SiloError as exc:
+        log("Unable to load Silo Home sections: %s" % exc, xbmc.LOGWARNING)
+        home_sections = []
+
+    for section in home_sections:
+        add_home_section_folder(section)
+
     libraries = client.libraries()
 
     # The root library list is deliberately not paginated. Pagination only
@@ -2546,6 +2575,223 @@ def list_root(client, page=None):
     # have actually been added to the Kodi directory.
     if xbmcgui.Window(10000).getProperty("Silo.LoginLoading") == "true":
         _hide_login_loading()
+
+
+def add_home_section_folder(section):
+    """Add one profile-wide Silo Home section as a Kodi folder."""
+    section_id = section.get("id") or section.get("section_id")
+    if not section_id:
+        return
+
+    title = section.get("title") or section.get("section_type") or section_id
+    item = xbmcgui.ListItem(label=title)
+    item.setProperty("Silo.HomeSectionID", str(section_id))
+
+    if section.get("section_type"):
+        item.setProperty("Silo.HomeSectionType", str(section.get("section_type")))
+
+    if section.get("total_count") is not None:
+        item.setProperty("Silo.SectionTotalCount", str(section.get("total_count")))
+
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(
+            action="home_section",
+            section_id=section_id,
+        ),
+        item,
+        True,
+    )
+
+
+def list_home_section(client, section_id):
+    """Display one profile-wide Silo Home section using full ListItem metadata."""
+    data = client.home_section_items(
+        section_id,
+        image_size="medium",
+    ) or {}
+
+    section_title = (
+        data.get("title")
+        or data.get("section_type")
+        or section_id
+    )
+    items = data.get("items") or []
+
+    xbmcplugin.setPluginCategory(HANDLE, section_title)
+    xbmcplugin.setContent(HANDLE, "videos")
+
+    # Match library/search metadata setup: fetch the full item detail documents
+    # before Kodi receives any cards so cast, crew, ratings, runtime and stream
+    # information are available immediately.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        None,
+    )
+
+    # Match library/search watch-state setup: prefer the dedicated current
+    # in-progress record over the catalog snapshot when one exists.
+    try:
+        in_progress_map = client.in_progress_map()
+    except SiloError as exc:
+        log(
+            "Unable to retrieve in-progress Silo records for Home section: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
+        in_progress_map = {}
+
+    # Match library/search container setup so a show or season in a Home rail
+    # receives the same server-derived watched episode counts.
+    series_watch_map, season_watch_map = fetch_series_watch_data(
+        client,
+        items,
+    )
+
+    batch = []
+
+    for catalog_item in items:
+        content_id = get_content_id(catalog_item)
+        if not content_id:
+            continue
+
+        title = (
+            catalog_item.get("title")
+            or catalog_item.get("name")
+            or "Unknown"
+        )
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+
+        display_title = display_title_for_catalog_item(catalog_item)
+
+        item = xbmcgui.ListItem(label=display_title)
+        tag = item.getVideoInfoTag()
+        tag.setTitle(title)
+
+        set_catalog_metadata(
+            item,
+            catalog_item,
+            client,
+        )
+
+        # Use the same current Silo v2 artwork fields as library/search.
+        set_art(
+            item,
+            client,
+            poster=(
+                catalog_item.get("poster_url")
+                or catalog_item.get("poster")
+                or catalog_item.get("image")
+                or catalog_item.get("artwork")
+                or catalog_item.get("thumbnail")
+            ),
+            backdrop=catalog_item.get("backdrop_url"),
+            logo=catalog_item.get("logo_url"),
+            still=(
+                catalog_item.get("still_url")
+                or catalog_item.get("still")
+            ),
+        )
+
+        # Apply full extended metadata before Kodi receives the ListItem.
+        detail = detail_map.get(str(content_id))
+        if detail:
+            set_detail_metadata(
+                item,
+                detail,
+                client,
+            )
+
+        display_progress = catalog_progress(catalog_item)
+        server_progress = in_progress_map.get(str(content_id))
+
+        if server_progress:
+            display_progress = server_progress
+
+        set_watch_state(
+            item,
+            display_progress,
+            media_type,
+        )
+
+        if media_type == "series":
+            set_container_watch_state(
+                item,
+                series_watch_map.get(str(content_id)),
+            )
+        elif media_type == "season":
+            season_rollup = (
+                season_watch_map.get(str(content_id))
+                or season_watch_map.get(
+                    "%s:%s" % (
+                        catalog_item.get("series_id"),
+                        catalog_item.get("season_number"),
+                    )
+                )
+            )
+            set_container_watch_state(
+                item,
+                season_rollup,
+            )
+
+        if media_type in PLAYABLE:
+            item.setProperty("IsPlayable", "true")
+            url = build_url(
+                action="play",
+                content_id=(
+                    catalog_item.get("play_content_id")
+                    or content_id
+                ),
+                resume_available=int(
+                    has_usable_resume(display_progress)
+                ),
+                duration_seconds=(
+                    catalog_item.get("duration_seconds")
+                    or ""
+                ),
+            )
+            batch.append((url, item, False))
+        elif media_type == "series":
+            url = build_url(
+                action="seasons",
+                series_id=content_id,
+            )
+            batch.append((url, item, True))
+        elif media_type == "season":
+            url = build_url(
+                action="season",
+                series_id=catalog_item.get("series_id") or "",
+                season_number=catalog_item.get("season_number"),
+            )
+            batch.append((url, item, True))
+        else:
+            # Keep unexpected media types visible without making them appear
+            # playable or creating a broken navigation target.
+            batch.append(
+                (
+                    build_url(
+                        action="search",
+                        query=title,
+                        page=1,
+                    ),
+                    item,
+                    False,
+                )
+            )
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(batch),
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
 
 
 def list_library(client, library_id, cursor=None):
@@ -4441,6 +4687,13 @@ def router(client):
         # the Silo profile before returning to the library screen.
         client.login_full()
         xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if action == "home_section":
+        list_home_section(
+            client,
+            params.get("section_id"),
+        )
         return
 
     if action == "library":
