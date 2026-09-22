@@ -578,7 +578,7 @@ def fetch_home_added_at_by_section(client, section, card_items):
         log(
             "Unable to retrieve added_at lookup for Home section %s: %s"
             % (section_id, exc),
-            xbmc.LOGDEBUG,
+            xbmc.LOGINFO,
         )
         return {}
 
@@ -587,7 +587,7 @@ def fetch_home_added_at_by_section(client, section, card_items):
     log(
         "Home added_at catalog response section=%s returned=%d wanted=%d"
         % (section_id, len(returned_items), len(wanted)),
-        xbmc.LOGDEBUG,
+        xbmc.LOGINFO,
     )
 
     result = {}
@@ -611,7 +611,7 @@ def fetch_home_added_at_by_section(client, section, card_items):
                 added_at,
                 "yes" if content_id and str(content_id) in wanted else "no",
             ),
-            xbmc.LOGDEBUG,
+            xbmc.LOGINFO,
         )
 
         if not content_id or str(content_id) not in wanted:
@@ -623,7 +623,7 @@ def fetch_home_added_at_by_section(client, section, card_items):
     log(
         "Home added_at lookup section=%s matched=%d/%d"
         % (section_id, len(result), len(wanted)),
-        xbmc.LOGDEBUG,
+        xbmc.LOGINFO,
     )
     return result
 
