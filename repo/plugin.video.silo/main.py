@@ -2559,7 +2559,7 @@ def list_merged_library_sections(client):
 
     # Only expose a merged folder when the same section exists in at least
     # two libraries. Unique sections remain visible from their library.
-    merged = [entries for entries in groups.values() if len(entries) > 1]
+    merged = list(groups.values())
     merged.sort(key=lambda entries: (entries[0].get("title") or entries[0].get("section_type") or "").casefold())
 
     xbmcplugin.setPluginCategory(HANDLE, "Combined Sections")
@@ -2617,13 +2617,46 @@ def list_merged_library_section(client, section_key):
             item.setdefault("library_id", library_id)
             combined.append(item)
 
-    # Server order is preserved within each library; libraries are then ordered
-    # by their stable Silo library order, followed by title as a deterministic
-    # fallback. This avoids random changes between Kodi refreshes.
-    combined.sort(key=lambda item: (
-        str(item.get("library_id") or ""),
-        str(item.get("sort_title") or item.get("title") or item.get("name") or "").casefold(),
-    ))
+    # Recent/released sections have a meaningful cross-library date order.
+    # Other section types preserve each library's Silo order and interleave
+    # the libraries rather than placing one library entirely before another.
+    section_type_lower = section_type.lower()
+    recent_types = {"recently_added", "new_to_library", "recently_released"}
+
+    if section_type_lower in recent_types:
+        def _date_key(item):
+            for field in (
+                "release_date",
+                "premiered",
+                "date_added",
+                "added_at",
+                "updated_at",
+            ):
+                value = item.get(field)
+                if value:
+                    return str(value)
+            return ""
+
+        combined.sort(key=_date_key, reverse=True)
+    else:
+        buckets = {}
+        for item in combined:
+            buckets.setdefault(str(item.get("library_id") or ""), []).append(item)
+
+        interleaved = []
+        bucket_keys = list(buckets)
+        position = 0
+        while True:
+            added = False
+            for bucket_key in bucket_keys:
+                bucket = buckets[bucket_key]
+                if position < len(bucket):
+                    interleaved.append(bucket[position])
+                    added = True
+            if not added:
+                break
+            position += 1
+        combined = interleaved
 
     # Reuse the normal Home renderer by constructing a temporary section payload.
     data = {"title": title.title(), "section_type": section_type, "items": combined}
