@@ -410,31 +410,56 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
-def fetch_detail_metadata(client, items, library_id, max_workers=2):
+def fetch_detail_metadata(client, items, library_id, max_workers=2, per_item_library=False):
     """Fetch extended metadata concurrently and retry transient failures.
 
     Catalog data is fast and contains most metadata. The detail endpoint adds
     cast, crew and full file stream information. Requests run concurrently,
     while transient timeouts, connection failures and server throttling/errors
     are retried before an item is considered unavailable.
+
+    When per_item_library is true, every supplied card occurrence is fetched
+    separately using its source library ID. This is required by merged Home
+    sections because the same content ID can exist in multiple libraries and
+    each occurrence can have a different added_at timestamp.
     """
-    content_ids = []
+    requests = []
     seen = set()
 
-    for item in items:
+    for index, item in enumerate(items):
         content_id = get_content_id(item)
         if not content_id:
             continue
 
-        key = str(content_id)
-        if key not in seen:
-            seen.add(key)
-            content_ids.append(content_id)
+        item_library_id = library_id
+        if per_item_library:
+            item_library_id = (
+                item.get("_silo_home_source_library_id")
+                or item_library_id
+            )
 
-    if not content_ids:
+        if per_item_library:
+            # Preserve one request for each card occurrence/library pair.
+            request_key = "%s|%s|%s" % (
+                str(content_id),
+                str(item_library_id) if item_library_id is not None else "",
+                index,
+            )
+        else:
+            request_key = str(content_id)
+
+        if request_key in seen:
+            continue
+        seen.add(request_key)
+        requests.append(
+            (content_id, item_library_id, request_key)
+        )
+
+    if not requests:
         return {}
 
-    def fetch_one(content_id):
+    def fetch_one(request):
+        content_id, request_library_id, request_key = request
         attempts = 3
 
         for attempt in range(attempts):
@@ -446,21 +471,21 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2):
 
                 detail = worker_client.item_detail(
                     content_id,
-                    library_id,
+                    request_library_id,
                 )
 
                 if detail:
                     # Silo's v2 item detail embeds CatalogItem, including
                     # added_at. The merged Recently Added sorter consumes this
-                    # value from detail_map.
-                    return content_id, detail
+                    # value from the occurrence-specific detail below.
+                    return request_key, detail
 
                 # An empty document is unusual but should get one retry.
                 if attempt < attempts - 1:
                     time.sleep(0.25 * (attempt + 1))
                     continue
 
-                return content_id, None
+                return request_key, None
 
             except SiloError as exc:
                 status = getattr(exc, "status", None)
@@ -497,30 +522,28 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2):
                     % (content_id, exc),
                     xbmc.LOGWARNING,
                 )
-                return content_id, None
+                return request_key, None
 
-        return content_id, None
+        return request_key, None
 
-    details = {}
     worker_count = max(
         1,
-        min(int(max_workers or 2), len(content_ids)),
+        min(int(max_workers or 2), len(requests)),
     )
 
+    details = {}
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = [
-            executor.submit(fetch_one, content_id)
-            for content_id in content_ids
+            executor.submit(fetch_one, request)
+            for request in requests
         ]
 
         for future in as_completed(futures):
-            content_id, detail = future.result()
-
+            request_key, detail = future.result()
             if detail:
-                details[str(content_id)] = detail
+                details[request_key] = detail
 
     return details
-
 
 def get_runtime_seconds(item):
     """Convert Silo's catalog runtime (minutes) into Kodi seconds."""
@@ -2834,6 +2857,13 @@ def _sort_merged_home_items(items, detail_map, group_key):
 
     def date_key(item):
         detail = detail_map.get(str(get_content_id(item))) or {}
+        # Merged Home cards carry an occurrence-specific timestamp
+        # fetched from /api/v2/catalog/items/{id}.
+        if group_key == "recently added":
+            value = item.get("_silo_home_added_at")
+            if value:
+                return (1, str(value))
+
         for field in fields:
             value = item.get(field) or detail.get(field)
             if value:
@@ -3156,7 +3186,42 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     xbmcplugin.setContent(HANDLE, "videos")
 
     try:
-        detail_map = fetch_detail_metadata(client, items, None)
+        if merged_group_key:
+            # Fetch the detail endpoint once for every card occurrence using
+            # that card's source library. The detail response contains the
+            # occurrence-specific added_at used to globally sort the merged row.
+            occurrence_details = fetch_detail_metadata(
+                client,
+                items,
+                None,
+                max_workers=4,
+                per_item_library=True,
+            )
+            detail_map = {}
+
+            for index, catalog_item in enumerate(items):
+                content_id = get_content_id(catalog_item)
+                if not content_id:
+                    continue
+
+                library_id = catalog_item.get("_silo_home_source_library_id") or ""
+                request_key = "%s|%s|%s" % (
+                    str(content_id),
+                    str(library_id),
+                    index,
+                )
+                detail = occurrence_details.get(request_key)
+
+                if detail:
+                    added_at = detail.get("added_at")
+                    if added_at:
+                        catalog_item["_silo_home_added_at"] = added_at
+
+                    # Keep the first detail for the normal renderer's metadata
+                    # lookups after duplicate cards have been collapsed.
+                    detail_map.setdefault(str(content_id), detail)
+        else:
+            detail_map = fetch_detail_metadata(client, items, None)
     except Exception as exc:
         log(
             "Unable to prefetch Home detail metadata: %s"
