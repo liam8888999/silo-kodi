@@ -27,9 +27,13 @@ https://liam8888999.github.io/silo-kodi/
 * ▶️ Play media directly through Kodi
 * 🔌 Connect to a Silo Server instance
 * 🌐 Access media from your Silo Server directly through Kodi
+*  Supports searching the library using requests directly to the server so you can quickly find your favourites
 *  Transcode Support
 *  Adaptive quality switching if you have a bad network connection or something cant be played
-* Option to only allow direct plays from the server (always preferred over transcoding anyway)
+*  Option to only allow direct plays from the server (always preferred over transcoding anyway)
+*  Automatically send watch progress back to the server (updated roughly every 5 seconds for those curious ones)
+*  Supports the terminate stream button on the server and will stop playing when that signal is recieved (usually within a couple of seconds)
+*  Automatically makes kodi reflect resume points on your server incase you go off and start using another client when you come back and click to play on the video it may offer a different time to resume from (quite annoyingly kodi caches it so i cant change this) but it will in the background jump to wherever your server reports you are up to
   
 ---
 
