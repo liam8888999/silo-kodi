@@ -136,7 +136,7 @@ def skin_episode_number_in_label():
                 # to the label variable avoids treating an episode number in
                 # an unrelated info dialog or playlist as the directory label.
                 variable_pattern = re.compile(
-                    r'<variable\b[^>]*name\s*=\s*["']listlabelvar["'][^>]*>.*?</variable>',
+                    r"""<variable\b[^>]*name\s*=\s*["']listlabelvar["'][^>]*>.*?</variable>""",
                     re.IGNORECASE | re.DOTALL,
                 )
 
