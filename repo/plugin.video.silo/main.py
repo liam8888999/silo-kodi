@@ -28,6 +28,7 @@ at a time. Pagination is handled internally by SiloClient and is never shown
 to the user.
 """
 
+import re
 import sys
 import time
 import threading
@@ -37,6 +38,7 @@ from urllib.parse import parse_qsl, urlencode
 import xbmc
 import xbmcgui
 import xbmcplugin
+import xbmcvfs
 import xbmcaddon
 
 from resources.lib.silo import (
@@ -73,6 +75,133 @@ MIN_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
 ADDON = xbmcaddon.Addon()
+
+
+_SKIN_EPISODE_NUMBER_DETECTION = None
+
+
+def skin_episode_number_in_label():
+    """Return True when the active skin already puts episode number in its label.
+    
+    Kodi skins can build an episode label from ListItem.Episode/ListItem.Season
+    themselves. The add-on cannot ask Kodi whether the rendered label contains
+    those fields, so inspect the active skin's XML once and cache the result.
+    """
+    global _SKIN_EPISODE_NUMBER_DETECTION
+
+    if _SKIN_EPISODE_NUMBER_DETECTION is not None:
+        return _SKIN_EPISODE_NUMBER_DETECTION
+
+    detected = False
+
+    try:
+        pending = ["special://skin/xml"]
+        visited = set()
+
+        while pending and not detected:
+            directory = pending.pop()
+            if directory in visited:
+                continue
+            visited.add(directory)
+
+            try:
+                subdirectories, filenames = xbmcvfs.listdir(directory)
+            except Exception:
+                continue
+
+            for subdirectory in subdirectories:
+                child = directory.rstrip("/") + "/" + subdirectory
+                pending.append(child)
+
+            for filename in filenames:
+                if not str(filename).lower().endswith(".xml"):
+                    continue
+
+                path = directory.rstrip("/") + "/" + str(filename)
+
+                try:
+                    handle = xbmcvfs.File(path)
+                    data = handle.read()
+                    handle.close()
+
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8", "ignore")
+                    text_data = str(data)
+                except Exception:
+                    continue
+
+                lower = text_data.lower()
+
+                # Prefer the common ListLabelVar convention. Restricting this
+                # to the label variable avoids treating an episode number in
+                # an unrelated info dialog or playlist as the directory label.
+                variable_pattern = re.compile(
+                    r"<variable\\b[^>]*name\\s*=\\s*["']listlabelvar["'][^>]*>.*?</variable>",
+                    re.IGNORECASE | re.DOTALL,
+                )
+
+                for block in variable_pattern.findall(lower):
+                    if (
+                        "listitem.episode" in block
+                        and "listitem.title" in block
+                    ):
+                        detected = True
+                        break
+
+                if detected:
+                    break
+
+                # Some skins put the label directly in an itemlayout instead
+                # of using ListLabelVar.
+                layout_pattern = re.compile(
+                    r"<itemlayout\\b[^>]*>.*?</itemlayout>",
+                    re.IGNORECASE | re.DOTALL,
+                )
+
+                for block in layout_pattern.findall(lower):
+                    if (
+                        "listitem.episode" in block
+                        and "listitem.title" in block
+                    ):
+                        detected = True
+                        break
+
+                if detected:
+                    break
+
+        log(
+            "Skin episode-number label detection: %s"
+            % ("already supplied by skin" if detected else "not supplied by skin")
+        )
+    except Exception as exc:
+        # If the skin cannot be inspected, prefer adding the episode number so
+        # the add-on still provides it rather than silently losing it.
+        log(
+            "Unable to inspect active skin for episode numbering: %s" % exc,
+            xbmc.LOGDEBUG,
+        )
+        detected = False
+
+    _SKIN_EPISODE_NUMBER_DETECTION = detected
+    return detected
+
+
+def episode_display_label(title, episode_number):
+    """Return an episode label without duplicating a skin-provided number."""
+    title = str(title or "Episode")
+
+    try:
+        number = int(episode_number)
+    except (TypeError, ValueError):
+        return title
+
+    if number <= 0:
+        return title
+
+    if skin_episode_number_in_label():
+        return title
+
+    return "%d. %s" % (number, title)
 
 
 def direct_play_only_enabled():
@@ -2699,7 +2828,11 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             continue
 
         title = episode.get("title") or episode.get("name") or "Episode"
-        item = xbmcgui.ListItem(label=title)
+        display_title = episode_display_label(
+            title,
+            episode.get("episode_number"),
+        )
+        item = xbmcgui.ListItem(label=display_title)
         tag = item.getVideoInfoTag()
         tag.setTitle(title)
 
