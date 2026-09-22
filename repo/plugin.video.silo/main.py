@@ -355,6 +355,15 @@ def get_progress_position(progress):
     return position, duration
 
 
+def has_usable_resume(progress):
+    """Return whether a progress record contains a real resume position."""
+    if not progress or bool(progress.get("completed", False)):
+        return False
+
+    position, duration = get_progress_position(progress)
+    return position > 0 and duration > 0
+
+
 def _art_url(client, value):
     """Return an artwork URL from either a string or a small artwork dict."""
     if not value:
@@ -1561,6 +1570,9 @@ def list_search_results(client, query, page=1):
                     catalog_item.get("play_content_id")
                     or content_id
                 ),
+                resume_available=int(
+                    has_usable_resume(catalog_progress(catalog_item))
+                ),
             )
             batch.append((url, item, False))
         elif media_type == "series":
@@ -1852,6 +1864,7 @@ def list_library(client, library_id, cursor=None):
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
+                resume_available=int(has_usable_resume(display_progress)),
             )
             batch.append((url, list_item, False))
         else:
@@ -2116,6 +2129,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             "action": "play",
             "content_id": content_id,
             "library_id": library_id,
+            "resume_available": int(has_usable_resume(display_progress)),
         }
 
         if len(files) == 1:
@@ -2246,7 +2260,15 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         tag.setResumePoint(0.0, 0.0)
 
 
-def play(client, content_id, file_id, library_id, duration_seconds=None, resume=False):
+def play(
+    client,
+    content_id,
+    file_id,
+    library_id,
+    duration_seconds=None,
+    resume=False,
+    resume_available=False,
+):
     """Play media using Kodi's native Resume/Start-over choice.
 
     Kodi passes resume:true when the user chose Resume and resume:false when
@@ -2355,7 +2377,19 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
                 xbmc.LOGWARNING,
             )
 
-    if resume and latest_progress:
+    fresh_server_resume = has_usable_resume(latest_progress)
+
+    if (
+        latest_progress
+        and (
+            resume
+            or (
+                not resume
+                and not resume_available
+                and fresh_server_resume
+            )
+        )
+    ):
         # Replace Kodi's potentially stale local resume position with the
         # position we just fetched from Silo.
         apply_fresh_resume_to_resolved_item(
@@ -2363,10 +2397,27 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             latest_progress,
             fallback_duration=duration_seconds,
         )
-        log(
-            "Kodi requested Resume; applied fresh Silo resume position "
-            "to the resolved item for content %s" % content_id
-        )
+        if resume:
+            log(
+                "Kodi requested Resume; applied fresh Silo resume position "
+                "to the resolved item for content %s" % content_id
+            )
+        else:
+            # Kodi saw the item as unresumable when the directory was loaded,
+            # but Silo now has a usable resume position. Apply that fresh
+            # server position directly because Kodi did not show its prompt.
+            fresh_position, _fresh_duration = get_progress_position(
+                latest_progress
+            )
+            resolved_item.setProperty(
+                "StartOffset",
+                "%.3f" % fresh_position,
+            )
+            log(
+                "Kodi had no resume prompt, but Silo now has a fresh resume "
+                "position of %.3fs for content %s"
+                % (fresh_position, content_id)
+            )
     elif resume:
         # Kodi showed its native Resume prompt because a local cached resume
         # point exists, but Silo has no current progress record. Treat this
@@ -3584,6 +3635,8 @@ def router(client):
             params.get("library_id"),
             params.get("duration_seconds"),
             resume=kodi_requested_resume(),
+            resume_available=str(params.get("resume_available", "")).strip().lower()
+            in ("1", "true", "yes"),
         )
         return
 
