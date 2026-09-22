@@ -2412,6 +2412,7 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             session_id,
             playback_info=info,
             resolved_item=resolved_item,
+            force_start_zero=bool(resume and not latest_progress),
         )
     else:
         log(
@@ -2442,6 +2443,7 @@ def track_progress(
     session_id,
     playback_info=None,
     resolved_item=None,
+    force_start_zero=False,
 ):
     """Monitor Kodi playback, report progress, and learn a stable quality.
 
@@ -2484,6 +2486,40 @@ def track_progress(
             xbmc.LOGWARNING,
         )
         return
+
+    # Kodi can apply a resume bookmark from its local database after the
+    # resolved URL has been opened. If Silo says there is no resume state but
+    # Kodi nevertheless invoked this request with resume=true, the only
+    # reliable point at which we can override that local seek is after the
+    # player is actually running. Force the player to time zero a few times
+    # during the initial startup window so a late Kodi bookmark cannot win.
+    if force_start_zero:
+        for attempt in range(4):
+            if not player.isPlaying() or monitor.abortRequested():
+                break
+
+            try:
+                before = float(player.getTime())
+            except Exception:
+                before = 0.0
+
+            try:
+                player.seekTime(0.0)
+                xbmc.sleep(150)
+                after = float(player.getTime())
+            except Exception as exc:
+                log(
+                    "Unable to force Kodi playback to the beginning "
+                    "(attempt %d): %s" % (attempt + 1, exc),
+                    xbmc.LOGWARNING,
+                )
+                break
+
+            log(
+                "Forced Kodi playback to 0.000s because Silo has no "
+                "resume data (attempt %d; before=%.3f after=%.3f)"
+                % (attempt + 1, before, after)
+            )
 
     def quality_ladder(plan):
         """Return Silo's published quality ladder in server order."""
