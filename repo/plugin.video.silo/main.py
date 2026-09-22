@@ -2481,50 +2481,16 @@ def list_root(client, page=None):
     for section in home_sections:
         add_home_section_folder(section)
 
-    libraries = client.libraries()
-
-    # The root library list is deliberately not paginated. Pagination only
-    # applies to search results and the contents of individual libraries.
-    for library in libraries:
-        library_id = library.get("id")
-        if not library_id:
-            continue
-
-        title = library.get("name") or library.get("title") or "Library"
-        item = xbmcgui.ListItem(label=title)
-
-        # Preserve the library metadata supplied by the user-libraries call.
-        if library.get("id") is not None:
-            item.setProperty(
-                "Silo.LibraryID",
-                str(library.get("id")),
-            )
-        if library.get("type"):
-            item.setProperty(
-                "Silo.LibraryType",
-                str(library.get("type")),
-            )
-        if library.get("sort_order") is not None:
-            item.setProperty(
-                "Silo.LibrarySortOrder",
-                str(library.get("sort_order")),
-            )
-
-        # Silo provides a library-level poster_url for custom library artwork.
-        # Apply it as Kodi's poster, thumbnail and icon so the artwork is used
-        # consistently by skins that prefer different art keys.
-        set_art(
-            item,
-            client,
-            poster=library.get("poster_url"),
-        )
-
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="library", library_id=library_id),
-            item,
-            True,
-        )
+    # Keep all user libraries under one folder so the root stays focused on
+    # global actions and profile-wide Home sections.
+    libraries_item = xbmcgui.ListItem(label="Libraries")
+    libraries_item.setProperty("Silo.LibraryFolder", "true")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="libraries"),
+        libraries_item,
+        True,
+    )
 
     profile_item = xbmcgui.ListItem(label="Switch Profile")
     xbmcplugin.addDirectoryItem(
@@ -2559,6 +2525,51 @@ def list_root(client, page=None):
     # have actually been added to the Kodi directory.
     if xbmcgui.Window(10000).getProperty("Silo.LoginLoading") == "true":
         _hide_login_loading()
+
+
+def list_libraries(client):
+    """Display the accessible Silo libraries inside the Libraries folder."""
+    libraries = client.libraries()
+
+    xbmcplugin.setPluginCategory(HANDLE, "Libraries")
+    xbmcplugin.setContent(HANDLE, "files")
+
+    batch = []
+
+    for library in libraries:
+        library_id = library.get("id")
+        if not library_id:
+            continue
+
+        title = library.get("name") or library.get("title") or "Library"
+        item = xbmcgui.ListItem(label=title)
+
+        # Preserve library metadata for skins and future library-aware features.
+        if library.get("id") is not None:
+            item.setProperty("Silo.LibraryID", str(library.get("id")))
+        if library.get("type"):
+            item.setProperty("Silo.LibraryType", str(library.get("type")))
+        if library.get("sort_order") is not None:
+            item.setProperty("Silo.LibrarySortOrder", str(library.get("sort_order")))
+
+        set_art(
+            item,
+            client,
+            poster=library.get("poster_url"),
+        )
+
+        batch.append(
+            (
+                build_url(action="library", library_id=library_id),
+                item,
+                True,
+            )
+        )
+
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+
+    xbmcplugin.endOfDirectory(HANDLE)
 
 
 def add_home_section_folder(section):
@@ -4565,6 +4576,10 @@ def router(client):
             client,
             params.get("section_id"),
         )
+        return
+
+    if action == "libraries":
+        list_libraries(client)
         return
 
     if action == "library":
