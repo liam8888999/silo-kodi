@@ -2839,6 +2839,8 @@ def _sort_merged_home_items(items, detail_map, group_key):
 
     # Cards with a usable date are ordered newest-first. Undated cards stay
     # after dated cards and retain their deterministic source order.
+    # Recently Added section catalog responses from Silo provide added_at,
+    # allowing movies and TV to be interleaved by the same server timestamp.
     dated = []
     undated = []
 
@@ -2896,10 +2898,20 @@ def list_home_section_group(client, group_key):
         )
 
         try:
-            data = client.home_section_items(
-                section_id,
-                image_size="medium",
-            ) or {}
+            if str(group_key or "") == "recently added":
+                # The Home-card endpoint does not expose Silo's added_at
+                # timestamp. The catalog section endpoint does, and uses the
+                # same Recently Added section membership/order as Silo.
+                data = client.home_section_catalog_items(
+                    section_id,
+                    image_size="medium",
+                    limit=max(200, int(section.get("item_limit") or 0)),
+                ) or {}
+            else:
+                data = client.home_section_items(
+                    section_id,
+                    image_size="medium",
+                ) or {}
         except SiloError as exc:
             log(
                 "Unable to load Home section %s: %s"
