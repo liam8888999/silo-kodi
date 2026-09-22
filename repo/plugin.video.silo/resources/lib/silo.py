@@ -799,6 +799,37 @@ class SiloClient:
         ) or {}
         return data
 
+    # Return one Home section through Silo's full catalog-card endpoint.
+    # Unlike /home/sections/{id}/items, this response uses CatalogItem and
+    # includes added_at. For Recently Added TV sections, Silo's resolver sets
+    # that timestamp to the episode/event that caused the series to be recent.
+    def home_section_catalog_items(self, section_id, image_size="medium", limit=200):
+        """Return full catalog cards for one profile-scoped Home section."""
+        try:
+            limit = max(1, min(int(limit or 200), 200))
+        except (TypeError, ValueError):
+            limit = 200
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params={
+                "source": "section",
+                "scope": "home",
+                "section_id": section_id,
+                "limit": limit,
+                "skip_total": "true",
+                "image_size": image_size,
+            },
+        ) or {}
+
+        # The stable v2 catalog response is normally the collection itself.
+        # Accept a body envelope as well for compatibility with older builds.
+        if isinstance(data, dict) and isinstance(data.get("body"), dict):
+            data = data["body"]
+
+        return data
+
     # Search the profile-visible catalog across all accessible libraries.
     # Silo performs the search server-side, so the addon does not need to
     # download and scan every library itself.
