@@ -2654,10 +2654,6 @@ def list_home_section(client, section_id):
             or ""
         )
 
-        if item_library_id:
-            item.setProperty("Silo.LibraryID", str(item_library_id))
-            item.setProperty("Silo.HomeOriginLibraryID", str(item_library_id))
-
         item, media_type, content_id, title, display_progress = build_catalog_list_item(
             client,
             catalog_item,
@@ -2666,6 +2662,10 @@ def list_home_section(client, section_id):
             series_rollup=series_watch_map.get(str(content_id)),
             season_rollup=season_rollup,
         )
+
+        if item_library_id:
+            item.setProperty("Silo.LibraryID", str(item_library_id))
+            item.setProperty("Silo.HomeOriginLibraryID", str(item_library_id))
 
         if media_type in PLAYABLE:
             item.setProperty("IsPlayable", "true")
