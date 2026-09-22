@@ -2373,6 +2373,15 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
             tag = resolved_item.getVideoInfoTag()
             tag.setPlaycount(0)
             tag.setResumePoint(0.0, 0.0)
+
+            # If Kodi showed its Resume dialog because it has a stale local
+            # bookmark, it still passes resume=true into this plugin after the
+            # user selects Resume. Clearing the InfoTag alone is too late:
+            # Kodi can apply the original cached bookmark when it opens the
+            # resolved URL. StartOffset is Kodi's explicit playback offset and
+            # setting it to zero here overrides that cached seek.
+            if resume and not latest_progress:
+                resolved_item.setProperty("StartOffset", "0")
         except Exception:
             pass
 
