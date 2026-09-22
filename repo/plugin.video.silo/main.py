@@ -3067,6 +3067,7 @@ def list_seasons(client, series_id, library_id, page=None):
                 candidate_seasons = client.seasons(
                     series_id,
                     candidate_library_id,
+                    suppress_not_found=True,
                 )
             except SiloError as exc:
                 log(
