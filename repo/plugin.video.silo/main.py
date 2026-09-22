@@ -2647,10 +2647,21 @@ def list_home_section(client, section_id):
             or season_watch_map.get("%s:%s" % (catalog_item.get("series_id"), catalog_item.get("season_number")))
         )
 
+        detail = detail_map.get(str(content_id))
+        item_library_id = (
+            catalog_item.get("library_id")
+            or (detail or {}).get("library_id")
+            or ""
+        )
+
+        if item_library_id:
+            item.setProperty("Silo.LibraryID", str(item_library_id))
+            item.setProperty("Silo.HomeOriginLibraryID", str(item_library_id))
+
         item, media_type, content_id, title, display_progress = build_catalog_list_item(
             client,
             catalog_item,
-            detail=detail_map.get(str(content_id)),
+            detail=detail,
             progress=progress,
             series_rollup=series_watch_map.get(str(content_id)),
             season_rollup=season_rollup,
@@ -2661,14 +2672,36 @@ def list_home_section(client, section_id):
             url = build_url(
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
+                library_id=item_library_id or None,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
                 resume_available=int(has_usable_resume(display_progress)),
             )
             batch.append((url, item, False))
         elif media_type == "series":
-            batch.append((build_url(action="seasons", series_id=content_id), item, True))
+            batch.append(
+                (
+                    build_url(
+                        action="seasons",
+                        series_id=content_id,
+                        library_id=item_library_id or None,
+                    ),
+                    item,
+                    True,
+                )
+            )
         elif media_type == "season":
-            batch.append((build_url(action="season", series_id=catalog_item.get("series_id") or "", season_number=catalog_item.get("season_number")), item, True))
+            batch.append(
+                (
+                    build_url(
+                        action="season",
+                        series_id=catalog_item.get("series_id") or "",
+                        season_number=catalog_item.get("season_number"),
+                        library_id=item_library_id or None,
+                    ),
+                    item,
+                    True,
+                )
+            )
         else:
             batch.append((build_url(action="search", query=title, page=1), item, False))
 
