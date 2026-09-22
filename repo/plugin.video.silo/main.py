@@ -1304,7 +1304,10 @@ def add_catalog_item(client, item, library_id):
     play_content_id = item.get("play_content_id") or content_id
 
     if is_playable:
-        list_item.setProperty("IsPlayable", "true")
+        # This is intentionally a non-playable plugin file. Kodi calls our
+        # play action, allowing us to query Silo's current state first instead
+        # of applying a cached Kodi resume point.
+        list_item.setProperty("IsPlayable", "false")
 
         xbmcplugin.addDirectoryItem(
             HANDLE,
@@ -1314,7 +1317,7 @@ def add_catalog_item(client, item, library_id):
                 library_id=library_id,
             ),
             list_item,
-            True,
+            False,
         )
         return
 
@@ -1572,7 +1575,7 @@ def list_search_results(client, query, page=1):
         )
 
         if media_type in PLAYABLE:
-            item.setProperty("IsPlayable", "true")
+            item.setProperty("IsPlayable", "false")
             url = build_url(
                 action="play",
                 content_id=(
@@ -1580,7 +1583,7 @@ def list_search_results(client, query, page=1):
                     or content_id
                 ),
                             )
-            batch.append((url, item, True))
+            batch.append((url, item, False))
         elif media_type == "series":
             url = build_url(
                 action="seasons",
@@ -1864,14 +1867,14 @@ def list_library(client, library_id, cursor=None):
         )
 
         if media_type in PLAYABLE:
-            list_item.setProperty("IsPlayable", "true")
+            list_item.setProperty("IsPlayable", "false")
             url = build_url(
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
                             )
-            batch.append((url, list_item, True))
+            batch.append((url, list_item, False))
         else:
             url = build_url(
                 action="seasons",
@@ -2126,7 +2129,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             "episode",
         )
 
-        item.setProperty("IsPlayable", "true")
+        item.setProperty("IsPlayable", "false")
 
         # Reuse an already-known single file when the episode exposes one.
         files = episode.get("files") or []
@@ -2148,7 +2151,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         batch.append((
             build_url(**params),
             item,
-            True,
+            False,
         ))
 
         if len(batch) >= batch_size:
@@ -2359,12 +2362,12 @@ def play(
 
     resolved_item.setProperty("IsPlayable", "true")
 
-    # Play the concrete Silo stream directly instead of returning it through
-    # Kodi's plugin resolver. The resolver can reuse the resume state attached
-    # to the original directory item, which may be stale because the directory
-    # was loaded before Silo's progress changed.
-    xbmc.Player().play(
-        info["url"],
+    # Return the already-planned concrete stream to Kodi. Because the original
+    # directory item is not marked playable and has no native resume point,
+    # Kodi does not get a stale Resume decision before this resolver runs.
+    xbmcplugin.setResolvedUrl(
+        HANDLE,
+        True,
         resolved_item,
     )
 
