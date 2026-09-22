@@ -132,39 +132,58 @@ def skin_episode_number_in_label():
 
                 lower = text_data.lower()
 
-                # Prefer the common ListLabelVar convention. Restricting this
-                # to the label variable avoids treating an episode number in
-                # an unrelated info dialog or playlist as the directory label.
-                variable_pattern = re.compile(
-                    r"""<variable\b[^>]*name\s*=\s*["']listlabelvar["'][^>]*>.*?</variable>""",
-                    re.IGNORECASE | re.DOTALL,
-                )
+                # Prefer the common ListLabelVar convention. We deliberately
+                # avoid a regex here because skin XML contains both quote styles,
+                # and simple XML-text checks are safer across Python/Kodi versions.
+                variable_start = 0
 
-                for block in variable_pattern.findall(lower):
+                while True:
+                    variable_start = lower.find("<variable", variable_start)
+                    if variable_start < 0:
+                        break
+
+                    variable_end = lower.find("</variable>", variable_start)
+                    if variable_end < 0:
+                        break
+
+                    variable_block = lower[variable_start:variable_end + len("</variable>")]
+
                     if (
-                        "listitem.episode" in block
-                        and "listitem.title" in block
+                        "listlabelvar" in variable_block
+                        and "listitem.episode" in variable_block
+                        and "listitem.title" in variable_block
                     ):
                         detected = True
                         break
+
+                    variable_start = variable_end + len("</variable>")
 
                 if detected:
                     break
 
-                # Some skins put the label directly in an itemlayout instead
-                # of using ListLabelVar.
-                layout_pattern = re.compile(
-                    r"<itemlayout\b[^>]*>.*?</itemlayout>",
-                    re.IGNORECASE | re.DOTALL,
-                )
+                # Some skins put the label directly in an itemlayout
+                # instead of using ListLabelVar.
+                layout_start = 0
 
-                for block in layout_pattern.findall(lower):
+                while True:
+                    layout_start = lower.find("<itemlayout", layout_start)
+                    if layout_start < 0:
+                        break
+
+                    layout_end = lower.find("</itemlayout>", layout_start)
+                    if layout_end < 0:
+                        break
+
+                    layout_block = lower[layout_start:layout_end + len("</itemlayout>")]
+
                     if (
-                        "listitem.episode" in block
-                        and "listitem.title" in block
+                        "listitem.episode" in layout_block
+                        and "listitem.title" in layout_block
                     ):
                         detected = True
                         break
+
+                    layout_start = layout_end + len("</itemlayout>")
 
                 if detected:
                     break
