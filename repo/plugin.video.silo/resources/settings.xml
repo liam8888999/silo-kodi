@@ -4,6 +4,10 @@
     <setting id="items_per_page" type="slider" label="Items per page" default="200" range="20,10,200" option="int" />
   </category>
 
+  <category label="Home">
+    <setting id="combine_library_sections" type="bool" label="Combine matching sections across libraries" default="false" />
+  </category>
+
   <category label="Playback">
     <setting id="direct_play_only" type="bool" label="Only allow direct play" default="false" />
   </category>
