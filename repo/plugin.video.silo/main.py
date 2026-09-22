@@ -2330,63 +2330,15 @@ def list_search_results(client, query, page=1):
 
         display_title = display_title_for_catalog_item(catalog_item)
 
-        item = xbmcgui.ListItem(label=display_title)
-        tag = item.getVideoInfoTag()
-        tag.setTitle(title)
+        display_progress = in_progress_map.get(str(content_id)) or catalog_progress(catalog_item)
 
-        set_catalog_metadata(item, catalog_item, client)
-
-        set_art(
-            item,
+        item, media_type, content_id, title, display_progress = build_catalog_list_item(
             client,
-            poster=(
-                catalog_item.get("poster_url")
-                or catalog_item.get("poster")
-                or catalog_item.get("image")
-                or catalog_item.get("artwork")
-                or catalog_item.get("thumbnail")
-            ),
-            backdrop=catalog_item.get("backdrop_url"),
-            logo=catalog_item.get("logo_url"),
-            still=(
-                catalog_item.get("still_url")
-                or catalog_item.get("still")
-            ),
-        )
-
-        # Apply the extended metadata fetched above before this result is
-        # handed to Kodi, matching the normal library and episode pages.
-        detail = detail_map.get(str(content_id))
-        if detail:
-            set_detail_metadata(
-                item,
-                detail,
-                client,
-            )
-
-        # Start with the catalog snapshot, then prefer the current
-        # in-progress server record exactly as normal library browsing does.
-        # This makes search show a partial-watch state when Silo has progress
-        # that was not present when the search results were loaded.
-        display_progress = catalog_progress(catalog_item)
-        server_progress = in_progress_map.get(str(content_id))
-
-        if server_progress:
-            display_progress = server_progress
-
-        set_watch_state(
-            item,
-            display_progress,
-            media_type,
-        )
-
-        if media_type == "series":
-            set_container_watch_state(
-                item,
-                series_watch_map.get(str(content_id)),
-            )
-        elif media_type == "season":
-            season_rollup = (
+            catalog_item,
+            detail=detail_map.get(str(content_id)),
+            progress=display_progress,
+            series_rollup=series_watch_map.get(str(content_id)),
+            season_rollup=(
                 season_watch_map.get(str(content_id))
                 or season_watch_map.get(
                     "%s:%s" % (
@@ -2394,11 +2346,8 @@ def list_search_results(client, query, page=1):
                         catalog_item.get("season_number"),
                     )
                 )
-            )
-            set_container_watch_state(
-                item,
-                season_rollup,
-            )
+            ),
+        )
 
         if media_type in PLAYABLE:
             item.setProperty("IsPlayable", "true")
@@ -2805,62 +2754,16 @@ def list_library(client, library_id, cursor=None):
             or ""
         ).lower()
 
-        list_item = xbmcgui.ListItem(label=title)
-        tag = list_item.getVideoInfoTag()
-        tag.setTitle(title)
-
-        set_catalog_metadata(list_item, catalog_item, client)
-
-        if catalog_item.get("year"):
-            try:
-                tag.setYear(int(catalog_item["year"]))
-            except (TypeError, ValueError):
-                pass
-
-        if catalog_item.get("plot") or catalog_item.get("overview"):
-            tag.setPlot(catalog_item.get("plot") or catalog_item.get("overview"))
-
-        # Silo's current CatalogItem fields are poster_url/backdrop_url/logo_url.
-        # Older names remain as fallbacks.
-        set_art(
-            list_item,
-            client,
-            poster=(
-                catalog_item.get("poster_url")
-                or catalog_item.get("poster")
-                or catalog_item.get("image")
-                or catalog_item.get("artwork")
-                or catalog_item.get("thumbnail")
-            ),
-            backdrop=catalog_item.get("backdrop_url"),
-            logo=catalog_item.get("logo_url"),
-        )
-
-        # Apply the extended metadata fetched concurrently above.
-        detail = detail_map.get(str(content_id))
-        if detail:
-            set_detail_metadata(list_item, detail, client)
-
-        # Start with the fast catalog snapshot. For an in-progress item, use
-        # the dedicated server progress record because it contains the detailed
-        # position and duration required for Kodi's partial-watch indicator.
-        display_progress = catalog_progress(catalog_item)
         server_progress = in_progress_map.get(str(content_id))
+        display_progress = server_progress or catalog_progress(catalog_item)
 
-        if server_progress:
-            display_progress = server_progress
-
-        set_watch_state(
-            list_item,
-            display_progress,
-            media_type,
+        list_item, media_type, content_id, title, display_progress = build_catalog_list_item(
+            client,
+            catalog_item,
+            detail=detail_map.get(str(content_id)),
+            progress=display_progress,
+            series_rollup=series_watch_map.get(str(content_id)),
         )
-
-        if media_type == "series":
-            set_container_watch_state(
-                list_item,
-                series_watch_map.get(str(content_id)),
-            )
 
         if media_type in PLAYABLE:
             list_item.setProperty("IsPlayable", "true")
