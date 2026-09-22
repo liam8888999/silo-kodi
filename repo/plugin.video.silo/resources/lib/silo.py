@@ -329,7 +329,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True):
         if not self.base:
             self._prompt_account()
 
@@ -360,19 +360,20 @@ class SiloClient:
                 save_config(self.cfg)
                 self.login()
 
-            return self._send(method, path, params, body, need_profile, False)
+            return self._send(method, path, params, body, need_profile, False, timeout, log_not_found)
 
         # A locked profile may need a fresh profile-verification token.
         if r.status_code == 403 and retry and "profile_verification" in r.text:
             self.cfg.pop("profile_token", None)
             self.verify_profile(self.cfg.get("profile_id"))
-            return self._send(method, path, params, body, need_profile, False)
+            return self._send(method, path, params, body, need_profile, False, timeout, log_not_found)
 
         if not r.ok:
-            log(
-                "%s %s -> %s" % (method, path, r.text[:1200]),
-                xbmc.LOGWARNING,
-            )
+            if not (r.status_code == 404 and not log_not_found):
+                log(
+                    "%s %s -> %s" % (method, path, r.text[:1200]),
+                    xbmc.LOGWARNING,
+                )
 
             try:
                 problem = r.json()
@@ -911,11 +912,12 @@ class SiloClient:
                 return items
 
     # Return all seasons for a series.
-    def seasons(self, series_id, library_id=None):
+    def seasons(self, series_id, library_id=None, suppress_not_found=False):
         data = self._json(
             "GET",
             "/api/v2/catalog/series/%s/seasons" % quote(series_id, safe=":"),
             params={"library_id": library_id} if library_id else None,
+            log_not_found=not suppress_not_found,
         ) or {}
 
         return data.get("items", [])
