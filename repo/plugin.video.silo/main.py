@@ -1211,20 +1211,18 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
 
 def set_watch_state(list_item, progress, content_type=None):
-    """Apply Silo's watched state without storing a Kodi resume bookmark.
+    """Apply Silo's watched state without storing a native Kodi resume point.
 
-    The directory may stay open while the server-side watch state changes.
-    Kodi's native resume point would become stale in that situation, so the
-    actual resume decision is deferred until play() performs a fresh Silo query.
+    The directory can remain open while Silo's server-side progress changes.
+    The actual resume decision is therefore made only when the user selects
+    the item and play() performs a fresh Silo progress lookup.
     """
-    tag = list_item.getVideoInfoTag()
-
     if not progress:
-        tag.setPlaycount(0)
         return
 
     completed = bool(progress.get("completed", False))
     _, duration = get_progress_position(progress)
+    tag = list_item.getVideoInfoTag()
 
     if duration > 0:
         tag.setDuration(int(round(duration)))
@@ -1290,9 +1288,11 @@ def add_catalog_item(client, item, library_id):
     play_content_id = item.get("play_content_id") or content_id
 
     if is_playable:
-        # This is intentionally a non-playable plugin file. Kodi calls our
-        # play action, allowing us to query Silo's current state first instead
-        # of applying a cached Kodi resume point.
+        list_item.setProperty("IsPlayable", "true")
+        # Prevent Kodi from turning an old database bookmark into Resume before
+        # this plugin gets a chance to query Silo's current server state.
+        list_item.setProperty("StartOffset", "0.0")
+
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(
@@ -1301,7 +1301,7 @@ def add_catalog_item(client, item, library_id):
                 library_id=library_id,
             ),
             list_item,
-            True,
+            False,
         )
         return
 
@@ -1401,20 +1401,6 @@ def list_search_results(client, query, page=1):
         items,
         None,
     )
-
-    # Search responses can omit the detailed partial position even when Silo
-    # has an active in-progress record. Fetch those records once for the whole
-    # search result page so Kodi's native resume prompt is based on Silo data,
-    # not a stale Kodi-local bookmark.
-    try:
-        search_in_progress_map = client.in_progress_map()
-    except SiloError as exc:
-        log(
-            "Unable to retrieve in-progress Silo records for search results: %s"
-            % exc,
-            xbmc.LOGWARNING,
-        )
-        search_in_progress_map = {}
 
     # Keep all media types in the same result page, but group them into
     # Movies, TV Shows and Episodes so a common title (for example "Christmas")
@@ -1543,22 +1529,18 @@ def list_search_results(client, query, page=1):
                 client,
             )
 
-        # Use the fast catalog snapshot first, but prefer the detailed
-        # server-side in-progress record when one exists. Search results often
-        # omit the partial position required for Kodi's native resume prompt.
-        display_progress = catalog_progress(catalog_item)
-        server_progress = search_in_progress_map.get(str(content_id))
-
-        if server_progress:
-            display_progress = server_progress
-
+        # Search results are already profile-scoped by Silo. Use the catalog
+        # watch state directly so this search does not download the full
+        # progress table spanning every library.
         set_watch_state(
             item,
-            display_progress,
+            catalog_progress(catalog_item),
             media_type,
         )
 
         if media_type in PLAYABLE:
+            item.setProperty("IsPlayable", "true")
+            item.setProperty("StartOffset", "0.0")
             url = build_url(
                 action="play",
                 content_id=(
@@ -1566,7 +1548,7 @@ def list_search_results(client, query, page=1):
                     or content_id
                 ),
             )
-            batch.append((url, item, True))
+            batch.append((url, item, False))
         elif media_type == "series":
             url = build_url(
                 action="seasons",
@@ -1850,13 +1832,15 @@ def list_library(client, library_id, cursor=None):
         )
 
         if media_type in PLAYABLE:
+            list_item.setProperty("IsPlayable", "true")
+            list_item.setProperty("StartOffset", "0.0")
             url = build_url(
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
             )
-            batch.append((url, list_item, True))
+            batch.append((url, list_item, False))
         else:
             url = build_url(
                 action="seasons",
@@ -2111,6 +2095,9 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             "episode",
         )
 
+        item.setProperty("IsPlayable", "true")
+        item.setProperty("StartOffset", "0.0")
+
         # Reuse an already-known single file when the episode exposes one.
         files = episode.get("files") or []
         params = {
@@ -2127,11 +2114,10 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         if episode.get("duration_seconds") is not None:
             params["duration_seconds"] = episode.get("duration_seconds")
 
-
         batch.append((
             build_url(**params),
             item,
-            True,
+            False,
         ))
 
         if len(batch) >= batch_size:
@@ -2190,20 +2176,12 @@ def choose_file(client, content_id, library_id):
     return version.get("id") or version.get("file_id")
 
 
-def play(
-    client,
-    content_id,
-    file_id,
-    library_id,
-    duration_seconds=None,
-    resume=False,
-    resume_available=False,
-):
+def play(client, content_id, file_id, library_id, duration_seconds=None):
     """Play using Silo's freshly retrieved server-side watch state.
 
-    Kodi's directory item is deliberately not used for the resume decision.
-    The server is queried after the user selects the item, so progress changes
-    made while the directory was open are always respected.
+    The original directory item always has StartOffset=0 and no Kodi resume
+    point, so Kodi cannot supply a stale local Resume decision. Silo is queried
+    after the item is selected and controls the actual playback start position.
     """
     if not content_id:
         raise SiloError("No content ID was supplied for playback.")
@@ -2215,7 +2193,11 @@ def play(
         return
 
     try:
-        detail = client.item_detail(content_id, library_id, file_id)
+        detail = client.item_detail(
+            content_id,
+            library_id,
+            file_id,
+        )
     except SiloError as exc:
         detail = None
         log(
@@ -2224,10 +2206,15 @@ def play(
             xbmc.LOGWARNING,
         )
 
+    # Fresh server state is authoritative. This happens after the click, not
+    # when the directory page was created.
     latest_progress = None
 
     try:
-        latest_progress = client.get_progress(content_id, library_id)
+        latest_progress = client.get_progress(
+            content_id,
+            library_id,
+        )
     except SiloError as exc:
         log(
             "Fresh progress lookup failed; continuing without Silo resume: %s"
@@ -2235,8 +2222,12 @@ def play(
             xbmc.LOGWARNING,
         )
 
+    start_position = 0.0
+
     if latest_progress:
         fresh_position, fresh_duration = get_progress_position(latest_progress)
+        completed = bool(latest_progress.get("completed", False))
+
         log(
             "Fresh Silo state before playback: content=%s position=%.3f "
             "duration=%.3f completed=%s"
@@ -2244,61 +2235,43 @@ def play(
                 content_id,
                 fresh_position,
                 fresh_duration,
-                latest_progress.get("completed", False),
+                completed,
             )
         )
-    else:
-        log(
-            "No Silo progress record found immediately before playback for content %s"
-            % content_id
-        )
 
-    # Never use Kodi's resume=true/false value here. It can describe a stale
-    # bookmark from the ListItem that was loaded before Silo changed state.
-    start_position = 0.0
-
-    if (
-        latest_progress
-        and not bool(latest_progress.get("completed", False))
-    ):
-        position, duration = get_progress_position(latest_progress)
-
-        if position > 0 and duration > 0:
-            minutes = int(position // 60)
-            seconds = int(position % 60)
-
+        if not completed and fresh_position > 0 and fresh_duration > 0:
             choice = xbmcgui.Dialog().yesno(
                 "Resume playback",
-                "Resume from %02d:%02d?" % (minutes, seconds),
+                "Resume from %s?" % format_position(fresh_position),
                 yeslabel="Resume",
                 nolabel="Start from beginning",
             )
 
             if choice:
-                start_position = position
+                start_position = fresh_position
                 log(
                     "User chose fresh Silo resume position %.3f for content %s"
-                    % (position, content_id)
+                    % (fresh_position, content_id)
                 )
             else:
                 log(
                     "User chose Start from beginning for content %s"
                     % content_id
                 )
+        elif completed:
+            log(
+                "Silo reports content %s as completed; starting from beginning"
+                % content_id
+            )
         else:
             log(
                 "Silo has incomplete progress but no usable resume position; "
                 "starting from beginning for content %s" % content_id
             )
-    elif latest_progress and bool(latest_progress.get("completed", False)):
-        log(
-            "Silo reports content %s as completed; starting from beginning"
-            % content_id
-        )
     else:
         log(
-            "Silo has no resume data for content %s; starting from beginning"
-            % content_id
+            "No Silo progress record found immediately before playback for "
+            "content %s" % content_id
         )
 
     direct_play_only = direct_play_only_enabled()
@@ -2316,7 +2289,11 @@ def play(
 
     if detail:
         try:
-            set_catalog_metadata(resolved_item, detail, client)
+            set_catalog_metadata(
+                resolved_item,
+                detail,
+                client,
+            )
             set_detail_metadata(
                 resolved_item,
                 detail,
@@ -2330,26 +2307,17 @@ def play(
                 xbmc.LOGWARNING,
             )
 
-    # Silo has already chosen the exact server-side start position. Never give
-    # Kodi a second resume point that could apply its old local bookmark.
-    try:
-        tag = resolved_item.getVideoInfoTag()
-        tag.setPlaycount(0)
-        tag.setResumePoint(0.0, 0.0)
-        resolved_item.setProperty("StartOffset", "0.0")
-    except Exception:
-        pass
-
-    # This invocation is a folder action rather than Kodi's normal video
-    # resolver. End it first so Kodi closes the plugin busy dialog/spinner.
-    # The concrete Silo URL is then started directly, avoiding Kodi's native
-    # resume handling for the original directory item.
-    xbmcplugin.endOfDirectory(HANDLE, succeeded=True)
-    xbmc.sleep(100)
-
+    # Silo has already selected the exact server-side start position. Do not
+    # put a second resume point on the resolved item or Kodi can seek again.
+    tag = resolved_item.getVideoInfoTag()
+    tag.setPlaycount(0)
+    tag.setResumePoint(0.0, 0.0)
+    resolved_item.setProperty("StartOffset", "0.0")
     resolved_item.setProperty("IsPlayable", "true")
-    xbmc.Player().play(
-        info["url"],
+
+    xbmcplugin.setResolvedUrl(
+        HANDLE,
+        True,
         resolved_item,
     )
 
@@ -2361,7 +2329,6 @@ def play(
             session_id,
             playback_info=info,
             resolved_item=resolved_item,
-            initial_start_position=start_position,
         )
     else:
         log(
@@ -2390,7 +2357,6 @@ def track_progress(
     session_id,
     playback_info=None,
     resolved_item=None,
-    initial_start_position=0.0,
 ):
     """Monitor Kodi playback, report progress, and learn a stable quality.
 
@@ -2433,59 +2399,6 @@ def track_progress(
             xbmc.LOGWARNING,
         )
         return
-
-    # Apply the server-authoritative start position after Kodi has opened the
-    # concrete stream. This deliberately happens after playback starts because
-    # Kodi can otherwise apply a stale resume seek inherited from an older
-    # directory item. A second pass shortly afterward protects against delayed
-    # native-resume handling while the player is still initializing.
-    try:
-        initial_start_position = max(
-            0.0,
-            float(initial_start_position or 0.0),
-        )
-    except (TypeError, ValueError):
-        initial_start_position = 0.0
-
-    try:
-        player.seekTime(initial_start_position)
-        log(
-            "Applied initial Silo playback position %.3f to Kodi"
-            % initial_start_position
-        )
-    except Exception as exc:
-        log(
-            "Unable to apply initial Silo playback position: %s" % exc,
-            xbmc.LOGWARNING,
-        )
-
-    xbmc.sleep(750)
-
-    if player.isPlaying():
-        try:
-            current_time = float(player.getTime())
-        except Exception:
-            current_time = initial_start_position
-
-        # Always enforce zero for a no-resume session. For a real resume, only
-        # seek again when Kodi did not land near the server-authoritative target.
-        if (
-            initial_start_position == 0.0
-            or abs(current_time - initial_start_position) > 2.0
-        ):
-            try:
-                player.seekTime(initial_start_position)
-                log(
-                    "Re-applied initial Silo playback position %.3f to Kodi "
-                    "(current=%.3f)"
-                    % (initial_start_position, current_time)
-                )
-            except Exception as exc:
-                log(
-                    "Unable to re-apply initial Silo playback position: %s"
-                    % exc,
-                    xbmc.LOGWARNING,
-                )
 
     def quality_ladder(plan):
         """Return Silo's published quality ladder in server order."""
