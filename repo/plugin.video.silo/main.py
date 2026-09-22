@@ -1288,10 +1288,10 @@ def add_catalog_item(client, item, library_id):
     play_content_id = item.get("play_content_id") or content_id
 
     if is_playable:
-        list_item.setProperty("IsPlayable", "true")
-        # Prevent Kodi from turning an old database bookmark into Resume before
-        # this plugin gets a chance to query Silo's current server state.
-        list_item.setProperty("StartOffset", "0.0")
+        # Deliberately use Kodi's non-playable plugin-file path. Kodi will run
+        # the plugin action without first invoking the native video Resume
+        # dialog, allowing play() to query Silo's current state.
+        list_item.setProperty("IsPlayable", "false")
 
         xbmcplugin.addDirectoryItem(
             HANDLE,
@@ -1539,8 +1539,7 @@ def list_search_results(client, query, page=1):
         )
 
         if media_type in PLAYABLE:
-            item.setProperty("IsPlayable", "true")
-            item.setProperty("StartOffset", "0.0")
+            item.setProperty("IsPlayable", "false")
             url = build_url(
                 action="play",
                 content_id=(
@@ -1832,8 +1831,7 @@ def list_library(client, library_id, cursor=None):
         )
 
         if media_type in PLAYABLE:
-            list_item.setProperty("IsPlayable", "true")
-            list_item.setProperty("StartOffset", "0.0")
+            list_item.setProperty("IsPlayable", "false")
             url = build_url(
                 action="play",
                 content_id=catalog_item.get("play_content_id") or content_id,
@@ -2095,8 +2093,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             "episode",
         )
 
-        item.setProperty("IsPlayable", "true")
-        item.setProperty("StartOffset", "0.0")
+        item.setProperty("IsPlayable", "false")
 
         # Reuse an already-known single file when the episode exposes one.
         files = episode.get("files") or []
@@ -2311,8 +2308,6 @@ def play(client, content_id, file_id, library_id, duration_seconds=None):
     # put a second resume point on the resolved item or Kodi can seek again.
     tag = resolved_item.getVideoInfoTag()
     tag.setPlaycount(0)
-    tag.setResumePoint(0.0, 0.0)
-    resolved_item.setProperty("StartOffset", "0.0")
     resolved_item.setProperty("IsPlayable", "true")
 
     xbmcplugin.setResolvedUrl(
