@@ -1213,22 +1213,17 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
 
-    Silo is authoritative for both watched state and the resume point. In
-    particular, a missing Silo progress record means there is no server resume
-    point, so any stale Kodi-local resume point must be explicitly cleared.
+    Silo is authoritative for both watched state and the resume point. A
+    missing Silo progress record clears Kodi's stale local resume bookmark,
+    while an active Silo progress record is written to the item so Kodi can
+    offer its native Resume/Start-from-beginning choice.
 
-    Kodi uses the VideoInfoTag methods setPlaycount() and setResumePoint().
-    The exact capitalization matters: it is setPlaycount, not setPlayCount.
-
-    This state is primarily for Kodi's library UI. play() still performs a
-    fresh server lookup immediately before playback, so the displayed value is
-    never trusted as the final resume position.
+    This state is primarily for Kodi's directory UI. play() performs a fresh
+    server lookup immediately before playback, so the displayed value is
+    never trusted as the final server position.
     """
     tag = list_item.getVideoInfoTag()
 
-    # A missing Silo progress record is authoritative: the item is unwatched
-    # and has no resume point. Do not leave Kodi's previously remembered local
-    # bookmark in place.
     if not progress:
         tag.setPlaycount(0)
         tag.setResumePoint(0.0, 0.0)
@@ -1237,29 +1232,29 @@ def set_watch_state(list_item, progress, content_type=None):
     completed = bool(progress.get("completed", False))
     position, duration = get_progress_position(progress)
 
-    # Runtime is independent of resume state. Use Kodi's native
-    # VideoInfoTag duration field so directory views receive the duration.
     if duration > 0:
-        duration_int = int(round(duration))
-        tag.setDuration(duration_int)
+        tag.setDuration(int(round(duration)))
 
     if completed:
-        # Silo says the item is fully watched. Also clear any stale resume
-        # point that Kodi may have retained locally.
         tag.setPlaycount(1)
         tag.setResumePoint(0.0, 0.0)
         return
 
-    # Anything incomplete is explicitly unwatched/in progress.
     tag.setPlaycount(0)
 
-    # Always write the Silo resume point, including zero. Previously this was
-    # only called when position > 0, which allowed an old Kodi-local bookmark
-    # to survive when Silo reported position 0 / no progress.
     if duration > 0:
         tag.setResumePoint(position, duration)
     else:
         tag.setResumePoint(0.0, 0.0)
+
+
+def silo_resume_available(progress):
+    """Return whether Silo supplied a usable native Kodi resume point."""
+    if not progress or bool(progress.get("completed", False)):
+        return False
+
+    position, duration = get_progress_position(progress)
+    return position > 0 and duration > 0
 
 
 def get_content_id(item):
@@ -1576,6 +1571,9 @@ def list_search_results(client, query, page=1):
                     catalog_item.get("play_content_id")
                     or content_id
                 ),
+                resume_available=silo_resume_available(
+                    catalog_progress(catalog_item)
+                ),
             )
             batch.append((url, item, False))
         elif media_type == "series":
@@ -1867,6 +1865,7 @@ def list_library(client, library_id, cursor=None):
                 content_id=catalog_item.get("play_content_id") or content_id,
                 library_id=library_id,
                 duration_seconds=catalog_item.get("duration_seconds") or "",
+                resume_available=silo_resume_available(display_progress),
             )
             batch.append((url, list_item, False))
         else:
@@ -2141,6 +2140,8 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         if episode.get("duration_seconds") is not None:
             params["duration_seconds"] = episode.get("duration_seconds")
 
+        params["resume_available"] = silo_resume_available(display_progress)
+
         batch.append((
             build_url(**params),
             item,
@@ -2261,7 +2262,15 @@ def apply_fresh_resume_to_resolved_item(list_item, progress, fallback_duration=0
         tag.setResumePoint(0.0, 0.0)
 
 
-def play(client, content_id, file_id, library_id, duration_seconds=None, resume=False):
+def play(
+    client,
+    content_id,
+    file_id,
+    library_id,
+    duration_seconds=None,
+    resume=False,
+    resume_available=False,
+):
     """Play media using Kodi's native Resume/Start-over choice.
 
     Kodi passes resume:true when the user chose Resume and resume:false when
@@ -2361,18 +2370,40 @@ def play(client, content_id, file_id, library_id, duration_seconds=None, resume=
                 xbmc.LOGWARNING,
             )
 
-    if resume and latest_progress:
-        # Replace Kodi's potentially stale local resume position with the
-        # position we just fetched from Silo.
+    # If Kodi showed its native Resume dialog, resume_available tells us that
+    # the directory item had a real Silo resume point. In that case resume=False
+    # means the user explicitly chose Start from beginning.
+    #
+    # If no native resume point was available, resume=False can also mean Kodi
+    # never showed the prompt. When a fresh Silo progress record exists, use it
+    # rather than losing the server resume position.
+    should_apply_silo_resume = (
+        latest_progress
+        and not bool(latest_progress.get("completed", False))
+        and silo_resume_available(latest_progress)
+        and (
+            resume
+            or not resume_available
+        )
+    )
+
+    if should_apply_silo_resume:
         apply_fresh_resume_to_resolved_item(
             resolved_item,
             latest_progress,
             fallback_duration=duration_seconds,
         )
-        log(
-            "Kodi requested Resume; applied fresh Silo resume position "
-            "to the resolved item for content %s" % content_id
-        )
+
+        if resume:
+            log(
+                "Kodi requested Resume; applied fresh Silo resume position "
+                "to the resolved item for content %s" % content_id
+            )
+        else:
+            log(
+                "Kodi supplied no native Resume choice; applied fresh Silo "
+                "resume position for content %s" % content_id
+            )
     else:
         # Start from beginning must not carry a Kodi/Silo resume point.
         try:
@@ -3527,6 +3558,10 @@ def router(client):
             params.get("library_id"),
             params.get("duration_seconds"),
             resume=kodi_requested_resume(),
+            resume_available=(
+                str(params.get("resume_available") or "").strip().lower()
+                in ("true", "1", "yes")
+            ),
         )
         return
 
