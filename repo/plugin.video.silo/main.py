@@ -2736,6 +2736,7 @@ def _watch_party_monitor(client, room_id, room_token):
                         action,
                         position,
                         player,
+                        command.get("playback_state") or "playing",
                     )
 
                     # A guest acknowledges the exact command only after Kodi
@@ -2827,6 +2828,51 @@ def _watch_party_monitor(client, room_id, room_token):
         except Exception:
             pass
 
+
+
+def _apply_watch_party_guest_command(
+    action,
+    position,
+    player,
+    playback_state="playing",
+):
+    """Apply a host transport command to Kodi's local player."""
+    try:
+        current = max(0.0, float(player.getTime()))
+    except Exception:
+        current = 0.0
+
+    if action in ("seek", "play", "pause"):
+        if abs(current - position) > 0.75:
+            try:
+                player.seekTime(position)
+                xbmc.sleep(75)
+            except Exception as exc:
+                log(
+                    "Unable to apply Watch Party seek to %.3fs: %s"
+                    % (position, exc),
+                    xbmc.LOGWARNING,
+                )
+
+    if action in ("play", "seek"):
+        if playback_state == "playing":
+            try:
+                if int(player.getPlaySpeed()) == 0:
+                    player.pause()
+            except Exception:
+                pass
+        elif playback_state == "paused":
+            try:
+                if int(player.getPlaySpeed()) != 0:
+                    player.pause()
+            except Exception:
+                pass
+    elif action == "pause":
+        try:
+            if int(player.getPlaySpeed()) != 0:
+                player.pause()
+        except Exception:
+            pass
 
 
 def _start_watch_party_guest_playback(
