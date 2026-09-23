@@ -34,9 +34,15 @@ import time
 import threading
 import json
 import datetime
+import base64
+import hashlib
+import os
+import socket
+import ssl
+import struct
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 import xbmc
 import xbmcgui
@@ -2590,59 +2596,272 @@ def _watch_party_join(client):
     _watch_party_monitor(client, room_id, room_token)
 
 
-def _load_watch_party_websocket():
-    """Load Kodi's websocket dependency, requesting installation when absent."""
-    try:
-        import websocket
-        return websocket
-    except ImportError:
-        pass
+class _SiloWebSocket:
+    """Minimal RFC 6455 WebSocket client for Silo's room protocol."""
 
-    # Kodi normally installs declared dependencies automatically. This extra
-    # request also handles users who installed/updated the add-on before the
-    # dependency was added to addon.xml.
-    try:
-        xbmc.executebuiltin(
-            "InstallAddon(script.module.websocket)"
+    def __init__(self, url, protocols, timeout=15):
+        self.url = url
+        self.protocols = list(protocols or [])
+        self.timeout = float(timeout or 15)
+        self.sock = None
+        self._buffer = b""
+
+    def connect(self):
+        parsed = urlparse(self.url)
+        if parsed.scheme not in ("ws", "wss") or not parsed.hostname:
+            raise SiloError("Invalid Watch Party WebSocket URL.")
+
+        port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+        host = parsed.hostname
+        host_header = host
+        if ":" in host and not host.startswith("["):
+            host_header = "[%s]" % host
+
+        if (parsed.scheme == "ws" and port != 80) or (
+            parsed.scheme == "wss" and port != 443
+        ):
+            host_header = "%s:%d" % (host_header, port)
+
+        sock = socket.create_connection(
+            (host, port),
+            timeout=self.timeout,
         )
-    except Exception:
-        pass
 
-    # Give Kodi a few seconds to finish installing/enabling the dependency,
-    # then retry the import in-process.
-    for _ in range(20):
-        xbmc.sleep(250)
+        if parsed.scheme == "wss":
+            context = ssl.create_default_context()
+            sock = context.wrap_socket(
+                sock,
+                server_hostname=host,
+            )
+
+        self.sock = sock
+        self.sock.settimeout(self.timeout)
+
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        request = (
+            "GET %s HTTP/1.1\\r\\n"
+            "Host: %s\\r\\n"
+            "Upgrade: websocket\\r\\n"
+            "Connection: Upgrade\\r\\n"
+            "Sec-WebSocket-Key: %s\\r\\n"
+            "Sec-WebSocket-Version: 13\\r\\n"
+            "Sec-WebSocket-Protocol: %s\\r\\n"
+            "\\r\\n"
+        ) % (path, host_header, key, ", ".join(self.protocols))
+
+        self.sock.sendall(request.encode("ascii"))
+
+        response = self._read_http_headers()
+        lines = response.decode("latin-1").split("\\r\\n")
+        status = lines[0] if lines else ""
+        headers = {}
+
+        for line in lines[1:]:
+            if ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            headers[name.strip().lower()] = value.strip()
+
+        if not status.startswith("HTTP/1.1 101"):
+            self.close()
+            raise SiloError(
+                "Silo rejected the Watch Party WebSocket handshake: %s"
+                % status
+            )
+
+        expected = base64.b64encode(
+            hashlib.sha1(
+                (
+                    key
+                    + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+                ).encode("ascii")
+            ).digest()
+        ).decode("ascii")
+
+        if headers.get("sec-websocket-accept", "").strip() != expected:
+            self.close()
+            raise SiloError("Invalid Watch Party WebSocket handshake response.")
+
+        if headers.get("sec-websocket-protocol", "").strip() != "silo.room.v2":
+            self.close()
+            raise SiloError(
+                "Silo did not select the expected Watch Party socket protocol."
+            )
+
+        # Short reads are desirable during the room monitor, where application
+        # ping/pong and room state need to be processed promptly.
+        self.sock.settimeout(1.0)
+        return self
+
+    def _read_http_headers(self):
+        data = b""
+
+        while b"\\r\\n\\r\\n" not in data:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise SiloError("Watch Party WebSocket closed during handshake.")
+            data += chunk
+
+            if len(data) > 32768:
+                raise SiloError("Watch Party WebSocket handshake is too large.")
+
+        separator = data.index(b"\\r\\n\\r\\n") + 4
+        self._buffer = data[separator:]
+        return data[:separator]
+
+    def _recv_exact(self, size):
+        while len(self._buffer) < size:
+            chunk = self.sock.recv(max(4096, size - len(self._buffer)))
+            if not chunk:
+                raise SiloError("Watch Party WebSocket connection closed.")
+            self._buffer += chunk
+
+        value = self._buffer[:size]
+        self._buffer = self._buffer[size:]
+        return value
+
+    def recv(self):
+        """Return one complete text message, or None on a short read timeout."""
+        while True:
+            try:
+                first, second = self._recv_exact(2)
+                fin = bool(first & 0x80)
+                opcode = first & 0x0F
+                masked = bool(second & 0x80)
+                length = second & 0x7F
+
+                if length == 126:
+                    length = struct.unpack("!H", self._recv_exact(2))[0]
+                elif length == 127:
+                    length = struct.unpack("!Q", self._recv_exact(8))[0]
+
+                if length > 8 * 1024 * 1024:
+                    raise SiloError("Watch Party WebSocket frame is too large.")
+
+                mask = self._recv_exact(4) if masked else None
+                payload = self._recv_exact(length) if length else b""
+
+            except socket.timeout:
+                return None
+
+            if mask:
+                payload = bytes(
+                    value ^ mask[index % 4]
+                    for index, value in enumerate(payload)
+                )
+
+            if opcode == 0x9:
+                self._send_frame(0xA, payload)
+                continue
+
+            if opcode == 0xA:
+                continue
+
+            if opcode == 0x8:
+                try:
+                    self._send_frame(0x8, payload[:125])
+                except Exception:
+                    pass
+                raise SiloError("Watch Party WebSocket was closed by Silo.")
+
+            if opcode == 0x0 or not fin:
+                raise SiloError(
+                    "Watch Party sent an unsupported fragmented WebSocket message."
+                )
+
+            if opcode != 0x1:
+                continue
+
+            try:
+                return payload.decode("utf-8")
+            except UnicodeDecodeError:
+                raise SiloError("Watch Party sent invalid UTF-8 data.")
+
+    def send(self, message):
+        self._send_frame(
+            0x1,
+            json.dumps(
+                message,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+        )
+
+    def _send_frame(self, opcode, payload=b""):
+        if self.sock is None:
+            raise SiloError("Watch Party WebSocket is not connected.")
+
+        payload = payload or b""
+        length = len(payload)
+        mask = os.urandom(4)
+
+        if length <= 125:
+            header = struct.pack("!BB", 0x80 | opcode, 0x80 | length)
+        elif length <= 65535:
+            header = struct.pack(
+                "!BBH",
+                0x80 | opcode,
+                0x80 | 126,
+                length,
+            )
+        else:
+            header = struct.pack(
+                "!BBQ",
+                0x80 | opcode,
+                0x80 | 127,
+                length,
+            )
+
+        masked = bytes(
+            value ^ mask[index % 4]
+            for index, value in enumerate(payload)
+        )
+
+        self.sock.sendall(header + mask + masked)
+
+    def close(self):
+        sock = self.sock
+        self.sock = None
+
+        if sock is None:
+            return
+
         try:
-            import websocket
-            return websocket
-        except ImportError:
-            continue
+            payload = b""
+            mask = os.urandom(4)
+            header = struct.pack("!BB", 0x88, 0x80)
+            masked = bytes(
+                value ^ mask[index % 4]
+                for index, value in enumerate(payload)
+            )
+            sock.sendall(header + mask + masked)
+        except Exception:
+            pass
 
-    raise SiloError(
-        "Kodi's websocket module could not be loaded. "
-        "Please install or enable 'WebSocket-client' from Kodi's Add-on "
-        "Manager, then try Watch Party again."
-    )
+        try:
+            sock.close()
+        except Exception:
+            pass
 
 
 def _watch_party_monitor(client, room_id, room_token):
     """Follow a host-controlled Watch Party as a guest."""
-    websocket = _load_watch_party_websocket()
-
     ticket = client.watch_party_socket_ticket(room_id, room_token)
     ticket_value = ticket["ticket"]
     url = _watch_party_socket_url(client, room_id)
 
     try:
-        socket = websocket.create_connection(
+        socket = _SiloWebSocket(
             url,
-            subprotocols=[
+            [
                 "silo.room.v2",
                 "silo.ticket.%s" % ticket_value,
             ],
-            timeout=1,
-            suppress_origin=True,
-        )
+            timeout=15,
+        ).connect()
     except Exception as exc:
         raise SiloError("Unable to connect to the Watch Party: %s" % exc)
 
@@ -2658,7 +2877,7 @@ def _watch_party_monitor(client, room_id, room_token):
 
     def send(message):
         try:
-            socket.send(json.dumps(message))
+            socket.send(message)
             return True
         except Exception:
             return False
