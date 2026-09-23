@@ -2826,8 +2826,6 @@ def list_root(client, page=None):
 
     # Keep all user libraries under one folder so the root stays focused on
     # global actions and profile-wide Home sections.
-    add_your_stuff_folder()
-
     libraries_item = xbmcgui.ListItem(label="Libraries")
     libraries_item.setProperty("Silo.LibraryFolder", "true")
     xbmcplugin.addDirectoryItem(
@@ -2836,6 +2834,9 @@ def list_root(client, page=None):
         libraries_item,
         True,
     )
+
+    # Keep personal lists and collections immediately below Libraries.
+    add_your_stuff_folder()
 
     # Silo Home sections are profile-wide: they combine content across all
     # libraries visible to the selected profile. This keeps Continue Watching,
