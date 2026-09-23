@@ -2803,8 +2803,7 @@ def _watch_party_join(client):
 
     # This is now a normal Kodi directory. The monitor remains alive in the
     # background and refreshes the directory when the room status changes.
-    _watch_party_refresh_lobby()
-    xbmcplugin.endOfDirectory(HANDLE)
+    list_watch_party_lobby()
 
 
 def _watch_party_leave():
@@ -3564,6 +3563,23 @@ def _watch_party_monitor(
             ):
                 request_watch_party_disconnect("user left Watch Party lobby")
                 break
+
+            # If the participant backs out of the normal Kodi lobby directory
+            # while no media is playing, treat that as leaving the Watch Party.
+            # Do not apply this while playback is active: the player can cover
+            # the lobby while the same socket continues synchronizing playback.
+            if not player.isPlaying():
+                container_path = xbmc.getInfoLabel("Container.FolderPath")
+                lobby_url = build_url(action="watch_party_lobby")
+                if (
+                    container_path
+                    and container_path != lobby_url
+                    and not container_path.startswith(lobby_url + "&")
+                ):
+                    request_watch_party_disconnect(
+                        "user navigated away from Watch Party lobby"
+                    )
+                    break
 
             if now - last_ping >= 15:
                 send({
