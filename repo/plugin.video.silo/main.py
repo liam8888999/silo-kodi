@@ -2590,14 +2590,44 @@ def _watch_party_join(client):
     _watch_party_monitor(client, room_id, room_token)
 
 
-def _watch_party_monitor(client, room_id, room_token):
-    """Follow a host-controlled Watch Party as a guest."""
+def _load_watch_party_websocket():
+    """Load Kodi's websocket dependency, requesting installation when absent."""
     try:
         import websocket
+        return websocket
     except ImportError:
-        raise SiloError(
-            "Watch Party support requires the Kodi websocket library."
+        pass
+
+    # Kodi normally installs declared dependencies automatically. This extra
+    # request also handles users who installed/updated the add-on before the
+    # dependency was added to addon.xml.
+    try:
+        xbmc.executebuiltin(
+            "InstallAddon(script.module.websocket)"
         )
+    except Exception:
+        pass
+
+    # Give Kodi a few seconds to finish installing/enabling the dependency,
+    # then retry the import in-process.
+    for _ in range(20):
+        xbmc.sleep(250)
+        try:
+            import websocket
+            return websocket
+        except ImportError:
+            continue
+
+    raise SiloError(
+        "Kodi's websocket module could not be loaded. "
+        "Please install or enable 'WebSocket-client' from Kodi's Add-on "
+        "Manager, then try Watch Party again."
+    )
+
+
+def _watch_party_monitor(client, room_id, room_token):
+    """Follow a host-controlled Watch Party as a guest."""
+    websocket = _load_watch_party_websocket()
 
     ticket = client.watch_party_socket_ticket(room_id, room_token)
     ticket_value = ticket["ticket"]
