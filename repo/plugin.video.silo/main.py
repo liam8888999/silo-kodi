@@ -32,6 +32,9 @@ import re
 import sys
 import time
 import threading
+import json
+import datetime
+from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qsl, urlencode
 
@@ -2539,6 +2542,284 @@ def add_your_stuff_folder():
     )
 
 
+def _watch_party_socket_url(client, room_id):
+    """Build the room WebSocket URL from Silo's configured API base URL."""
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(client.base)
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    path = (
+        "/api/v2/watch-together/rooms/%s/ws"
+        % quote(str(room_id), safe="")
+    )
+    return urlunparse((scheme, parsed.netloc, path, "", "", ""))
+
+
+def _watch_party_join(client):
+    """Join an existing Watch Party as a participant and monitor the host."""
+    code = xbmcgui.Dialog().input(
+        "Watch Party code",
+        type=xbmcgui.INPUT_ALPHANUM,
+    ).strip()
+
+    if not code:
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    response = client.watch_party_join(code=code)
+    room = response.get("room") or {}
+    room_token = response.get("room_access_token")
+    room_id = room.get("room_id")
+
+    if not room_id or not room_token:
+        raise SiloError("Silo did not return Watch Party room credentials.")
+
+    # Keep room proof only in Kodi's current window/session. It is not written
+    # to addon settings or the config file.
+    window = xbmcgui.Window(10000)
+    window.setProperty("Silo.WatchParty.RoomID", str(room_id))
+    window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
+    window.setProperty("Silo.WatchParty.Code", str(room.get("code") or code))
+
+    xbmcgui.Dialog().ok(
+        "Watch Party Joined",
+        "Joined room %s.\n\nWaiting for the host to start or change playback."
+        % (room.get("code") or code),
+    )
+
+    _watch_party_monitor(client, room_id, room_token)
+
+
+def _watch_party_monitor(client, room_id, room_token):
+    """Follow a host-controlled Watch Party until it ends or the user exits."""
+    try:
+        import websocket
+    except ImportError:
+        raise SiloError(
+            "Watch Party support requires Kodi's websocket module."
+        )
+
+    try:
+        ticket = client.watch_party_socket_ticket(room_id, room_token)
+        ticket_value = ticket["ticket"]
+    except Exception:
+        raise
+
+    url = _watch_party_socket_url(client, room_id)
+
+    try:
+        socket = websocket.create_connection(
+            url,
+            subprotocols=[
+                "silo.room.v2",
+                "silo.ticket.%s" % ticket_value,
+            ],
+            timeout=15,
+            origin=None,
+        )
+    except Exception as exc:
+        raise SiloError("Unable to connect to the Watch Party: %s" % exc)
+
+    player = xbmc.Player()
+    monitor = xbmc.Monitor()
+    current_session = None
+    current_selection_revision = None
+    last_command_id = None
+    room = None
+    last_ping = 0.0
+    last_state_report = 0.0
+
+    def send(message):
+        try:
+            socket.send(json.dumps(message))
+            return True
+        except Exception:
+            return False
+
+    try:
+        socket.settimeout(1.0)
+
+        while not monitor.abortRequested():
+            now = time.time()
+
+            if now - last_ping >= 15:
+                send({
+                    "type": "ping",
+                    "client_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                last_ping = now
+
+            try:
+                raw = socket.recv()
+            except Exception as exc:
+                if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                    raw = None
+                else:
+                    raise SiloError("Watch Party connection was lost.")
+
+            if raw:
+                try:
+                    message = json.loads(raw)
+                except (TypeError, ValueError):
+                    message = {}
+
+                message_type = message.get("type")
+
+                if message_type == "snapshot":
+                    room = message.get("room") or {}
+                    selection_revision = room.get("selection_revision")
+                    selected_content_id = room.get("selected_content_id")
+                    selected_file_id = room.get("selected_file_id")
+                    selected_library_id = room.get("selected_library_id")
+
+                    if (
+                        room.get("phase") == "playing"
+                        and selected_content_id
+                        and selection_revision != current_selection_revision
+                    ):
+                        current_selection_revision = selection_revision
+                        current_session = _start_watch_party_guest_playback(
+                            client,
+                            selected_content_id,
+                            selected_file_id,
+                            selected_library_id,
+                        )
+                        last_command_id = None
+
+                elif message_type == "transport_command":
+                    command = message.get("command") or {}
+                    command_id = command.get("command_id")
+
+                    if not command_id or command_id == last_command_id:
+                        continue
+
+                    last_command_id = command_id
+                    action = command.get("action")
+                    position = float(command.get("position_seconds") or 0)
+                    execute_at = command.get("execute_at")
+
+                    delay = 0.0
+                    if execute_at:
+                        try:
+                            target = datetime.datetime.fromisoformat(
+                                str(execute_at).replace("Z", "+00:00")
+                            ).timestamp()
+                            delay = max(0.0, target - time.time())
+                        except (TypeError, ValueError, OverflowError):
+                            pass
+
+                    if delay > 0:
+                        xbmc.sleep(int(delay * 1000))
+
+                    _apply_watch_party_guest_command(
+                        action,
+                        position,
+                        player,
+                    )
+
+                elif message_type == "room_closed":
+                    xbmcgui.Dialog().notification(
+                        "Watch Party",
+                        "The Watch Party has ended.",
+                        xbmcgui.NOTIFICATION_INFO,
+                        4000,
+                    )
+                    break
+
+                elif message_type == "connection_replaced":
+                    xbmcgui.Dialog().notification(
+                        "Watch Party",
+                        "This profile joined the Watch Party somewhere else.",
+                        xbmcgui.NOTIFICATION_WARNING,
+                        5000,
+                    )
+                    break
+
+            # The guest must attach the Silo playback session to the room.
+            if current_session and current_session != "attached":
+                if send({
+                    "type": "attach_session",
+                    "session_id": current_session,
+                }):
+                    current_session = "attached"
+
+            # Kodi progress is reported to the room roughly every 1.5 seconds.
+            if (
+                current_session == "attached"
+                and player.isPlaying()
+                and now - last_state_report >= 1.5
+            ):
+                try:
+                    send({
+                        "type": "state_report",
+                        "session_id": current_session,
+                        "position_seconds": float(player.getTime()),
+                        "is_paused": not player.isPlaying(),
+                    })
+                except Exception:
+                    pass
+                last_state_report = now
+
+            xbmc.sleep(25)
+
+    finally:
+        try:
+            socket.close()
+        except Exception:
+            pass
+
+
+def _start_watch_party_guest_playback(
+    client,
+    content_id,
+    file_id=None,
+    library_id=None,
+):
+    """Start the host-selected item using the normal Silo Kodi playback path."""
+    library_id = resolve_playback_library_id(client, content_id, library_id)
+
+    if not file_id:
+        file_id = choose_file(client, content_id, library_id)
+
+    if not file_id:
+        raise SiloError("The Watch Party item has no playable version.")
+
+    info = client.start_playback(
+        file_id,
+        start_position=0.0,
+        direct_play_only=direct_play_only_enabled(),
+    )
+
+    if not info.get("url"):
+        raise SiloError("Silo did not provide a Watch Party playback URL.")
+
+    item = xbmcgui.ListItem(path=info["url"])
+    item.setProperty("OverrideInfotag", "true")
+
+    try:
+        detail = client.item_detail(content_id, library_id, file_id)
+        if detail:
+            set_catalog_metadata(item, detail, client)
+            set_detail_metadata(item, detail, client, file_id=file_id)
+            set_art(
+                item,
+                client,
+                poster=detail.get("poster_url") or detail.get("poster"),
+                backdrop=detail.get("backdrop_url") or detail.get("backdrop"),
+                logo=detail.get("logo_url") or detail.get("logo"),
+                still=detail.get("still_url") or detail.get("still"),
+            )
+    except Exception as exc:
+        log(
+            "Unable to apply Watch Party playback metadata for %s: %s"
+            % (content_id, exc),
+            xbmc.LOGWARNING,
+        )
+
+    xbmcplugin.setResolvedUrl(HANDLE, True, item)
+    return info.get("session_id")
+
+
 def list_your_stuff(client):
     """Display the personal destinations shown under Silo's web Your Stuff menu."""
     entries = (
@@ -2564,6 +2845,15 @@ def list_your_stuff(client):
         build_url(action="collections"),
         collections_item,
         True,
+    )
+
+    party_item = xbmcgui.ListItem(label="Join Watch Party")
+    party_item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="watch_party_join"),
+        party_item,
+        False,
     )
 
     xbmcplugin.setContent(HANDLE, "files")
@@ -5640,6 +5930,10 @@ def router(client):
             params.get("cursor"),
             params.get("collection_id"),
         )
+        return
+
+    if action == "watch_party_join":
+        _watch_party_join(client)
         return
 
     if action == "collections":
