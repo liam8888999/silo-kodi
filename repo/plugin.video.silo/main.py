@@ -2578,8 +2578,39 @@ def _watch_party_http_origin(client):
     )
 
 
+class _WatchPartyUiState:
+    """Thread-safe state shared by the Watch Party monitor and lobby UI."""
+
+    def __init__(self, status):
+        self._lock = threading.Lock()
+        self.status = str(status)
+        self.lobby = True
+        self.finished = False
+        self.ended = False
+
+    def update(self, status=None, lobby=None, finished=None, ended=None):
+        with self._lock:
+            if status is not None:
+                self.status = str(status)
+            if lobby is not None:
+                self.lobby = bool(lobby)
+            if finished is not None:
+                self.finished = bool(finished)
+            if ended is not None:
+                self.ended = bool(ended)
+
+    def snapshot(self):
+        with self._lock:
+            return (
+                self.status,
+                self.lobby,
+                self.finished,
+                self.ended,
+            )
+
+
 def _watch_party_join(client):
-    """Join an existing Watch Party as a participant and monitor the host."""
+    """Join an existing Watch Party as a participant and show its lobby."""
     code = xbmcgui.Dialog().input(
         "Watch Party code",
         type=xbmcgui.INPUT_ALPHANUM,
@@ -2597,20 +2628,97 @@ def _watch_party_join(client):
     if not room_id or not room_token:
         raise SiloError("Silo did not return Watch Party room credentials.")
 
-    # Keep room proof only in Kodi's current window/session. It is not written
-    # to addon settings or the config file.
+    room_code = str(room.get("code") or code)
     window = xbmcgui.Window(10000)
     window.setProperty("Silo.WatchParty.RoomID", str(room_id))
     window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
-    window.setProperty("Silo.WatchParty.Code", str(room.get("code") or code))
+    window.setProperty("Silo.WatchParty.Code", room_code)
 
-    xbmcgui.Dialog().ok(
-        "Watch Party Joined",
-        "Joined room %s.\n\nWaiting for the host to start or change playback."
-        % (room.get("code") or code),
+    stop_event = threading.Event()
+    state = _WatchPartyUiState(
+        "Joined Watch Party %s. Waiting for the host to start playback..."
+        % room_code
     )
+    result = {"error": None}
 
-    _watch_party_monitor(client, room_id, room_token)
+    def monitor_runner():
+        try:
+            _watch_party_monitor(
+                client,
+                room_id,
+                room_token,
+                stop_event=stop_event,
+                ui_state=state,
+            )
+        except Exception as exc:
+            result["error"] = exc
+            state.update(
+                status="Watch Party disconnected: %s" % exc,
+                lobby=False,
+                finished=True,
+            )
+
+    thread = threading.Thread(
+        target=monitor_runner,
+        name="SiloWatchParty",
+    )
+    thread.daemon = True
+    thread.start()
+
+    dialog = None
+    last_status = None
+    try:
+        while thread.is_alive() and not stop_event.is_set():
+            status, lobby, finished, ended = state.snapshot()
+
+            if lobby and not finished:
+                if dialog is None:
+                    dialog = xbmcgui.DialogProgress()
+                    dialog.create(
+                        "Watch Party",
+                        status,
+                        "Waiting for the host. Press Back or Cancel to leave.",
+                    )
+                    last_status = status
+                elif status != last_status:
+                    dialog.update(
+                        0,
+                        status,
+                        "Waiting for the host. Press Back or Cancel to leave.",
+                    )
+                    last_status = status
+
+                if dialog.iscanceled():
+                    state.update(
+                        status="Leaving Watch Party...",
+                        lobby=False,
+                    )
+                    stop_event.set()
+                    break
+
+            elif dialog is not None:
+                dialog.close()
+                dialog = None
+                last_status = None
+
+            xbmc.sleep(100)
+    finally:
+        if dialog is not None:
+            dialog.close()
+
+        stop_event.set()
+        if thread.is_alive():
+            thread.join(1.0)
+
+        window.clearProperty("Silo.WatchParty.RoomID")
+        window.clearProperty("Silo.WatchParty.RoomToken")
+        window.clearProperty("Silo.WatchParty.Code")
+
+    error = result.get("error")
+    if error:
+        raise SiloError(str(error))
+
+    xbmcplugin.endOfDirectory(HANDLE)
 
 
 class _SiloWebSocket:
@@ -2944,8 +3052,15 @@ class _SiloWebSocket:
         except Exception:
             pass
 
-def _watch_party_monitor(client, room_id, room_token):
+def _watch_party_monitor(
+    client,
+    room_id,
+    room_token,
+    stop_event=None,
+    ui_state=None,
+):
     """Follow a host-controlled Watch Party as a guest."""
+
     ticket = client.watch_party_socket_ticket(room_id, room_token)
     ticket_value = ticket["ticket"]
     url = _watch_party_socket_url(client, room_id)
@@ -2972,6 +3087,10 @@ def _watch_party_monitor(client, room_id, room_token):
         )
 
     monitor = xbmc.Monitor()
+    if stop_event is None:
+        stop_event = threading.Event()
+    if ui_state is None:
+        ui_state = _WatchPartyUiState("Connected to Watch Party.")
     session_id = None
     attached = False
     current_selection_revision = None
@@ -3029,10 +3148,34 @@ def _watch_party_monitor(client, room_id, room_token):
             xbmc.LOGINFO,
         )
         disconnect_requested.set()
+        update_ui(
+            status="Disconnected from Watch Party.",
+            lobby=False,
+            finished=True,
+        )
         clear_watch_party_state()
 
         try:
             socket.close()
+        except Exception:
+            pass
+
+    def update_ui(status=None, lobby=None, finished=None, ended=None):
+        ui_state.update(
+            status=status,
+            lobby=lobby,
+            finished=finished,
+            ended=ended,
+        )
+
+    def notify(status, level=xbmcgui.NOTIFICATION_INFO, ms=3000):
+        try:
+            xbmcgui.Dialog().notification(
+                "Watch Party",
+                status,
+                level,
+                ms,
+            )
         except Exception:
             pass
 
@@ -3246,7 +3389,11 @@ def _watch_party_monitor(client, room_id, room_token):
     player = _WatchPartyPlayer()
 
     try:
-        while not monitor.abortRequested() and not disconnect_requested.is_set():
+        while (
+            not monitor.abortRequested()
+            and not disconnect_requested.is_set()
+            and not stop_event.is_set()
+        ):
             now = time.time()
 
             if now - last_ping >= 15:
@@ -3286,6 +3433,12 @@ def _watch_party_monitor(client, room_id, room_token):
 
                     if phase == "playing":
                         was_room_playing = True
+                        if not player.isPlaying():
+                            update_ui(
+                                status="Host is starting playback...",
+                                lobby=False,
+                            )
+
 
                         if (
                             selected_content_id
@@ -3304,6 +3457,10 @@ def _watch_party_monitor(client, room_id, room_token):
                             last_command_id = None
                             last_state_report = 0.0
                             set_transport_guard(2.0)
+                            update_ui(
+                                status="Playing with the Watch Party host.",
+                                lobby=False,
+                            )
 
                     elif was_room_playing:
                         # The host stopped room playback. Silo moves the room
@@ -3521,6 +3678,10 @@ def _watch_party_monitor(client, room_id, room_token):
             xbmc.sleep(25)
 
     finally:
+        update_ui(
+            finished=True,
+            lobby=False,
+        )
         clear_watch_party_state()
         try:
             socket.close()
