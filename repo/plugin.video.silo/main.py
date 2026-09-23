@@ -3185,13 +3185,41 @@ def _watch_party_monitor(client, room_id, room_token):
 
 
 
+def _wait_for_watch_party_player(player, timeout=10.0):
+    """Wait for Kodi to finish opening Watch Party media before seeking."""
+    deadline = time.time() + max(0.0, float(timeout or 0.0))
+
+    while time.time() < deadline:
+        try:
+            if player.isPlaying():
+                return True
+        except Exception:
+            pass
+
+        xbmc.sleep(50)
+
+    try:
+        return bool(player.isPlaying())
+    except Exception:
+        return False
+
+
 def _apply_watch_party_guest_command(
     action,
     position,
     player,
     playback_state="playing",
 ):
-    """Apply a host transport command to Kodi's local player."""
+    """Apply a host transport command after Kodi has opened the media."""
+    if action in ("seek", "play", "pause") and not player.isPlaying():
+        if not _wait_for_watch_party_player(player):
+            log(
+                "Watch Party command deferred because Kodi did not start "
+                "the selected media within the startup window.",
+                xbmc.LOGWARNING,
+            )
+            return False
+
     try:
         current = max(0.0, float(player.getTime()))
     except Exception:
@@ -3208,6 +3236,7 @@ def _apply_watch_party_guest_command(
                     % (position, exc),
                     xbmc.LOGWARNING,
                 )
+                return False
 
     if action in ("play", "seek"):
         if playback_state == "playing":
@@ -3228,6 +3257,8 @@ def _apply_watch_party_guest_command(
                 player.pause()
         except Exception:
             pass
+
+    return True
 
 
 def _start_watch_party_guest_playback(
