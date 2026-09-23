@@ -2697,15 +2697,15 @@ class _SiloWebSocket:
 
         key = base64.b64encode(os.urandom(16)).decode("ascii")
         request = (
-            "GET %s HTTP/1.1\\r\\n"
-            "Host: %s\\r\\n"
-            "Origin: %s\\r\\n"
-            "Upgrade: websocket\\r\\n"
-            "Connection: Upgrade\\r\\n"
-            "Sec-WebSocket-Key: %s\\r\\n"
-            "Sec-WebSocket-Version: 13\\r\\n"
-            "Sec-WebSocket-Protocol: %s\\r\\n"
-            "\\r\\n"
+            "GET %s HTTP/1.1\r\n"
+            "Host: %s\r\n"
+            "Origin: %s\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: %s\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "Sec-WebSocket-Protocol: %s\r\n"
+            "\r\n"
         ) % (
             path,
             host_header,
@@ -2748,7 +2748,7 @@ class _SiloWebSocket:
             self.close()
             raise
 
-        lines = response.decode("latin-1").split("\\r\\n")
+        lines = response.decode("latin-1").split("\r\n")
         status = lines[0] if lines else ""
         headers = {}
 
@@ -2798,7 +2798,7 @@ class _SiloWebSocket:
     def _read_http_headers(self):
         data = b""
 
-        while b"\\r\\n\\r\\n" not in data:
+        while b"\r\n\r\n" not in data:
             chunk = self.sock.recv(4096)
             if not chunk:
                 raise SiloError("Watch Party WebSocket closed during handshake.")
@@ -2807,7 +2807,7 @@ class _SiloWebSocket:
             if len(data) > 32768:
                 raise SiloError("Watch Party WebSocket handshake is too large.")
 
-        separator = data.index(b"\\r\\n\\r\\n") + 4
+        separator = data.index(b"\r\n\r\n") + 4
         self._buffer = data[separator:]
         return data[:separator]
 
