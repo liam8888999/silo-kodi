@@ -3174,12 +3174,15 @@ def _watch_party_monitor(
 ):
     """Follow a host-controlled Watch Party as a guest."""
 
-    ticket = client.watch_party_socket_ticket(room_id, room_token)
-    ticket_value = ticket["ticket"]
     url = _watch_party_socket_url(client, room_id)
+    socket = None
 
-    try:
-        socket = _SiloWebSocket(
+    def connect_watch_party_socket():
+        """Mint a fresh ticket and establish a new room WebSocket connection."""
+        ticket = client.watch_party_socket_ticket(room_id, room_token)
+        ticket_value = ticket["ticket"]
+
+        return _SiloWebSocket(
             url,
             [
                 "silo.room.v2",
@@ -3188,6 +3191,9 @@ def _watch_party_monitor(
             timeout=15,
             origin=_watch_party_http_origin(client),
         ).connect()
+
+    try:
+        socket = connect_watch_party_socket()
     except Exception as exc:
         log(
             "Watch Party WebSocket connection failed: %s (%s)"
@@ -3662,7 +3668,55 @@ def _watch_party_monitor(
                 if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
                     raw = None
                 else:
-                    raise SiloError("Watch Party connection was lost.")
+                    # Silo intentionally limits each room WebSocket to five
+                    # minutes. That is a socket credential lifetime, not a room
+                    # lifetime. Reconnect with a freshly minted ticket instead
+                    # of treating the normal socket expiry as leaving the room.
+                    log(
+                        "Watch Party WebSocket ended; reconnecting with a fresh "
+                        "socket credential: %s" % exc,
+                        xbmc.LOGINFO,
+                    )
+                    try:
+                        socket.close()
+                    except Exception:
+                        pass
+
+                    reconnected = False
+                    reconnect_delay = 0.5
+
+                    while (
+                        not monitor.abortRequested()
+                        and not disconnect_requested.is_set()
+                        and not stop_event.is_set()
+                    ):
+                        try:
+                            socket = connect_watch_party_socket()
+                            reconnected = True
+                            last_ping = time.time()
+                            last_state_report = time.time()
+                            log(
+                                "Watch Party WebSocket reconnected successfully.",
+                                xbmc.LOGINFO,
+                            )
+                            break
+                        except Exception as reconnect_exc:
+                            log(
+                                "Watch Party reconnect attempt failed: %s"
+                                % reconnect_exc,
+                                xbmc.LOGWARNING,
+                            )
+                            xbmc.sleep(int(reconnect_delay * 1000))
+                            reconnect_delay = min(5.0, reconnect_delay * 2.0)
+
+                    if not reconnected:
+                        break
+
+                    # The room coordinator keeps playback state/session
+                    # attachment in shared runtime. The first post-reconnect
+                    # snapshot lets us converge back to that authoritative
+                    # state; no new playback session is created here.
+                    raw = None
 
             if raw:
                 try:
