@@ -2990,6 +2990,8 @@ def _watch_party_monitor(client, room_id, room_token):
     room_target_updated_at = time.time()
     room_transport_known = False
     transport_guard_until = 0.0
+    remote_stop_until = 0.0
+    was_room_playing = False
     last_transport_enforcement = 0.0
 
     # Kodi invokes onPlayBackStopped for an explicit user Stop as well as for
@@ -3230,10 +3232,15 @@ def _watch_party_monitor(client, room_id, room_token):
                     pass
 
         def onPlayBackStopped(self):
-            # Kodi calls this when the user presses Stop. A media replacement
-            # caused by a new host selection also stops the old item; that
-            # replacement is explicitly marked below and must not disconnect
-            # the participant from the room.
+            # A host stopping room playback also causes Kodi to stop its local
+            # player. That is a remote room event, not a request to leave the
+            # Watch Party, so only a genuine local Stop disconnects the guest.
+            if time.time() < remote_stop_until:
+                return
+
+            # Kodi also fires this for host-driven media replacement; the
+            # replacement window prevents those transitions being mistaken for
+            # a deliberate local Stop.
             request_watch_party_disconnect("Kodi playback stopped")
 
     player = _WatchPartyPlayer()
@@ -3271,29 +3278,58 @@ def _watch_party_monitor(client, room_id, room_token):
                     room = message.get("room") or {}
                     update_authoritative_room_state(room)
 
+                    phase = room.get("phase")
                     selection_revision = room.get("selection_revision")
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
 
-                    if (
-                        room.get("phase") == "playing"
-                        and selected_content_id
-                        and selection_revision != current_selection_revision
-                    ):
-                        current_selection_revision = selection_revision
-                        switching_media_until = time.time() + 5.0
-                        session_id = _start_watch_party_guest_playback(
-                            client,
-                            selected_content_id,
-                            selected_file_id,
-                            selected_library_id,
-                            player=player,
-                        )
+                    if phase == "playing":
+                        was_room_playing = True
+
+                        if (
+                            selected_content_id
+                            and selection_revision != current_selection_revision
+                        ):
+                            current_selection_revision = selection_revision
+                            switching_media_until = time.time() + 5.0
+                            session_id = _start_watch_party_guest_playback(
+                                client,
+                                selected_content_id,
+                                selected_file_id,
+                                selected_library_id,
+                                player=player,
+                            )
+                            attached = False
+                            last_command_id = None
+                            last_state_report = 0.0
+                            set_transport_guard(2.0)
+
+                    elif was_room_playing:
+                        # The host stopped room playback. Silo moves the room
+                        # back to its lobby rather than closing the Watch Party.
+                        # Stop only the local Kodi player; remain connected so a
+                        # later host selection/start can begin playback again.
+                        was_room_playing = False
+                        session_id = None
                         attached = False
                         last_command_id = None
-                        last_state_report = 0.0
-                        set_transport_guard(2.0)
+                        current_selection_revision = selection_revision
+                        remote_stop_until = time.time() + 3.0
+
+                        if player.isPlaying():
+                            log(
+                                "Host stopped Watch Party playback; stopping local Kodi player.",
+                                xbmc.LOGINFO,
+                            )
+                            try:
+                                player.stop()
+                            except Exception as exc:
+                                log(
+                                    "Unable to stop Kodi playback after remote Watch Party stop: %s"
+                                    % exc,
+                                    xbmc.LOGWARNING,
+                                )
 
                 elif message_type == "transport_command":
                     command = message.get("command") or {}
