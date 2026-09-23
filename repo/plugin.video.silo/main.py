@@ -285,6 +285,24 @@ def direct_play_only_enabled():
         "yes",
     )
 
+def use_kodi_resume_cache_enabled():
+    """Return whether Kodi's own cached resume position should be used."""
+    return str(ADDON.getSetting("use_kodi_resume_cache") or "").strip().lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
+
+def get_kodi_cached_resume_position():
+    """Read Kodi's cached resume position for the currently selected item."""
+    try:
+        value = xbmc.getInfoLabel("ListItem.ResumeTime")
+        return max(0.0, float(value or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 
 def get_directory_page_size():
     """Return the configured Kodi page size, clamped to 20-200.
@@ -3957,6 +3975,13 @@ def play(
     if not content_id:
         raise SiloError("No content ID was supplied for playback.")
 
+    use_kodi_resume_cache = use_kodi_resume_cache_enabled()
+    kodi_cached_resume = (
+        get_kodi_cached_resume_position()
+        if use_kodi_resume_cache
+        else 0.0
+    )
+
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
 
@@ -3979,36 +4004,23 @@ def play(
             xbmc.LOGWARNING,
         )
 
-    # Always check Silo immediately before starting the stream so Kodi never
-    # has to rely on a stale local resume position for the actual seek.
     latest_progress = None
 
-    try:
-        latest_progress = client.get_progress(
-            content_id,
-            library_id,
-        )
-    except SiloError as exc:
-        log(
-            "Fresh progress lookup failed; continuing without Silo resume: %s" % exc,
-            xbmc.LOGWARNING,
-        )
-
-    if latest_progress:
-        fresh_position, fresh_duration = get_progress_position(latest_progress)
-        log(
-            "Fresh Silo state before playback: content=%s position=%.3f duration=%.3f completed=%s"
-            % (
+    if not use_kodi_resume_cache:
+        try:
+            latest_progress = client.get_progress(
                 content_id,
-                fresh_position,
-                fresh_duration,
-                latest_progress.get("completed", False),
+                library_id,
             )
-        )
+        except SiloError as exc:
+            log(
+                "Fresh progress lookup failed; continuing without Silo resume: %s" % exc,
+                xbmc.LOGWARNING,
+            )
     else:
         log(
-            "No Silo progress record found immediately before playback for content %s"
-            % content_id
+            "Using Kodi cached resume position %.3fs for content %s"
+            % (kodi_cached_resume, content_id)
         )
 
     # Silo starts the transport at zero in both modes. This is important:
@@ -4073,93 +4085,93 @@ def play(
                 xbmc.LOGWARNING,
             )
 
-    fresh_server_resume = has_usable_resume(latest_progress)
-
-    if (
-        latest_progress
-        and (
-            resume
-            or (
-                not resume
-                and not resume_available
-                and fresh_server_resume
+    if use_kodi_resume_cache:
+        if kodi_cached_resume > 0:
+            apply_fresh_resume_to_resolved_item(
+                resolved_item,
+                {
+                    "completed": False,
+                    "position_seconds": kodi_cached_resume,
+                    "duration_seconds": duration_seconds or 0,
+                },
+                fallback_duration=duration_seconds,
             )
-        )
-    ):
-        # Replace Kodi's potentially stale local resume position with the
-        # position we just fetched from Silo.
-        apply_fresh_resume_to_resolved_item(
-            resolved_item,
-            latest_progress,
-            fallback_duration=duration_seconds,
-        )
-        if resume:
-            log(
-                "Kodi requested Resume; applied fresh Silo resume position "
-                "to the resolved item for content %s" % content_id
-            )
-        else:
-            # Kodi saw the item as unresumable when the directory was loaded,
-            # but Silo now has a usable resume position. Apply that fresh
-            # server position directly because Kodi did not show its prompt.
-            fresh_position, _fresh_duration = get_progress_position(
-                latest_progress
-            )
-            resolved_item.setProperty(
-                "StartOffset",
-                "%.3f" % fresh_position,
-            )
-            log(
-                "Kodi had no resume prompt, but Silo now has a fresh resume "
-                "position of %.3fs for content %s"
-                % (fresh_position, content_id)
-            )
-    elif resume:
-        # Kodi showed its native Resume prompt because a local cached resume
-        # point exists, but Silo has no current progress record. Treat this
-        # exactly like a server-side resume-point change: replace Kodi's local
-        # value with a new server-authoritative resume point at 1 second.
-        try:
-            resume_duration = max(0.0, float(duration_seconds or 0))
-        except (TypeError, ValueError):
-            resume_duration = 0.0
-
-        if resume_duration <= 0 and detail:
-            version = _detail_version(detail, file_id)
+        elif duration_seconds:
             try:
-                resume_duration = max(0.0, float(version.get("duration") or 0))
+                resolved_item.getVideoInfoTag().setDuration(
+                    int(round(float(duration_seconds)))
+                )
+            except (TypeError, ValueError):
+                pass
+    else:
+        fresh_server_resume = has_usable_resume(latest_progress)
+
+        if (
+            latest_progress
+            and (
+                resume
+                or (
+                    not resume
+                    and not resume_available
+                    and fresh_server_resume
+                )
+            )
+        ):
+            apply_fresh_resume_to_resolved_item(
+                resolved_item,
+                latest_progress,
+                fallback_duration=duration_seconds,
+            )
+            if resume:
+                log(
+                    "Kodi requested Resume; applied fresh Silo resume position "
+                    "to the resolved item for content %s" % content_id
+                )
+            else:
+                fresh_position, _fresh_duration = get_progress_position(
+                    latest_progress
+                )
+                resolved_item.setProperty(
+                    "StartOffset",
+                    "%.3f" % fresh_position,
+                )
+                log(
+                    "Kodi had no resume prompt, but Silo now has a fresh resume "
+                    "position of %.3fs for content %s"
+                    % (fresh_position, content_id)
+                )
+        elif resume:
+            try:
+                resume_duration = max(0.0, float(duration_seconds or 0))
             except (TypeError, ValueError):
                 resume_duration = 0.0
-            if resume_duration <= 0:
-                resume_duration = get_runtime_seconds(detail)
 
-        synthetic_progress = {
-            "completed": False,
-            "position_seconds": 0.1,
-            "duration_seconds": resume_duration,
-        }
-        apply_fresh_resume_to_resolved_item(
-            resolved_item,
-            synthetic_progress,
-            fallback_duration=resume_duration,
-        )
-        log(
-            "Kodi requested Resume but Silo returned no progress; "
-            "replaced Kodi's cached resume position with 0.1s for "
-            "content %s" % content_id
-        )
-    else:
-        # Start from beginning must not carry a Kodi/Silo resume point.
-        try:
-            tag = resolved_item.getVideoInfoTag()
-            tag.setPlaycount(0)
-            tag.setResumePoint(0.0, 0.0)
-        except Exception:
-            pass
-        log(
-            "Kodi requested Start from beginning; no resume point applied "
-            "for content %s" % content_id
-        )
+            if resume_duration <= 0 and detail:
+                version = _detail_version(detail, file_id)
+                try:
+                    resume_duration = max(0.0, float(version.get("duration") or 0))
+                except (TypeError, ValueError):
+                    resume_duration = 0.0
+                if resume_duration <= 0:
+                    resume_duration = get_runtime_seconds(detail)
+
+            synthetic_progress = {
+                "completed": False,
+                "position_seconds": 0.1,
+                "duration_seconds": resume_duration,
+            }
+            apply_fresh_resume_to_resolved_item(
+                resolved_item,
+                synthetic_progress,
+                fallback_duration=resume_duration,
+            )
+        else:
+            try:
+                tag = resolved_item.getVideoInfoTag()
+                tag.setPlaycount(0)
+                tag.setResumePoint(0.0, 0.0)
+            except Exception:
+                pass
 
     resolved_item.setProperty("IsPlayable", "true")
 
