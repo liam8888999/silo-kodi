@@ -3308,7 +3308,17 @@ def _start_watch_party_guest_playback(
             xbmc.LOGWARNING,
         )
 
-    xbmcplugin.setResolvedUrl(HANDLE, True, item)
+    # Watch Party playback is initiated from the non-playable "Join Watch Party"
+    # action, so there is no Kodi playable-item resolution context for
+    # setResolvedUrl() to hand back to the VideoPlayer. Start the resolved media
+    # explicitly through xbmc.Player() instead.
+    player = xbmc.Player()
+    player.play(item=info["url"], listitem=item)
+    log(
+        "Started Watch Party guest playback through Kodi Player: %s"
+        % content_id,
+        xbmc.LOGDEBUG,
+    )
     return info.get("session_id")
 
 
