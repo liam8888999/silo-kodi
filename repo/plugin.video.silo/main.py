@@ -3112,6 +3112,8 @@ def _watch_party_monitor(
     remote_stop_until = 0.0
     was_room_playing = False
     last_transport_enforcement = 0.0
+    local_transport_request_state = None
+    local_transport_request_until = 0.0
     send_lock = threading.Lock()
 
     # Kodi invokes onPlayBackStopped for an explicit user Stop as well as for
@@ -3257,8 +3259,58 @@ def _watch_party_monitor(
             and room_playback_state in ("playing", "paused")
         )
 
+    def reconcile_guest_transport(player, now):
+        """Reconcile Kodi's real play state with the room's authoritative state."""
+        nonlocal local_transport_request_state, local_transport_request_until
+
+        if (
+            not session_id
+            or not attached
+            or not room_transport_known
+            or not player.isPlaying()
+            or now < transport_guard_until
+        ):
+            return
+
+        actual_paused = player_paused(player)
+
+        if room_can_control_transport:
+            expected_paused = room_playback_state == "paused"
+
+            if (
+                local_transport_request_state is not None
+                and now < local_transport_request_until
+            ):
+                # Wait for Silo to accept the previous local request. The room
+                # snapshot clears this pending state once it matches.
+                if actual_paused == bool(local_transport_request_state):
+                    return
+                return
+
+            if actual_paused != expected_paused:
+                action = "pause" if actual_paused else "play"
+                log(
+                    "Sending guest Watch Party %s request at %.3fs"
+                    % (action, player_position(player)),
+                    xbmc.LOGDEBUG,
+                )
+                if send({
+                    "type": "transport_request",
+                    "action": action,
+                    "position_seconds": player_position(player),
+                    "is_paused": actual_paused,
+                }):
+                    local_transport_request_state = actual_paused
+                    local_transport_request_until = now + 5.0
+            return
+
+        # Host-only mode remains fully locked.
+        enforce_guest_transport(player)
+
+
     def enforce_guest_transport(player):
         """Undo unauthorized local pause/seek/play changes immediately."""
+
         nonlocal last_transport_enforcement
 
         if (
@@ -3306,7 +3358,7 @@ def _watch_party_monitor(
         )
 
     class _WatchPartyPlayer(xbmc.Player):
-        """Kodi player callbacks that immediately undo unauthorized controls."""
+        """Kodi player callbacks for immediate enforcement of locked rooms."""
 
         def _transport_locked(self):
             return (
@@ -3319,69 +3371,22 @@ def _watch_party_monitor(
             )
 
         def onPlayBackPaused(self):
-            # guest_play_pause permits this participant to pause the shared
-            # room. Send the request to Silo rather than treating the local
-            # pause as an unauthorized state change.
-            if (
-                session_id
-                and attached
-                and room_transport_known
-                and room_can_control_transport
-                and room_phase == "playing"
-                and room_playback_state == "playing"
-                and time.time() >= transport_guard_until
-            ):
-                set_transport_guard(1.5)
-                send({
-                    "type": "transport_request",
-                    "action": "pause",
-                    "position_seconds": player_position(self),
-                    "is_paused": True,
-                })
-                return
-
             if not self._transport_locked():
                 return
 
             # In host-only mode a participant cannot pause.
             if room_playback_state == "playing":
                 set_transport_guard()
-                try:
-                    self.pause()
-                except Exception:
-                    pass
+                _kodi_set_watch_party_play_state(self, True)
 
         def onPlayBackResumed(self):
-            # guest_play_pause permits this participant to resume the shared
-            # room. The server will rebroadcast the authoritative play command.
-            if (
-                session_id
-                and attached
-                and room_transport_known
-                and room_can_control_transport
-                and room_phase == "playing"
-                and room_playback_state == "paused"
-                and time.time() >= transport_guard_until
-            ):
-                set_transport_guard(1.5)
-                send({
-                    "type": "transport_request",
-                    "action": "play",
-                    "position_seconds": player_position(self),
-                    "is_paused": False,
-                })
-                return
-
             if not self._transport_locked():
                 return
 
             # In host-only mode a participant cannot resume a paused room.
             if room_playback_state == "paused":
                 set_transport_guard()
-                try:
-                    self.pause()
-                except Exception:
-                    pass
+                _kodi_set_watch_party_play_state(self, False)
 
         def onPlayBackSeek(self, time_value, seek_offset):
             if not self._transport_locked():
@@ -3467,6 +3472,11 @@ def _watch_party_monitor(
                 if message_type == "snapshot":
                     room = message.get("room") or {}
                     update_authoritative_room_state(room)
+                    if room_playback_state == (
+                        "paused" if local_transport_request_state else "playing"
+                    ):
+                        local_transport_request_state = None
+                        local_transport_request_until = 0.0
 
                     phase = room.get("phase")
                     selection_revision = room.get("selection_revision")
@@ -3576,6 +3586,8 @@ def _watch_party_monitor(
                     room_target_updated_at = time.time()
                     room_playback_state = command_playback_state
                     room_transport_known = room_phase == "playing"
+                    local_transport_request_state = None
+                    local_transport_request_until = 0.0
                     set_transport_guard(1.5)
 
                     applied = _apply_watch_party_guest_command(
@@ -3702,7 +3714,7 @@ def _watch_party_monitor(
             # Enforce the current room transport after applying any new socket
             # message, so an unauthorized local pause/seek is corrected against
             # the newest host state before the next guest report.
-            enforce_guest_transport(player)
+            reconcile_guest_transport(player, now)
 
             if (
                 session_id
@@ -3751,6 +3763,52 @@ def _wait_for_watch_party_player(player, timeout=20.0):
         return False
 
 
+def _kodi_set_watch_party_play_state(player, should_play):
+    """Set the current Kodi video player's play state explicitly."""
+    if not player.isPlaying():
+        return False
+
+    try:
+        response = xbmc.executeJSONRPC(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "Player.PlayPause",
+                    "params": {
+                        "playerid": 1,
+                        "play": bool(should_play),
+                    },
+                    "id": "silo-watch-party-play-state",
+                },
+                separators=(",", ":"),
+            )
+        )
+        payload = json.loads(response or "{}")
+        result = payload.get("result") or {}
+        speed = result.get("speed")
+        if speed is not None:
+            return (int(speed) != 0) == bool(should_play)
+    except Exception as exc:
+        log(
+            "Kodi JSON-RPC Watch Party play-state change failed: %s"
+            % exc,
+            xbmc.LOGDEBUG,
+        )
+
+    # Fall back to Kodi's Player API if JSON-RPC did not return a usable state.
+    try:
+        if bool(player_paused(player)) == (not bool(should_play)):
+            player.pause()
+            xbmc.sleep(50)
+    except Exception:
+        pass
+
+    try:
+        return bool(player_paused(player)) == (not bool(should_play))
+    except Exception:
+        return False
+
+
 def _watch_party_apply_transport_state(player, position, paused):
     """Force Kodi onto one authoritative Watch Party transport state."""
     if not player.isPlaying():
@@ -3780,48 +3838,20 @@ def _watch_party_apply_transport_state(player, position, paused):
 
     if paused:
         if not currently_paused:
-            try:
-                player.pause()
-                xbmc.sleep(50)
-            except Exception as exc:
+            if not _kodi_set_watch_party_play_state(player, False):
                 log(
-                    "Unable to pause Watch Party playback: %s" % exc,
+                    "Watch Party pause command did not leave Kodi paused.",
                     xbmc.LOGWARNING,
                 )
                 return False
     else:
         if currently_paused:
-            # Kodi's pause() API explicitly toggles an already-playing item
-            # between paused and playing. Player.play() is for starting an
-            # item and is not the reliable resume operation here.
-            for _ in range(5):
-                try:
-                    if not player.isPlaying():
-                        return False
-                    if int(player.getPlaySpeed()) != 0:
-                        return True
-                    player.pause()
-                except Exception as exc:
-                    log(
-                        "Unable to resume Watch Party playback: %s" % exc,
-                        xbmc.LOGWARNING,
-                    )
-                    return False
-
-                xbmc.sleep(50)
-
-                try:
-                    if int(player.getPlaySpeed()) != 0:
-                        return True
-                except Exception:
-                    if not bool(xbmc.getCondVisibility("Player.Paused")):
-                        return True
-
-            log(
-                "Watch Party resume command did not leave Kodi paused state.",
-                xbmc.LOGWARNING,
-            )
-            return False
+            if not _kodi_set_watch_party_play_state(player, True):
+                log(
+                    "Watch Party play command did not leave Kodi playing.",
+                    xbmc.LOGWARNING,
+                )
+                return False
 
     return True
 
