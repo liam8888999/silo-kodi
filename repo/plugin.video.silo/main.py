@@ -2992,6 +2992,48 @@ def _watch_party_monitor(client, room_id, room_token):
     transport_guard_until = 0.0
     last_transport_enforcement = 0.0
 
+    # Kodi invokes onPlayBackStopped for an explicit user Stop as well as for
+    # normal media replacement. Ignore the callback briefly while switching to
+    # a new host-selected item, but treat a genuine stop as an immediate room
+    # disconnect.
+    disconnect_requested = threading.Event()
+    switching_media_until = 0.0
+
+    def clear_watch_party_state():
+        window = xbmcgui.Window(10000)
+        for property_name in (
+            "Silo.WatchParty.RoomID",
+            "Silo.WatchParty.RoomToken",
+            "Silo.WatchParty.Code",
+        ):
+            try:
+                window.clearProperty(property_name)
+            except Exception:
+                try:
+                    window.setProperty(property_name, "")
+                except Exception:
+                    pass
+
+    def request_watch_party_disconnect(reason):
+        nonlocal switching_media_until
+        if switching_media_until > time.time():
+            return
+
+        if disconnect_requested.is_set():
+            return
+
+        log(
+            "Watch Party participant disconnecting: %s" % reason,
+            xbmc.LOGINFO,
+        )
+        disconnect_requested.set()
+        clear_watch_party_state()
+
+        try:
+            socket.close()
+        except Exception:
+            pass
+
     def send(message):
         try:
             socket.send(message)
@@ -3187,10 +3229,17 @@ def _watch_party_monitor(client, room_id, room_token):
                 except Exception:
                     pass
 
+        def onPlayBackStopped(self):
+            # Kodi calls this when the user presses Stop. A media replacement
+            # caused by a new host selection also stops the old item; that
+            # replacement is explicitly marked below and must not disconnect
+            # the participant from the room.
+            request_watch_party_disconnect("Kodi playback stopped")
+
     player = _WatchPartyPlayer()
 
     try:
-        while not monitor.abortRequested():
+        while not monitor.abortRequested() and not disconnect_requested.is_set():
             now = time.time()
 
             if now - last_ping >= 15:
@@ -3233,11 +3282,13 @@ def _watch_party_monitor(client, room_id, room_token):
                         and selection_revision != current_selection_revision
                     ):
                         current_selection_revision = selection_revision
+                        switching_media_until = time.time() + 5.0
                         session_id = _start_watch_party_guest_playback(
                             client,
                             selected_content_id,
                             selected_file_id,
                             selected_library_id,
+                            player=player,
                         )
                         attached = False
                         last_command_id = None
@@ -3359,6 +3410,7 @@ def _watch_party_monitor(client, room_id, room_token):
                         ) / 2.0
 
                 elif message_type == "room_closed":
+                    clear_watch_party_state()
                     xbmcgui.Dialog().notification(
                         "Watch Party",
                         "The Watch Party has ended.",
@@ -3368,6 +3420,7 @@ def _watch_party_monitor(client, room_id, room_token):
                     break
 
                 elif message_type == "connection_replaced":
+                    clear_watch_party_state()
                     xbmcgui.Dialog().notification(
                         "Watch Party",
                         "This profile joined the Watch Party somewhere else.",
@@ -3407,6 +3460,7 @@ def _watch_party_monitor(client, room_id, room_token):
             xbmc.sleep(25)
 
     finally:
+        clear_watch_party_state()
         try:
             socket.close()
         except Exception:
@@ -3516,6 +3570,7 @@ def _start_watch_party_guest_playback(
     content_id,
     file_id=None,
     library_id=None,
+    player=None,
 ):
     """Start the host-selected item using the normal Silo Kodi playback path."""
     library_id = resolve_playback_library_id(client, content_id, library_id)
@@ -3562,7 +3617,8 @@ def _start_watch_party_guest_playback(
     # action, so there is no Kodi playable-item resolution context for
     # setResolvedUrl() to hand back to the VideoPlayer. Start the resolved media
     # explicitly through xbmc.Player() instead.
-    player = xbmc.Player()
+    if player is None:
+        player = xbmc.Player()
     player.play(item=info["url"], listitem=item)
     log(
         "Started Watch Party guest playback through Kodi Player: %s"
