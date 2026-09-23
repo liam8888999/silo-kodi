@@ -2549,16 +2549,37 @@ def add_your_stuff_folder():
 
 
 def _watch_party_socket_url(client, room_id):
-    """Build the room WebSocket URL from Silo's configured API base URL."""
+    """Build the room WebSocket URL while preserving a configured URL prefix."""
     from urllib.parse import urlparse, urlunparse
 
     parsed = urlparse(client.base)
     scheme = "wss" if parsed.scheme == "https" else "ws"
+    base_path = (parsed.path or "").rstrip("/")
     path = (
-        "/api/v2/watch-together/rooms/%s/ws"
-        % quote(str(room_id), safe="")
+        "%s/api/v2/watch-together/rooms/%s/ws"
+        % (
+            base_path,
+            quote(str(room_id), safe=""),
+        )
     )
     return urlunparse((scheme, parsed.netloc, path, "", "", ""))
+
+
+def _watch_party_http_origin(client):
+    """Return the HTTP origin Silo expects on native WebSocket handshakes."""
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(client.base)
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            "",
+            "",
+            "",
+            "",
+        )
+    )
 
 
 def _watch_party_join(client):
@@ -2599,10 +2620,11 @@ def _watch_party_join(client):
 class _SiloWebSocket:
     """Minimal RFC 6455 WebSocket client for Silo's room protocol."""
 
-    def __init__(self, url, protocols, timeout=15):
+    def __init__(self, url, protocols, timeout=15, origin=None):
         self.url = url
         self.protocols = list(protocols or [])
         self.timeout = float(timeout or 15)
+        self.origin = str(origin or "").strip()
         self.sock = None
         self._buffer = b""
 
@@ -2645,13 +2667,20 @@ class _SiloWebSocket:
         request = (
             "GET %s HTTP/1.1\\r\\n"
             "Host: %s\\r\\n"
+            "Origin: %s\\r\\n"
             "Upgrade: websocket\\r\\n"
             "Connection: Upgrade\\r\\n"
             "Sec-WebSocket-Key: %s\\r\\n"
             "Sec-WebSocket-Version: 13\\r\\n"
             "Sec-WebSocket-Protocol: %s\\r\\n"
             "\\r\\n"
-        ) % (path, host_header, key, ", ".join(self.protocols))
+        ) % (
+            path,
+            host_header,
+            self.origin,
+            key,
+            ", ".join(self.protocols),
+        )
 
         self.sock.sendall(request.encode("ascii"))
 
@@ -2861,9 +2890,18 @@ def _watch_party_monitor(client, room_id, room_token):
                 "silo.ticket.%s" % ticket_value,
             ],
             timeout=15,
+            origin=_watch_party_http_origin(client),
         ).connect()
     except Exception as exc:
-        raise SiloError("Unable to connect to the Watch Party: %s" % exc)
+        log(
+            "Watch Party WebSocket connection failed: %s (%s)"
+            % (exc, type(exc).__name__),
+            xbmc.LOGERROR,
+        )
+        raise SiloError(
+            "Unable to connect to the Watch Party: %s"
+            % exc
+        )
 
     player = xbmc.Player()
     monitor = xbmc.Monitor()
