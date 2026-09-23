@@ -2798,7 +2798,11 @@ def _watch_party_join(client):
         target=monitor_runner,
         name="SiloWatchParty",
     )
-    thread.daemon = True
+    # The monitor owns the room WebSocket. Keeping it non-daemon prevents
+    # Kodi from ending the plugin invocation immediately after the lobby
+    # directory is returned, which otherwise leaves playback running with no
+    # Watch Party transport connection.
+    thread.daemon = False
     thread.start()
 
     # This is now a normal Kodi directory. The monitor remains alive in the
@@ -3222,6 +3226,7 @@ def _watch_party_monitor(
     was_room_playing = False
     last_transport_enforcement = 0.0
     last_transport_offset_log = 0.0
+    last_observed_paused = None
     local_transport_request_state = None
     local_transport_request_until = 0.0
     send_lock = threading.Lock()
@@ -3528,19 +3533,6 @@ def _watch_party_monitor(
             )
 
         def onPlayBackPaused(self):
-            if (
-                session_id
-                and attached
-                and room_transport_known
-                and room_can_control_transport
-                and time.time() >= transport_guard_until
-            ):
-                # Guest-play-pause rooms follow the web client's model:
-                # Kodi's local action is reported to Silo, and Silo's command
-                # comes back as the shared authoritative state.
-                request_guest_transport("pause", self)
-                return
-
             if not self._transport_locked():
                 return
 
@@ -3550,16 +3542,6 @@ def _watch_party_monitor(
                 _kodi_set_watch_party_play_state(self, True)
 
         def onPlayBackResumed(self):
-            if (
-                session_id
-                and attached
-                and room_transport_known
-                and room_can_control_transport
-                and time.time() >= transport_guard_until
-            ):
-                request_guest_transport("play", self)
-                return
-
             if not self._transport_locked():
                 return
 
@@ -3676,6 +3658,10 @@ def _watch_party_monitor(
                     ):
                         local_transport_request_state = None
                         local_transport_request_until = 0.0
+                        try:
+                            last_observed_paused = player_paused(player)
+                        except Exception:
+                            last_observed_paused = None
 
                     phase = room.get("phase")
                     selection_revision = room.get("selection_revision")
@@ -3708,7 +3694,8 @@ def _watch_party_monitor(
                             attached = False
                             last_command_id = None
                             last_state_report = 0.0
-                            set_transport_guard(2.0)
+                            set_transport_guard(0.75)
+                            last_observed_paused = None
                             update_ui(
                                 status="Playing with the Watch Party host.",
                                 lobby=False,
@@ -3787,7 +3774,10 @@ def _watch_party_monitor(
                     room_transport_known = room_phase == "playing"
                     local_transport_request_state = None
                     local_transport_request_until = 0.0
-                    set_transport_guard(1.5)
+                    # Suppress the polling detector only while Kodi settles
+                    # this server-scheduled command.
+                    set_transport_guard(0.75)
+                    last_observed_paused = None
 
                     applied = _apply_watch_party_guest_command(
                         action,
@@ -3900,6 +3890,33 @@ def _watch_party_monitor(
                         5000,
                     )
                     break
+
+            # Detect local Kodi play/pause transitions by polling the actual
+            # player state. Native Kodi controls do not reliably deliver every
+            # onPlayBackPaused/onPlayBackResumed callback to a background
+            # plugin player, so this level-triggered detector is authoritative
+            # for local guest transport requests.
+            if (
+                session_id
+                and attached
+                and room_transport_known
+                and room_can_control_transport
+                and player.isPlaying()
+            ):
+                actual_paused = player_paused(player)
+
+                if time.time() < transport_guard_until:
+                    # Establish the post-command baseline so our own remote
+                    # command is not echoed back as a guest request.
+                    last_observed_paused = actual_paused
+                elif last_observed_paused is None:
+                    last_observed_paused = actual_paused
+                elif actual_paused != last_observed_paused:
+                    action = "pause" if actual_paused else "play"
+                    if request_guest_transport(action, player):
+                        last_observed_paused = actual_paused
+            else:
+                last_observed_paused = None
 
             # Attach the current Silo playback session exactly once. The
             # session ID must remain unchanged for all later state reports.
@@ -4196,7 +4213,7 @@ def list_your_stuff(client):
         HANDLE,
         build_url(action="watch_party_join"),
         party_item,
-        False,
+        True,
     )
 
     xbmcplugin.setContent(HANDLE, "files")
