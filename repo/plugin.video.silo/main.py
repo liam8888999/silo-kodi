@@ -3446,13 +3446,38 @@ def _watch_party_monitor(client, room_id, room_token):
                         ) / 2.0
 
                 elif message_type == "room_closed":
+                    # The host has ended the Watch Party itself, rather than
+                    # merely stopping playback. Stop any local media and fully
+                    # leave the room; there is no room left to reconnect to.
                     clear_watch_party_state()
+                    disconnect_requested.set()
+                    remote_stop_until = time.time() + 5.0
+
+                    if player.isPlaying():
+                        log(
+                            "Watch Party ended remotely; stopping local Kodi player.",
+                            xbmc.LOGINFO,
+                        )
+                        try:
+                            player.stop()
+                        except Exception as exc:
+                            log(
+                                "Unable to stop Kodi playback after Watch Party ended: %s"
+                                % exc,
+                                xbmc.LOGWARNING,
+                            )
+
                     xbmcgui.Dialog().notification(
                         "Watch Party",
                         "The Watch Party has ended.",
                         xbmcgui.NOTIFICATION_INFO,
                         4000,
                     )
+
+                    try:
+                        socket.close()
+                    except Exception:
+                        pass
                     break
 
                 elif message_type == "connection_replaced":
