@@ -921,55 +921,6 @@ class SiloClient:
             data.get("groups", []),
         )
 
-    # Create an empty Watch Party room.
-    def watch_party_create(self, selection_mode="host_pick"):
-        selection_mode = str(selection_mode or "host_pick").strip().lower()
-
-        if selection_mode not in ("host_pick", "vote"):
-            selection_mode = "host_pick"
-
-        return self._json(
-            "POST",
-            "/api/v2/watch-together/rooms",
-            body={
-                "room_id": uuid.uuid4().hex,
-                "selection_mode": selection_mode,
-            },
-        ) or {}
-
-    # Resolve a Watch Party code or invite token and obtain room access proof.
-    def watch_party_join(self, code=None, join_token=None):
-        body = {}
-
-        if str(code or "").strip():
-            body["code"] = str(code).strip().upper()
-
-        if str(join_token or "").strip():
-            body["join_token"] = str(join_token).strip()
-
-        if not body:
-            raise SiloError("A Watch Party code or invite token is required.")
-
-        return self._json(
-            "POST",
-            "/api/v2/watch-together/join",
-            body=body,
-        ) or {}
-
-    # Read one Watch Party room using its room access proof.
-    def watch_party_room(self, room_id, room_token):
-        if not room_id or not room_token:
-            raise SiloError("Watch Party room credentials are missing.")
-
-        return self._json(
-            "GET",
-            "/api/v2/watch-together/rooms/%s"
-            % quote(str(room_id), safe=""),
-            extra_headers={
-                "X-Room-Token": str(room_token),
-            },
-        ) or {}
-
     # Return every catalog item in a library while handling pagination internally.
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
