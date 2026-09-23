@@ -2818,7 +2818,7 @@ def _watch_party_leave():
     window.setProperty("Silo.WatchParty.LeaveRequested", "true")
     window.setProperty("Silo.WatchParty.Status", "Leaving Watch Party...")
     window.setProperty("Silo.WatchParty.Lobby", "true")
-    _watch_party_refresh_lobby()
+    window.setProperty("Silo.WatchParty.LeaveRequested", "true")
     xbmcgui.Dialog().notification(
         "Watch Party",
         "Leaving Watch Party...",
@@ -3280,7 +3280,6 @@ def _watch_party_monitor(
             ended=ended,
         )
         _watch_party_update_window_state(ui_state)
-        _watch_party_refresh_lobby()
 
     def notify(status, level=xbmcgui.NOTIFICATION_INFO, ms=3000):
         try:
@@ -3564,23 +3563,10 @@ def _watch_party_monitor(
                 request_watch_party_disconnect("user left Watch Party lobby")
                 break
 
-            # If the participant backs out of the normal Kodi lobby directory
-            # while no media is playing, treat that as leaving the Watch Party.
-            # Do not apply this while playback is active: the player can cover
-            # the lobby while the same socket continues synchronizing playback.
-            if not player.isPlaying():
-                container_path = xbmc.getInfoLabel("Container.FolderPath")
-                lobby_url = build_url(action="watch_party_lobby")
-                if (
-                    container_path
-                    and container_path != lobby_url
-                    and not container_path.startswith(lobby_url + "&")
-                ):
-                    request_watch_party_disconnect(
-                        "user navigated away from Watch Party lobby"
-                    )
-                    break
-
+            # Kodi does not expose a reliable folder-navigation callback
+            # from a background plugin thread. Leaving the lobby is therefore
+            # handled by the explicit Leave Watch Party item, while the socket
+            # remains connected through idle lobby time.
             if now - last_ping >= 15:
                 send({
                     "type": "ping",
