@@ -2527,6 +2527,289 @@ def open_settings(client):
     xbmc.executebuiltin("Container.Refresh")
 
 
+def add_your_stuff_folder():
+    """Add the Silo web client's personal/watch-party destinations."""
+    item = xbmcgui.ListItem(label="Your Stuff")
+    item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="your_stuff"),
+        item,
+        True,
+    )
+
+
+def list_your_stuff(client):
+    """Display the personal destinations shown under Silo's web Your Stuff menu."""
+    entries = (
+        ("Favorites", "favorites", "DefaultFavorites.png"),
+        ("Watchlist", "watchlist", "DefaultVideo.png"),
+        ("History", "history", "DefaultRecentlyWatched.png"),
+    )
+
+    for title, source, icon in entries:
+        item = xbmcgui.ListItem(label=title)
+        item.setArt({"icon": icon})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="personal_list", source=source),
+            item,
+            True,
+        )
+
+    collections_item = xbmcgui.ListItem(label="Collections")
+    collections_item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="collections"),
+        collections_item,
+        True,
+    )
+
+    party_item = xbmcgui.ListItem(label="Watch Party")
+    party_item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="watch_party"),
+        party_item,
+        True,
+    )
+
+    xbmcplugin.setContent(HANDLE, "files")
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def _list_personal_catalog(client, source, cursor=None, collection_id=None):
+    """Display a Silo personal catalog source using opaque server cursors."""
+    if source not in ("favorites", "watchlist", "history", "user_collection"):
+        raise SiloError("Unsupported personal catalog source.")
+
+    items, next_cursor = client.personal_catalog_page(
+        source,
+        cursor=cursor,
+        limit=get_directory_page_size(),
+        collection_id=collection_id,
+    )
+
+    xbmcplugin.setPluginCategory(
+        HANDLE,
+        {
+            "favorites": "Favorites",
+            "watchlist": "Watchlist",
+            "history": "History",
+            "user_collection": "Collection",
+        }.get(source, "Your Stuff"),
+    )
+    xbmcplugin.setContent(HANDLE, "videos")
+
+    detail_map = fetch_detail_metadata(client, items, None)
+    batch = []
+
+    for catalog_item in items:
+        content_id = get_content_id(catalog_item)
+        if not content_id:
+            continue
+
+        progress = catalog_progress(catalog_item)
+        list_item, media_type, content_id, title, display_progress = build_catalog_list_item(
+            client,
+            catalog_item,
+            detail=detail_map.get(str(content_id)),
+            progress=progress,
+        )
+
+        if media_type in PLAYABLE:
+            list_item.setProperty("IsPlayable", "true")
+            url = build_url(
+                action="play",
+                content_id=content_id,
+                library_id=catalog_item.get("library_id"),
+                duration_seconds=(
+                    catalog_item.get("duration_seconds")
+                    or catalog_item.get("runtime")
+                ),
+                resume_available=1 if display_progress and display_progress.get("resume_available") else 0,
+            )
+            is_folder = False
+        elif media_type == "series":
+            url = build_url(
+                action="seasons",
+                series_id=content_id,
+                library_id=catalog_item.get("library_id"),
+            )
+            is_folder = True
+        else:
+            url = build_url(
+                action="details",
+                content_id=content_id,
+                library_id=catalog_item.get("library_id"),
+            )
+            is_folder = True
+
+        batch.append((url, list_item, is_folder))
+
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, len(batch))
+
+    if next_cursor:
+        next_item = xbmcgui.ListItem(label="More")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="personal_list",
+                source=source,
+                cursor=next_cursor,
+                collection_id=collection_id,
+            ),
+            next_item,
+            True,
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_collections(client):
+    """Display the profile's visible personal Collections."""
+    collections, groups = client.collections()
+
+    # Keep the server's collection/group ordering, matching the web client.
+    group_names = {str(group.get("id")): group.get("name") for group in groups or []}
+
+    xbmcplugin.setPluginCategory(HANDLE, "Collections")
+    xbmcplugin.setContent(HANDLE, "files")
+
+    for collection in collections or []:
+        collection_id = collection.get("id")
+        if not collection_id:
+            continue
+
+        name = collection.get("name") or "Collection"
+        group_name = group_names.get(str(collection.get("group_id")))
+        label = "%s - %s" % (group_name, name) if group_name else name
+
+        item = xbmcgui.ListItem(label=label)
+        poster = collection.get("poster_url")
+        if poster:
+            item.setArt({"thumb": poster, "poster": poster})
+
+        item.setInfo(
+            "video",
+            {
+                "title": name,
+                "plot": collection.get("description") or "",
+            },
+        )
+
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="collection",
+                collection_id=collection_id,
+                title=name,
+            ),
+            item,
+            True,
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_collection(client, collection_id, title=None, cursor=None):
+    """Display the media contained in one personal Collection."""
+    if not collection_id:
+        raise SiloError("No collection ID was supplied.")
+
+    _list_personal_catalog(
+        client,
+        "user_collection",
+        cursor=cursor,
+        collection_id=collection_id,
+    )
+
+
+def watch_party(client):
+    """Provide the web client's Watch Party create/join entry point in Kodi."""
+    choice = xbmcgui.Dialog().select(
+        "Watch Party",
+        [
+            "Create Watch Party",
+            "Join Watch Party",
+        ],
+    )
+
+    if choice < 0:
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    if choice == 0:
+        mode = xbmcgui.Dialog().select(
+            "How should the room pick what to watch?",
+            [
+                "Host picks",
+                "Everyone votes",
+            ],
+        )
+        if mode < 0:
+            xbmcplugin.endOfDirectory(HANDLE)
+            return
+
+        response = client.watch_party_create(
+            "vote" if mode == 1 else "host_pick"
+        )
+        room = response.get("room") or {}
+        room_id = room.get("room_id")
+        room_token = response.get("room_access_token")
+
+        if not room_id or not room_token:
+            raise SiloError("Silo did not return Watch Party room credentials.")
+
+        code = room.get("code") or ""
+        xbmcgui.Dialog().ok(
+            "Watch Party Created",
+            "Code: %s\\n\\nRoom: %s\\n\\nUse this code in Silo to join."
+            % (code, room_id),
+        )
+
+        # Keep the credentials in Kodi's current window so the room can be
+        # refreshed during this session without persisting a sensitive token.
+        window = xbmcgui.Window(10000)
+        window.setProperty("Silo.WatchParty.RoomID", str(room_id))
+        window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
+        window.setProperty("Silo.WatchParty.Code", str(code))
+
+    else:
+        code = xbmcgui.Dialog().input(
+            "Watch Party code",
+            type=xbmcgui.INPUT_ALPHANUM,
+        ).strip()
+
+        if not code:
+            xbmcplugin.endOfDirectory(HANDLE)
+            return
+
+        response = client.watch_party_join(code=code)
+        room = response.get("room") or {}
+        room_id = room.get("room_id")
+        room_token = response.get("room_access_token")
+
+        if not room_id or not room_token:
+            raise SiloError("Silo did not return Watch Party room credentials.")
+
+        xbmcgui.Dialog().ok(
+            "Watch Party Joined",
+            "Code: %s\\n\\nRoom: %s"
+            % (room.get("code") or code, room_id),
+        )
+
+        window = xbmcgui.Window(10000)
+        window.setProperty("Silo.WatchParty.RoomID", str(room_id))
+        window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
+
+    xbmcplugin.setContent(HANDLE, "files")
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
 def list_root(client, page=None):
     """Display the initial screen or the logged-in Silo libraries.
 
@@ -2579,6 +2862,8 @@ def list_root(client, page=None):
 
     # Keep all user libraries under one folder so the root stays focused on
     # global actions and profile-wide Home sections.
+    add_your_stuff_folder()
+
     libraries_item = xbmcgui.ListItem(label="Libraries")
     libraries_item.setProperty("Silo.LibraryFolder", "true")
     xbmcplugin.addDirectoryItem(
@@ -5377,6 +5662,36 @@ def router(client):
             client,
             params.get("group_key"),
         )
+        return
+
+    if action == "your_stuff":
+        list_your_stuff(client)
+        return
+
+    if action == "personal_list":
+        _list_personal_catalog(
+            client,
+            params.get("source"),
+            params.get("cursor"),
+            params.get("collection_id"),
+        )
+        return
+
+    if action == "collections":
+        list_collections(client)
+        return
+
+    if action == "collection":
+        list_collection(
+            client,
+            params.get("collection_id"),
+            params.get("title"),
+            params.get("cursor"),
+        )
+        return
+
+    if action == "watch_party":
+        watch_party(client)
         return
 
     if action == "libraries":
