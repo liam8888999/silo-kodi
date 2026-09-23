@@ -2673,7 +2673,7 @@ def _watch_party_join(client):
 
             if lobby and not finished:
                 if dialog is None:
-                    dialog = xbmcgui.DialogProgress()
+                    dialog = xbmcgui.DialogProgressBG()
                     dialog.create(
                         "Watch Party",
                         status,
