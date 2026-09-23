@@ -399,6 +399,14 @@ def add_next_page(library_id=None, series_id=None, season_number=None,
 
 
 def build_url(**params):
+    # Optional IDs are sometimes unresolved on profile-wide Home cards. Never
+    # serialize Python None as the literal string "None", because Silo treats
+    # values such as library_id=None as an invalid positive integer identifier.
+    params = {
+        key: value
+        for key, value in params.items()
+        if value is not None
+    }
     return BASE_URL + "?" + urlencode(params)
 
 
@@ -3867,6 +3875,46 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
 
     xbmcplugin.endOfDirectory(HANDLE)
 
+def resolve_playback_library_id(client, content_id, library_id=None):
+    """Resolve a playable item's library using the same pattern as search."""
+    if library_id not in (None, "", "None", "null"):
+        return library_id
+
+    libraries = client.libraries()
+
+    # Search does not always know which library a result came from. Mirror its
+    # resolution strategy here: test the item against each accessible library
+    # until Silo accepts one and returns the item's detail document.
+    for library in libraries:
+        candidate_library_id = library.get("id")
+        if candidate_library_id in (None, ""):
+            continue
+
+        try:
+            detail = client.item_detail(
+                content_id,
+                candidate_library_id,
+            )
+        except SiloError as exc:
+            log(
+                "Unable to check playback item %s in library %s: %s"
+                % (content_id, candidate_library_id, exc),
+                xbmc.LOGDEBUG,
+            )
+            continue
+
+        if detail:
+            log(
+                "Resolved playback library for %s: %s"
+                % (content_id, candidate_library_id),
+            )
+            return candidate_library_id
+
+    raise SiloError(
+        "Unable to determine the Silo library for this item."
+    )
+
+
 def choose_file(client, content_id, library_id):
     """Return the file/version selected by the user."""
     versions = client.versions(content_id, library_id)
@@ -3974,6 +4022,15 @@ def play(
     """
     if not content_id:
         raise SiloError("No content ID was supplied for playback.")
+
+    # Home and global-search items do not always carry a library ID. Resolve
+    # the item against the same accessible-library set used by search before
+    # asking Silo for versions or starting playback.
+    library_id = resolve_playback_library_id(
+        client,
+        content_id,
+        library_id,
+    )
 
     use_kodi_resume_cache = use_kodi_resume_cache_enabled()
     kodi_cached_resume = (
