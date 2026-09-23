@@ -3221,6 +3221,7 @@ def _watch_party_monitor(
     remote_stop_until = 0.0
     was_room_playing = False
     last_transport_enforcement = 0.0
+    last_transport_offset_log = 0.0
     local_transport_request_state = None
     local_transport_request_until = 0.0
     send_lock = threading.Lock()
@@ -3369,6 +3370,58 @@ def _watch_party_monitor(
             and room_playback_state in ("playing", "paused")
         )
 
+    def request_guest_transport(action, player):
+        """Send one local guest play/pause request to Silo immediately.
+
+        Kodi changes its native player state first. The server then broadcasts
+        the authoritative transport command back to every participant. The
+        pending local state suppresses duplicate polling until the room accepts
+        that request, while a newer opposite local action is allowed to replace
+        the pending request.
+        """
+        nonlocal local_transport_request_state, local_transport_request_until
+
+        if action not in ("play", "pause"):
+            return False
+
+        now = time.time()
+
+        if (
+            not session_id
+            or not attached
+            or not room_transport_known
+            or not room_can_control_transport
+            or not player.isPlaying()
+            or now < transport_guard_until
+        ):
+            return False
+
+        paused = action == "pause"
+        position = player_position(player)
+
+        log(
+            "Sending guest Watch Party %s request at %.3fs"
+            % (action, position),
+            xbmc.LOGDEBUG,
+        )
+
+        if not send({
+            "type": "transport_request",
+            "action": action,
+            "position_seconds": position,
+            "is_paused": paused,
+        }):
+            log(
+                "Unable to send guest Watch Party %s request."
+                % action,
+                xbmc.LOGWARNING,
+            )
+            return False
+
+        local_transport_request_state = paused
+        local_transport_request_until = now + 3.0
+        return True
+
     def reconcile_guest_transport(player, now):
         """Reconcile Kodi's real play state with the room's authoritative state."""
         nonlocal local_transport_request_state, local_transport_request_until
@@ -3391,27 +3444,21 @@ def _watch_party_monitor(
                 local_transport_request_state is not None
                 and now < local_transport_request_until
             ):
-                # Wait for Silo to accept the previous local request. The room
-                # snapshot clears this pending state once it matches.
+                # A matching local state means Kodi is already showing the
+                # requested action, so wait for Silo's snapshot. If Kodi has
+                # moved to the opposite state meanwhile, that is a NEW user
+                # action and must supersede the old pending request.
                 if actual_paused == bool(local_transport_request_state):
                     return
-                return
+
+                local_transport_request_state = None
+                local_transport_request_until = 0.0
 
             if actual_paused != expected_paused:
-                action = "pause" if actual_paused else "play"
-                log(
-                    "Sending guest Watch Party %s request at %.3fs"
-                    % (action, player_position(player)),
-                    xbmc.LOGDEBUG,
+                request_guest_transport(
+                    "pause" if actual_paused else "play",
+                    player,
                 )
-                if send({
-                    "type": "transport_request",
-                    "action": action,
-                    "position_seconds": player_position(player),
-                    "is_paused": actual_paused,
-                }):
-                    local_transport_request_state = actual_paused
-                    local_transport_request_until = now + 5.0
             return
 
         # Host-only mode remains fully locked.
@@ -3481,6 +3528,19 @@ def _watch_party_monitor(
             )
 
         def onPlayBackPaused(self):
+            if (
+                session_id
+                and attached
+                and room_transport_known
+                and room_can_control_transport
+                and time.time() >= transport_guard_until
+            ):
+                # Guest-play-pause rooms follow the web client's model:
+                # Kodi's local action is reported to Silo, and Silo's command
+                # comes back as the shared authoritative state.
+                request_guest_transport("pause", self)
+                return
+
             if not self._transport_locked():
                 return
 
@@ -3490,6 +3550,16 @@ def _watch_party_monitor(
                 _kodi_set_watch_party_play_state(self, True)
 
         def onPlayBackResumed(self):
+            if (
+                session_id
+                and attached
+                and room_transport_known
+                and room_can_control_transport
+                and time.time() >= transport_guard_until
+            ):
+                request_guest_transport("play", self)
+                return
+
             if not self._transport_locked():
                 return
 
@@ -3595,8 +3665,14 @@ def _watch_party_monitor(
                 if message_type == "snapshot":
                     room = message.get("room") or {}
                     update_authoritative_room_state(room)
-                    if room_playback_state == (
-                        "paused" if local_transport_request_state else "playing"
+                    if (
+                        local_transport_request_state is not None
+                        and room_playback_state
+                        == (
+                            "paused"
+                            if local_transport_request_state
+                            else "playing"
+                        )
                     ):
                         local_transport_request_state = None
                         local_transport_request_until = 0.0
@@ -3843,15 +3919,34 @@ def _watch_party_monitor(
                 session_id
                 and attached
                 and player.isPlaying()
-                and now - last_state_report >= 1.5
             ):
-                send({
-                    "type": "state_report",
-                    "session_id": session_id,
-                    "position_seconds": player_position(player),
-                    "is_paused": player_paused(player),
-                })
-                last_state_report = now
+                if (
+                    now - last_transport_offset_log >= 5.0
+                    and room_transport_known
+                ):
+                    local_position = player_position(player)
+                    server_position = authoritative_position(now)
+                    log(
+                        "Watch Party guest transport offset: "
+                        "kodi=%.3fs server=%.3fs delta=%+.3fs%s"
+                        % (
+                            local_position,
+                            server_position,
+                            local_position - server_position,
+                            " paused" if player_paused(player) else "",
+                        ),
+                        xbmc.LOGDEBUG,
+                    )
+                    last_transport_offset_log = now
+
+                if now - last_state_report >= 1.5:
+                    send({
+                        "type": "state_report",
+                        "session_id": session_id,
+                        "position_seconds": player_position(player),
+                        "is_paused": player_paused(player),
+                    })
+                    last_state_report = now
 
             xbmc.sleep(25)
 
