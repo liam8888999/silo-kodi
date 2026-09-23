@@ -3042,14 +3042,8 @@ def _watch_party_monitor(client, room_id, room_token):
         )
 
     def update_authoritative_room_state(room):
-        nonlocal (
-            room_phase,
-            room_playback_state,
-            room_can_control_transport,
-            room_target_position,
-            room_target_updated_at,
-            room_transport_known,
-        )
+        nonlocal room_phase, room_playback_state, room_can_control_transport
+        nonlocal room_target_position, room_target_updated_at, room_transport_known
 
         room_phase = room.get("phase")
         room_playback_state = room.get("playback_state")
