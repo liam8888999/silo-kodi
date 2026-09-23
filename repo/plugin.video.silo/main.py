@@ -2579,7 +2579,7 @@ def _watch_party_http_origin(client):
 
 
 class _WatchPartyUiState:
-    """Thread-safe state shared by the Watch Party monitor and lobby UI."""
+    """Thread-safe Watch Party state shared by the socket monitor and UI."""
 
     def __init__(self, status):
         self._lock = threading.Lock()
@@ -2609,8 +2609,130 @@ class _WatchPartyUiState:
             )
 
 
+def _watch_party_window():
+    return xbmcgui.Window(10000)
+
+
+def _watch_party_clear_properties(window=None):
+    window = window or _watch_party_window()
+    for property_name in (
+        "Silo.WatchParty.RoomID",
+        "Silo.WatchParty.RoomToken",
+        "Silo.WatchParty.Code",
+        "Silo.WatchParty.Status",
+        "Silo.WatchParty.Lobby",
+        "Silo.WatchParty.Finished",
+        "Silo.WatchParty.Ended",
+        "Silo.WatchParty.LeaveRequested",
+    ):
+        try:
+            window.clearProperty(property_name)
+        except Exception:
+            try:
+                window.setProperty(property_name, "")
+            except Exception:
+                pass
+
+
+def _watch_party_refresh_lobby():
+    """Refresh the visible Kodi Watch Party lobby without creating a dialog."""
+    try:
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception:
+        pass
+
+
+def _watch_party_update_window_state(ui_state):
+    """Mirror monitor state into Kodi global window properties."""
+    status, lobby, finished, ended = ui_state.snapshot()
+    window = _watch_party_window()
+
+    window.setProperty("Silo.WatchParty.Status", status)
+    window.setProperty("Silo.WatchParty.Lobby", "true" if lobby else "false")
+    window.setProperty("Silo.WatchParty.Finished", "true" if finished else "false")
+    window.setProperty("Silo.WatchParty.Ended", "true" if ended else "false")
+
+    return status, lobby, finished, ended
+
+
+def list_watch_party_lobby():
+    """Display the current Watch Party state as a normal Kodi directory."""
+    window = _watch_party_window()
+    status = window.getProperty("Silo.WatchParty.Status") or "Connecting to Watch Party..."
+    room_code = window.getProperty("Silo.WatchParty.Code") or ""
+    lobby = window.getProperty("Silo.WatchParty.Lobby").lower() == "true"
+    finished = window.getProperty("Silo.WatchParty.Finished").lower() == "true"
+    ended = window.getProperty("Silo.WatchParty.Ended").lower() == "true"
+
+    xbmcplugin.setPluginCategory(HANDLE, "Watch Party")
+    xbmcplugin.setContent(HANDLE, "files")
+
+    if finished:
+        message = (
+            "The Watch Party has ended."
+            if ended
+            else "Disconnected from the Watch Party."
+        )
+        info_item = xbmcgui.ListItem(label=message)
+        info_item.setArt({"icon": "DefaultInfo.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_leave"),
+            info_item,
+            False,
+        )
+    elif lobby:
+        info_item = xbmcgui.ListItem(label=status)
+        info_item.setArt({"icon": "DefaultInfo.png"})
+        info_item.setInfo("video", {"title": "Watch Party", "plot": status})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_leave"),
+            info_item,
+            False,
+        )
+
+        leave_item = xbmcgui.ListItem(label="Leave Watch Party")
+        leave_item.setArt({"icon": "DefaultFolder.png"})
+        leave_item.setInfo(
+            "video",
+            {
+                "title": "Leave Watch Party",
+                "plot": "Close the Watch Party connection and leave this room.",
+            },
+        )
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_leave"),
+            leave_item,
+            False,
+        )
+    else:
+        state_label = status
+        if room_code:
+            state_label = "%s — Room %s" % (status, room_code)
+
+        info_item = xbmcgui.ListItem(label=state_label)
+        info_item.setArt({"icon": "DefaultVideo.png"})
+        info_item.setInfo(
+            "video",
+            {
+                "title": "Watch Party",
+                "plot": status,
+            },
+        )
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_leave"),
+            info_item,
+            False,
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
 def _watch_party_join(client):
-    """Join an existing Watch Party as a participant and show its lobby."""
+    """Join an existing Watch Party as a participant and open its lobby."""
     code = xbmcgui.Dialog().input(
         "Watch Party code",
         type=xbmcgui.INPUT_ALPHANUM,
@@ -2629,14 +2751,26 @@ def _watch_party_join(client):
         raise SiloError("Silo did not return Watch Party room credentials.")
 
     room_code = str(room.get("code") or code)
-    window = xbmcgui.Window(10000)
+    window = _watch_party_window()
+
+    # Keep room proof only in Kodi's current window/session. It is not written
+    # to addon settings or the config file.
     window.setProperty("Silo.WatchParty.RoomID", str(room_id))
     window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
     window.setProperty("Silo.WatchParty.Code", room_code)
+    window.setProperty(
+        "Silo.WatchParty.Status",
+        "Joined Watch Party %s. Waiting for the host to start playback."
+        % room_code,
+    )
+    window.setProperty("Silo.WatchParty.Lobby", "true")
+    window.setProperty("Silo.WatchParty.Finished", "false")
+    window.setProperty("Silo.WatchParty.Ended", "false")
+    window.clearProperty("Silo.WatchParty.LeaveRequested")
 
     stop_event = threading.Event()
     state = _WatchPartyUiState(
-        "Joined Watch Party %s. Waiting for the host to start playback..."
+        "Joined Watch Party %s. Waiting for the host to start playback."
         % room_code
     )
     result = {"error": None}
@@ -2657,6 +2791,8 @@ def _watch_party_join(client):
                 lobby=False,
                 finished=True,
             )
+            _watch_party_update_window_state(state)
+            _watch_party_refresh_lobby()
 
     thread = threading.Thread(
         target=monitor_runner,
@@ -2665,60 +2801,34 @@ def _watch_party_join(client):
     thread.daemon = True
     thread.start()
 
-    dialog = None
-    last_status = None
-    try:
-        while thread.is_alive() and not stop_event.is_set():
-            status, lobby, finished, ended = state.snapshot()
-
-            if lobby and not finished:
-                if dialog is None:
-                    dialog = xbmcgui.DialogProgressBG()
-                    dialog.create(
-                        "Watch Party",
-                        status,
-                        "Waiting for the host. Press Back or Cancel to leave.",
-                    )
-                    last_status = status
-                elif status != last_status:
-                    dialog.update(
-                        0,
-                        status,
-                        "Waiting for the host. Press Back or Cancel to leave.",
-                    )
-                    last_status = status
-
-                if dialog.iscanceled():
-                    state.update(
-                        status="Leaving Watch Party...",
-                        lobby=False,
-                    )
-                    stop_event.set()
-                    break
-
-            elif dialog is not None:
-                dialog.close()
-                dialog = None
-                last_status = None
-
-            xbmc.sleep(100)
-    finally:
-        if dialog is not None:
-            dialog.close()
-
-        stop_event.set()
-        if thread.is_alive():
-            thread.join(1.0)
-
-        window.clearProperty("Silo.WatchParty.RoomID")
-        window.clearProperty("Silo.WatchParty.RoomToken")
-        window.clearProperty("Silo.WatchParty.Code")
-
-    error = result.get("error")
-    if error:
-        raise SiloError(str(error))
-
+    # This is now a normal Kodi directory. The monitor remains alive in the
+    # background and refreshes the directory when the room status changes.
+    _watch_party_refresh_lobby()
     xbmcplugin.endOfDirectory(HANDLE)
+
+
+def _watch_party_leave():
+    """Request that the background Watch Party monitor close its connection."""
+    window = _watch_party_window()
+
+    if not window.getProperty("Silo.WatchParty.RoomID"):
+        _watch_party_clear_properties(window)
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    window.setProperty("Silo.WatchParty.LeaveRequested", "true")
+    window.setProperty("Silo.WatchParty.Status", "Leaving Watch Party...")
+    window.setProperty("Silo.WatchParty.Lobby", "true")
+    _watch_party_refresh_lobby()
+    xbmcgui.Dialog().notification(
+        "Watch Party",
+        "Leaving Watch Party...",
+        xbmcgui.NOTIFICATION_INFO,
+        2000,
+    )
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
 
 
 class _SiloWebSocket:
@@ -3170,6 +3280,8 @@ def _watch_party_monitor(
             finished=finished,
             ended=ended,
         )
+        _watch_party_update_window_state(ui_state)
+        _watch_party_refresh_lobby()
 
     def notify(status, level=xbmcgui.NOTIFICATION_INFO, ms=3000):
         try:
@@ -3443,6 +3555,15 @@ def _watch_party_monitor(
             and not stop_event.is_set()
         ):
             now = time.time()
+
+            if (
+                _watch_party_window().getProperty(
+                    "Silo.WatchParty.LeaveRequested"
+                ).lower()
+                == "true"
+            ):
+                request_watch_party_disconnect("user left Watch Party lobby")
+                break
 
             if now - last_ping >= 15:
                 send({
@@ -7059,6 +7180,14 @@ def router(client):
 
     if action == "watch_party_join":
         _watch_party_join(client)
+        return
+
+    if action == "watch_party_lobby":
+        list_watch_party_lobby()
+        return
+
+    if action == "watch_party_leave":
+        _watch_party_leave()
         return
 
     if action == "collections":
