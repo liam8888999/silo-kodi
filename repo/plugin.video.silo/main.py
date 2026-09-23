@@ -3324,7 +3324,7 @@ def _watch_party_monitor(
             if room_playback_state == "playing":
                 set_transport_guard()
                 try:
-                    self.play()
+                    self.pause()
                 except Exception:
                     pass
 
@@ -3748,15 +3748,37 @@ def _watch_party_apply_transport_state(player, position, paused):
                 return False
     else:
         if currently_paused:
-            try:
-                player.play()
+            # Kodi's pause() API explicitly toggles an already-playing item
+            # between paused and playing. Player.play() is for starting an
+            # item and is not the reliable resume operation here.
+            for _ in range(5):
+                try:
+                    if not player.isPlaying():
+                        return False
+                    if int(player.getPlaySpeed()) != 0:
+                        return True
+                    player.pause()
+                except Exception as exc:
+                    log(
+                        "Unable to resume Watch Party playback: %s" % exc,
+                        xbmc.LOGWARNING,
+                    )
+                    return False
+
                 xbmc.sleep(50)
-            except Exception as exc:
-                log(
-                    "Unable to resume Watch Party playback: %s" % exc,
-                    xbmc.LOGWARNING,
-                )
-                return False
+
+                try:
+                    if int(player.getPlaySpeed()) != 0:
+                        return True
+                except Exception:
+                    if not bool(xbmc.getCondVisibility("Player.Paused")):
+                        return True
+
+            log(
+                "Watch Party resume command did not leave Kodi paused state.",
+                xbmc.LOGWARNING,
+            )
+            return False
 
     return True
 
