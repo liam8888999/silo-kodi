@@ -3402,6 +3402,18 @@ def _watch_party_monitor(
             return False
 
         paused = action == "pause"
+
+        # Do not resend the same local request while the server is still
+        # processing it. Reconcile polling runs much faster than the WebSocket
+        # round-trip, so without this guard one pause could generate dozens of
+        # identical requests before Silo broadcasts the authoritative snapshot.
+        if (
+            local_transport_request_state is not None
+            and now < local_transport_request_until
+            and bool(local_transport_request_state) == paused
+        ):
+            return True
+
         position = player_position(player)
 
         log(
@@ -3441,6 +3453,22 @@ def _watch_party_monitor(
             return
 
         actual_paused = player_paused(player)
+
+        if (
+            room_can_control_transport
+            and local_transport_request_state is not None
+            and now < local_transport_request_until
+        ):
+            # The local player already reflects our requested state. Wait for
+            # Silo's authoritative room snapshot rather than treating the
+            # temporary room mismatch as a reason to resend the request.
+            if actual_paused == bool(local_transport_request_state):
+                return
+
+            # Kodi has moved to the opposite state, so this is a newer local
+            # action and the previous request is no longer pending.
+            local_transport_request_state = None
+            local_transport_request_until = 0.0
 
         if room_can_control_transport:
             expected_paused = room_playback_state == "paused"
@@ -3957,13 +3985,32 @@ def _watch_party_monitor(
                     last_transport_offset_log = now
 
                 if now - last_state_report >= 1.5:
-                    send({
-                        "type": "state_report",
-                        "session_id": session_id,
-                        "position_seconds": player_position(player),
-                        "is_paused": player_paused(player),
-                    })
-                    last_state_report = now
+                    actual_paused = player_paused(player)
+                    pending_local_request = (
+                        local_transport_request_state is not None
+                        and now < local_transport_request_until
+                        and actual_paused == bool(local_transport_request_state)
+                    )
+
+                    if not pending_local_request:
+                        send({
+                            "type": "state_report",
+                            "session_id": session_id,
+                            "position_seconds": player_position(player),
+                            "is_paused": actual_paused,
+                        })
+                        last_state_report = now
+                    else:
+                        # A local pause/play request is still waiting for the
+                        # authoritative room snapshot. Sending the temporary
+                        # mismatch as a state report can make Silo issue the
+                        # opposite correction before the request is committed.
+                        log(
+                            "Suppressing Watch Party state report while local "
+                            "%s request is pending."
+                            % ("pause" if local_transport_request_state else "play"),
+                            xbmc.LOGDEBUG,
+                        )
 
             xbmc.sleep(25)
 
