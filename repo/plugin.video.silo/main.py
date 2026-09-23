@@ -3112,6 +3112,7 @@ def _watch_party_monitor(
     remote_stop_until = 0.0
     was_room_playing = False
     last_transport_enforcement = 0.0
+    send_lock = threading.Lock()
 
     # Kodi invokes onPlayBackStopped for an explicit user Stop as well as for
     # normal media replacement. Ignore the callback briefly while switching to
@@ -3181,7 +3182,8 @@ def _watch_party_monitor(
 
     def send(message):
         try:
-            socket.send(message)
+            with send_lock:
+                socket.send(message)
             return True
         except Exception:
             return False
@@ -3317,10 +3319,31 @@ def _watch_party_monitor(
             )
 
         def onPlayBackPaused(self):
+            # guest_play_pause permits this participant to pause the shared
+            # room. Send the request to Silo rather than treating the local
+            # pause as an unauthorized state change.
+            if (
+                session_id
+                and attached
+                and room_transport_known
+                and room_can_control_transport
+                and room_phase == "playing"
+                and room_playback_state == "playing"
+                and time.time() >= transport_guard_until
+            ):
+                set_transport_guard(1.5)
+                send({
+                    "type": "transport_request",
+                    "action": "pause",
+                    "position_seconds": player_position(self),
+                    "is_paused": True,
+                })
+                return
+
             if not self._transport_locked():
                 return
 
-            # A participant cannot pause while the room is playing.
+            # In host-only mode a participant cannot pause.
             if room_playback_state == "playing":
                 set_transport_guard()
                 try:
@@ -3329,10 +3352,30 @@ def _watch_party_monitor(
                     pass
 
         def onPlayBackResumed(self):
+            # guest_play_pause permits this participant to resume the shared
+            # room. The server will rebroadcast the authoritative play command.
+            if (
+                session_id
+                and attached
+                and room_transport_known
+                and room_can_control_transport
+                and room_phase == "playing"
+                and room_playback_state == "paused"
+                and time.time() >= transport_guard_until
+            ):
+                set_transport_guard(1.5)
+                send({
+                    "type": "transport_request",
+                    "action": "play",
+                    "position_seconds": player_position(self),
+                    "is_paused": False,
+                })
+                return
+
             if not self._transport_locked():
                 return
 
-            # A participant cannot resume while the host has paused the room.
+            # In host-only mode a participant cannot resume a paused room.
             if room_playback_state == "paused":
                 set_transport_guard()
                 try:
