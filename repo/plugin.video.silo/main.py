@@ -2549,18 +2549,14 @@ def add_your_stuff_folder():
 
 
 def _watch_party_socket_url(client, room_id):
-    """Build the room WebSocket URL while preserving a configured URL prefix."""
+    """Build the room WebSocket URL like Silo's web client."""
     from urllib.parse import urlparse, urlunparse
 
     parsed = urlparse(client.base)
     scheme = "wss" if parsed.scheme == "https" else "ws"
-    base_path = (parsed.path or "").rstrip("/")
     path = (
-        "%s/api/v2/watch-together/rooms/%s/ws"
-        % (
-            base_path,
-            quote(str(room_id), safe=""),
-        )
+        "/api/v2/watch-together/rooms/%s/ws"
+        % quote(str(room_id), safe="")
     )
     return urlunparse((scheme, parsed.netloc, path, "", "", ""))
 
@@ -2644,16 +2640,52 @@ class _SiloWebSocket:
         ):
             host_header = "%s:%d" % (host_header, port)
 
-        sock = socket.create_connection(
-            (host, port),
-            timeout=self.timeout,
+        try:
+            sock = socket.create_connection(
+                (host, port),
+                timeout=self.timeout,
+            )
+        except Exception as exc:
+            log(
+                "Watch Party WebSocket TCP connection failed to %s:%d: %s"
+                % (host, port, exc),
+                xbmc.LOGERROR,
+            )
+            raise SiloError(
+                "Watch Party WebSocket TCP connection failed: %s" % exc
+            )
+
+        log(
+            "Watch Party WebSocket TCP connection established to %s:%d"
+            % (host, port),
+            xbmc.LOGDEBUG,
         )
 
         if parsed.scheme == "wss":
-            context = ssl.create_default_context()
-            sock = context.wrap_socket(
-                sock,
-                server_hostname=host,
+            try:
+                context = ssl.create_default_context()
+                sock = context.wrap_socket(
+                    sock,
+                    server_hostname=host,
+                )
+            except Exception as exc:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+                log(
+                    "Watch Party WebSocket TLS handshake failed: %s"
+                    % exc,
+                    xbmc.LOGERROR,
+                )
+                raise SiloError(
+                    "Watch Party WebSocket TLS handshake failed: %s" % exc
+                )
+
+            log(
+                "Watch Party WebSocket TLS connection established",
+                xbmc.LOGDEBUG,
             )
 
         self.sock = sock
@@ -2682,9 +2714,40 @@ class _SiloWebSocket:
             ", ".join(self.protocols),
         )
 
-        self.sock.sendall(request.encode("ascii"))
+        try:
+            self.sock.sendall(request.encode("ascii"))
+        except Exception as exc:
+            self.close()
+            log(
+                "Watch Party WebSocket upgrade request failed to send: %s"
+                % exc,
+                xbmc.LOGERROR,
+            )
+            raise SiloError(
+                "Watch Party WebSocket upgrade request failed: %s" % exc
+            )
 
-        response = self._read_http_headers()
+        log(
+            "Watch Party WebSocket upgrade request sent to %s"
+            % path,
+            xbmc.LOGDEBUG,
+        )
+
+        try:
+            response = self._read_http_headers()
+        except socket.timeout:
+            self.close()
+            log(
+                "Watch Party WebSocket handshake timed out waiting for HTTP 101",
+                xbmc.LOGERROR,
+            )
+            raise SiloError(
+                "Watch Party WebSocket handshake timed out waiting for HTTP 101"
+            )
+        except Exception:
+            self.close()
+            raise
+
         lines = response.decode("latin-1").split("\\r\\n")
         status = lines[0] if lines else ""
         headers = {}
@@ -2694,6 +2757,12 @@ class _SiloWebSocket:
                 continue
             name, value = line.split(":", 1)
             headers[name.strip().lower()] = value.strip()
+
+        log(
+            "Watch Party WebSocket handshake response received: %s"
+            % status,
+            xbmc.LOGDEBUG,
+        )
 
         if not status.startswith("HTTP/1.1 101"):
             self.close()
@@ -2874,7 +2943,6 @@ class _SiloWebSocket:
             sock.close()
         except Exception:
             pass
-
 
 def _watch_party_monitor(client, room_id, room_token):
     """Follow a host-controlled Watch Party as a guest."""
