@@ -329,7 +329,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True, extra_headers=None):
         if not self.base:
             self._prompt_account()
 
@@ -341,10 +341,14 @@ class SiloClient:
             self.select_profile()
 
         try:
+            headers = self._headers()
+            if extra_headers:
+                headers.update(extra_headers)
+
             r = self.session.request(
                 method,
                 self.base + path,
-                headers=self._headers(),
+                headers=headers,
                 params=params,
                 json=body,
                 timeout=timeout,
@@ -360,7 +364,17 @@ class SiloClient:
                 save_config(self.cfg)
                 self.login()
 
-            return self._send(method, path, params, body, need_profile, False, timeout, log_not_found)
+            return self._send(
+                method,
+                path,
+                params,
+                body,
+                need_profile,
+                False,
+                timeout,
+                log_not_found,
+                extra_headers,
+            )
 
         # A locked profile may need a fresh profile-verification token.
         if r.status_code == 403 and retry and "profile_verification" in r.text:
@@ -858,6 +872,101 @@ class SiloClient:
                 "limit": limit,
                 "offset": offset,
                 "include_total": "false",
+            },
+        ) or {}
+
+    # Return one page from a profile-wide personal catalog source.
+    # This is the same catalog surface the Silo web client uses for Favorites,
+    # Watchlist and History, preserving the server's source ordering and cursor.
+    def personal_catalog_page(self, source, cursor=None, limit=200, collection_id=None):
+        source = str(source or "").strip().lower()
+        if source not in ("favorites", "watchlist", "history", "user_collection"):
+            raise SiloError("Unsupported personal catalog source: %s" % source)
+
+        limit = max(1, min(int(limit or 200), 200))
+
+        params = {
+            "source": source,
+            "limit": limit,
+            "skip_total": "true",
+            "image_size": "medium",
+        }
+
+        if cursor:
+            params["cursor"] = cursor
+
+        if collection_id:
+            params["collection_id"] = collection_id
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params=params,
+        ) or {}
+
+        return (
+            data.get("items", []),
+            self._next(data),
+        )
+
+    # Return the profile's visible personal collections and collection groups.
+    def collections(self):
+        data = self._json(
+            "GET",
+            "/api/v2/collections",
+        ) or {}
+
+        return (
+            data.get("items", []),
+            data.get("groups", []),
+        )
+
+    # Create an empty Watch Party room.
+    def watch_party_create(self, selection_mode="host_pick"):
+        selection_mode = str(selection_mode or "host_pick").strip().lower()
+
+        if selection_mode not in ("host_pick", "vote"):
+            selection_mode = "host_pick"
+
+        return self._json(
+            "POST",
+            "/api/v2/watch-together/rooms",
+            body={
+                "room_id": uuid.uuid4().hex,
+                "selection_mode": selection_mode,
+            },
+        ) or {}
+
+    # Resolve a Watch Party code or invite token and obtain room access proof.
+    def watch_party_join(self, code=None, join_token=None):
+        body = {}
+
+        if str(code or "").strip():
+            body["code"] = str(code).strip().upper()
+
+        if str(join_token or "").strip():
+            body["join_token"] = str(join_token).strip()
+
+        if not body:
+            raise SiloError("A Watch Party code or invite token is required.")
+
+        return self._json(
+            "POST",
+            "/api/v2/watch-together/join",
+            body=body,
+        ) or {}
+
+    # Read one Watch Party room using its room access proof.
+    def watch_party_room(self, room_id, room_token):
+        if not room_id or not room_token:
+            raise SiloError("Watch Party room credentials are missing.")
+
+        return self._json(
+            "GET",
+            "/api/v2/watch-together/rooms/%s"
+            % quote(str(room_id), safe=""),
+            extra_headers={
+                "X-Room-Token": str(room_token),
             },
         ) or {}
 
