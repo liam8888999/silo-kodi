@@ -2591,20 +2591,16 @@ def _watch_party_join(client):
 
 
 def _watch_party_monitor(client, room_id, room_token):
-    """Follow a host-controlled Watch Party until it ends or the user exits."""
+    """Follow a host-controlled Watch Party as a guest."""
     try:
         import websocket
     except ImportError:
         raise SiloError(
-            "Watch Party support requires Kodi's websocket module."
+            "Watch Party support requires the Kodi websocket library."
         )
 
-    try:
-        ticket = client.watch_party_socket_ticket(room_id, room_token)
-        ticket_value = ticket["ticket"]
-    except Exception:
-        raise
-
+    ticket = client.watch_party_socket_ticket(room_id, room_token)
+    ticket_value = ticket["ticket"]
     url = _watch_party_socket_url(client, room_id)
 
     try:
@@ -2614,20 +2610,21 @@ def _watch_party_monitor(client, room_id, room_token):
                 "silo.room.v2",
                 "silo.ticket.%s" % ticket_value,
             ],
-            timeout=15,
-            origin=None,
+            timeout=1,
+            suppress_origin=True,
         )
     except Exception as exc:
         raise SiloError("Unable to connect to the Watch Party: %s" % exc)
 
     player = xbmc.Player()
     monitor = xbmc.Monitor()
-    current_session = None
+    session_id = None
+    attached = False
     current_selection_revision = None
     last_command_id = None
-    room = None
     last_ping = 0.0
     last_state_report = 0.0
+    server_time_offset = 0.0
 
     def send(message):
         try:
@@ -2636,16 +2633,28 @@ def _watch_party_monitor(client, room_id, room_token):
         except Exception:
             return False
 
-    try:
-        socket.settimeout(1.0)
+    def player_paused():
+        try:
+            return int(player.getPlaySpeed()) == 0
+        except Exception:
+            return bool(xbmc.getCondVisibility("Player.Paused"))
 
+    def player_position():
+        try:
+            return max(0.0, float(player.getTime()))
+        except Exception:
+            return 0.0
+
+    try:
         while not monitor.abortRequested():
             now = time.time()
 
             if now - last_ping >= 15:
                 send({
                     "type": "ping",
-                    "client_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "client_sent_at": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
                 })
                 last_ping = now
 
@@ -2678,13 +2687,15 @@ def _watch_party_monitor(client, room_id, room_token):
                         and selection_revision != current_selection_revision
                     ):
                         current_selection_revision = selection_revision
-                        current_session = _start_watch_party_guest_playback(
+                        session_id = _start_watch_party_guest_playback(
                             client,
                             selected_content_id,
                             selected_file_id,
                             selected_library_id,
                         )
+                        attached = False
                         last_command_id = None
+                        last_state_report = 0.0
 
                 elif message_type == "transport_command":
                     command = message.get("command") or {}
@@ -2693,29 +2704,78 @@ def _watch_party_monitor(client, room_id, room_token):
                     if not command_id or command_id == last_command_id:
                         continue
 
+                    if not session_id or not attached:
+                        continue
+
                     last_command_id = command_id
                     action = command.get("action")
-                    position = float(command.get("position_seconds") or 0)
-                    execute_at = command.get("execute_at")
+                    try:
+                        position = max(
+                            0.0,
+                            float(command.get("position_seconds") or 0),
+                        )
+                    except (TypeError, ValueError):
+                        position = 0.0
 
-                    delay = 0.0
+                    execute_at = command.get("execute_at")
                     if execute_at:
                         try:
                             target = datetime.datetime.fromisoformat(
                                 str(execute_at).replace("Z", "+00:00")
                             ).timestamp()
-                            delay = max(0.0, target - time.time())
+                            delay = max(
+                                0.0,
+                                target - (time.time() + server_time_offset),
+                            )
+                            if delay > 0:
+                                xbmc.sleep(int(delay * 1000))
                         except (TypeError, ValueError, OverflowError):
                             pass
-
-                    if delay > 0:
-                        xbmc.sleep(int(delay * 1000))
 
                     _apply_watch_party_guest_command(
                         action,
                         position,
                         player,
                     )
+
+                    # A guest acknowledges the exact command only after Kodi
+                    # has actually applied it.
+                    if action in ("play", "pause", "seek"):
+                        xbmc.sleep(100)
+                        send({
+                            "type": "ready",
+                            "session_id": session_id,
+                            "command_id": command_id,
+                            "position_seconds": player_position(),
+                            "is_paused": player_paused(),
+                        })
+
+                elif message_type == "pong":
+                    try:
+                        sent = datetime.datetime.fromisoformat(
+                            str(message.get("client_sent_at")).replace(
+                                "Z", "+00:00"
+                            )
+                        ).timestamp()
+                        server_received = datetime.datetime.fromisoformat(
+                            str(message.get("server_received_at")).replace(
+                                "Z", "+00:00"
+                            )
+                        ).timestamp()
+                        server_sent = datetime.datetime.fromisoformat(
+                            str(message.get("server_sent_at")).replace(
+                                "Z", "+00:00"
+                            )
+                        ).timestamp()
+                        received = time.time()
+                        server_time_offset = (
+                            server_received
+                            - sent
+                            + server_sent
+                            - received
+                        ) / 2.0
+                    except (TypeError, ValueError, OverflowError):
+                        pass
 
                 elif message_type == "room_closed":
                     xbmcgui.Dialog().notification(
@@ -2735,29 +2795,28 @@ def _watch_party_monitor(client, room_id, room_token):
                     )
                     break
 
-            # The guest must attach the Silo playback session to the room.
-            if current_session and current_session != "attached":
+            # Attach the current Silo playback session exactly once. The
+            # session ID must remain unchanged for all later state reports.
+            if session_id and not attached:
                 if send({
                     "type": "attach_session",
-                    "session_id": current_session,
+                    "session_id": session_id,
                 }):
-                    current_session = "attached"
+                    attached = True
 
-            # Kodi progress is reported to the room roughly every 1.5 seconds.
+            # Report the guest's current state just like the web client.
             if (
-                current_session == "attached"
+                session_id
+                and attached
                 and player.isPlaying()
                 and now - last_state_report >= 1.5
             ):
-                try:
-                    send({
-                        "type": "state_report",
-                        "session_id": current_session,
-                        "position_seconds": float(player.getTime()),
-                        "is_paused": not player.isPlaying(),
-                    })
-                except Exception:
-                    pass
+                send({
+                    "type": "state_report",
+                    "session_id": session_id,
+                    "position_seconds": player_position(),
+                    "is_paused": player_paused(),
+                })
                 last_state_report = now
 
             xbmc.sleep(25)
@@ -2767,6 +2826,7 @@ def _watch_party_monitor(client, room_id, room_token):
             socket.close()
         except Exception:
             pass
+
 
 
 def _start_watch_party_guest_playback(
