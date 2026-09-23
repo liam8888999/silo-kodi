@@ -380,7 +380,17 @@ class SiloClient:
         if r.status_code == 403 and retry and "profile_verification" in r.text:
             self.cfg.pop("profile_token", None)
             self.verify_profile(self.cfg.get("profile_id"))
-            return self._send(method, path, params, body, need_profile, False, timeout, log_not_found)
+            return self._send(
+                method,
+                path,
+                params,
+                body,
+                need_profile,
+                False,
+                timeout,
+                log_not_found,
+                extra_headers,
+            )
 
         if not r.ok:
             if not (r.status_code == 404 and not log_not_found):
@@ -874,6 +884,49 @@ class SiloClient:
                 "include_total": "false",
             },
         ) or {}
+
+    # Join an existing Watch Party. Kodi intentionally exposes no
+    # room-creation operation: this client is participant-only.
+    def watch_party_join(self, code=None, join_token=None):
+        body = {}
+
+        if str(code or "").strip():
+            body["code"] = str(code).strip().upper()
+
+        if str(join_token or "").strip():
+            body["join_token"] = str(join_token).strip()
+
+        if not body:
+            raise SiloError("A Watch Party code or invite token is required.")
+
+        return self._json(
+            "POST",
+            "/api/v2/watch-together/join",
+            body=body,
+        ) or {}
+
+    # Mint a single-use room socket ticket. The original room proof remains in
+    # X-Room-Token; Silo does not accept room credentials in the WebSocket URL.
+    def watch_party_socket_ticket(self, room_id, room_token):
+        if not room_id or not room_token:
+            raise SiloError("Watch Party room credentials are missing.")
+
+        data = self._json(
+            "POST",
+            "/api/v2/watch-together/rooms/%s/ws-ticket"
+            % quote(str(room_id), safe=""),
+            extra_headers={
+                "X-Room-Token": str(room_token),
+            },
+        ) or {}
+
+        protocol = str(data.get("protocol") or "")
+        ticket = str(data.get("ticket") or "")
+
+        if protocol != "silo.room.v2" or len(ticket) != 43:
+            raise SiloError("Silo returned an invalid Watch Party socket credential.")
+
+        return data
 
     # Return one page from a profile-wide personal catalog source.
     # This is the same catalog surface the Silo web client uses for Favorites,
