@@ -2790,9 +2790,9 @@ class _SiloWebSocket:
                 "Silo did not select the expected Watch Party socket protocol."
             )
 
-        # Short reads are desirable during the room monitor, where application
-        # ping/pong and room state need to be processed promptly.
-        self.sock.settimeout(1.0)
+        # Keep the room monitor responsive enough to immediately undo
+        # unauthorized Kodi pause/seek actions.
+        self.sock.settimeout(0.20)
         return self
 
     def _read_http_headers(self):
@@ -2971,7 +2971,6 @@ def _watch_party_monitor(client, room_id, room_token):
             % exc
         )
 
-    player = xbmc.Player()
     monitor = xbmc.Monitor()
     session_id = None
     attached = False
@@ -2981,6 +2980,18 @@ def _watch_party_monitor(client, room_id, room_token):
     last_state_report = 0.0
     server_time_offset = 0.0
 
+    # The room is authoritative for guest transport. Snapshots and host
+    # commands update this state; it is then enforced continuously whenever
+    # this profile is not allowed to control transport locally.
+    room_phase = None
+    room_playback_state = None
+    room_can_control_transport = False
+    room_target_position = 0.0
+    room_target_updated_at = time.time()
+    room_transport_known = False
+    transport_guard_until = 0.0
+    last_transport_enforcement = 0.0
+
     def send(message):
         try:
             socket.send(message)
@@ -2988,17 +2999,201 @@ def _watch_party_monitor(client, room_id, room_token):
         except Exception:
             return False
 
-    def player_paused():
+    def player_paused(player):
         try:
             return int(player.getPlaySpeed()) == 0
         except Exception:
             return bool(xbmc.getCondVisibility("Player.Paused"))
 
-    def player_position():
+    def player_position(player):
         try:
             return max(0.0, float(player.getTime()))
         except Exception:
             return 0.0
+
+    def parse_server_timestamp(value):
+        try:
+            return datetime.datetime.fromisoformat(
+                str(value).replace("Z", "+00:00")
+            ).timestamp()
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def authoritative_position(now=None):
+        now = time.time() if now is None else now
+
+        if (
+            room_transport_known
+            and room_playback_state == "playing"
+        ):
+            return max(
+                0.0,
+                room_target_position
+                + max(0.0, now - room_target_updated_at),
+            )
+
+        return max(0.0, room_target_position)
+
+    def set_transport_guard(seconds=1.0):
+        nonlocal transport_guard_until
+        transport_guard_until = max(
+            transport_guard_until,
+            time.time() + max(0.0, float(seconds or 0.0)),
+        )
+
+    def update_authoritative_room_state(room):
+        nonlocal (
+            room_phase,
+            room_playback_state,
+            room_can_control_transport,
+            room_target_position,
+            room_target_updated_at,
+            room_transport_known,
+        )
+
+        room_phase = room.get("phase")
+        room_playback_state = room.get("playback_state")
+        room_can_control_transport = bool(
+            room.get("self_can_control_transport")
+        )
+
+        try:
+            room_target_position = max(
+                0.0,
+                float(room.get("anchor_position_seconds") or 0),
+            )
+        except (TypeError, ValueError):
+            room_target_position = 0.0
+
+        # The snapshot reached this client over the already-established socket,
+        # so use the receive time as the local anchor. Host commands use their
+        # execute_at timestamp, which is clock-corrected separately.
+        room_target_updated_at = time.time()
+        room_transport_known = (
+            room_phase == "playing"
+            and room_playback_state in ("playing", "paused")
+        )
+
+    def enforce_guest_transport(player):
+        """Undo unauthorized local pause/seek/play changes immediately."""
+        nonlocal last_transport_enforcement
+
+        if (
+            not session_id
+            or not attached
+            or not room_transport_known
+            or room_can_control_transport
+            or not player.isPlaying()
+            or time.time() < transport_guard_until
+        ):
+            return
+
+        now = time.time()
+        target_position = authoritative_position(now)
+        target_paused = room_playback_state == "paused"
+        current_position = player_position(player)
+        current_paused = player_paused(player)
+
+        position_drift = abs(current_position - target_position)
+        needs_seek = position_drift > 0.75
+        needs_pause_change = current_paused != target_paused
+
+        if not needs_seek and not needs_pause_change:
+            return
+
+        if now - last_transport_enforcement >= 1.0:
+            log(
+                "Enforcing locked Watch Party transport: local=%s%s "
+                "target=%s%s"
+                % (
+                    format_position(current_position),
+                    " paused" if current_paused else " playing",
+                    format_position(target_position),
+                    " paused" if target_paused else " playing",
+                ),
+                xbmc.LOGDEBUG,
+            )
+            last_transport_enforcement = now
+
+        set_transport_guard()
+        _watch_party_apply_transport_state(
+            player,
+            target_position,
+            target_paused,
+        )
+
+    class _WatchPartyPlayer(xbmc.Player):
+        """Kodi player callbacks that immediately undo unauthorized controls."""
+
+        def _transport_locked(self):
+            return (
+                session_id
+                and attached
+                and room_transport_known
+                and not room_can_control_transport
+                and room_phase == "playing"
+                and time.time() >= transport_guard_until
+            )
+
+        def onPlayBackPaused(self):
+            if not self._transport_locked():
+                return
+
+            # A participant cannot pause while the room is playing.
+            if room_playback_state == "playing":
+                set_transport_guard()
+                try:
+                    self.play()
+                except Exception:
+                    pass
+
+        def onPlayBackResumed(self):
+            if not self._transport_locked():
+                return
+
+            # A participant cannot resume while the host has paused the room.
+            if room_playback_state == "paused":
+                set_transport_guard()
+                try:
+                    self.pause()
+                except Exception:
+                    pass
+
+        def onPlayBackSeek(self, time_value, seek_offset):
+            if not self._transport_locked():
+                return
+
+            target = authoritative_position()
+            try:
+                local_seek = max(0.0, float(time_value))
+            except (TypeError, ValueError):
+                local_seek = target
+
+            # Pull Kodi straight back to the room position after a native skip
+            # or timeline seek. Ignore our own corrective seek via the guard.
+            if abs(local_seek - target) > 0.75:
+                set_transport_guard()
+                try:
+                    self.seekTime(target)
+                    if room_playback_state == "paused":
+                        self.pause()
+                except Exception:
+                    pass
+
+        def onPlayBackStarted(self):
+            if not self._transport_locked():
+                return
+
+            # Starting the media is allowed, but the room's paused state is
+            # still authoritative once Kodi has a playable item.
+            if room_playback_state == "paused":
+                set_transport_guard()
+                try:
+                    self.pause()
+                except Exception:
+                    pass
+
+    player = _WatchPartyPlayer()
 
     try:
         while not monitor.abortRequested():
@@ -3031,6 +3226,8 @@ def _watch_party_monitor(client, room_id, room_token):
 
                 if message_type == "snapshot":
                     room = message.get("room") or {}
+                    update_authoritative_room_state(room)
+
                     selection_revision = room.get("selection_revision")
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
@@ -3051,6 +3248,7 @@ def _watch_party_monitor(client, room_id, room_token):
                         attached = False
                         last_command_id = None
                         last_state_report = 0.0
+                        set_transport_guard(2.0)
 
                 elif message_type == "transport_command":
                     command = message.get("command") or {}
@@ -3059,11 +3257,13 @@ def _watch_party_monitor(client, room_id, room_token):
                     if not command_id or command_id == last_command_id:
                         continue
 
-                    if not session_id or not attached:
+                    if not session_id:
                         continue
 
-                    last_command_id = command_id
                     action = command.get("action")
+                    if action not in ("play", "pause", "seek"):
+                        continue
+
                     try:
                         position = max(
                             0.0,
@@ -3074,64 +3274,95 @@ def _watch_party_monitor(client, room_id, room_token):
 
                     execute_at = command.get("execute_at")
                     if execute_at:
-                        try:
-                            target = datetime.datetime.fromisoformat(
-                                str(execute_at).replace("Z", "+00:00")
-                            ).timestamp()
+                        target = parse_server_timestamp(execute_at)
+                        if target is not None:
                             delay = max(
                                 0.0,
                                 target - (time.time() + server_time_offset),
                             )
                             if delay > 0:
                                 xbmc.sleep(int(delay * 1000))
-                        except (TypeError, ValueError, OverflowError):
-                            pass
 
-                    _apply_watch_party_guest_command(
+                    command_playback_state = (
+                        command.get("playback_state") or "playing"
+                    )
+
+                    # The command is itself authoritative. Establish its
+                    # position/state before touching Kodi so callbacks and the
+                    # enforcement loop cannot mistake our correction for a
+                    # prohibited local action.
+                    room_target_position = position
+                    room_target_updated_at = time.time()
+                    room_playback_state = command_playback_state
+                    room_transport_known = room_phase == "playing"
+                    set_transport_guard(1.5)
+
+                    applied = _apply_watch_party_guest_command(
                         action,
                         position,
                         player,
-                        command.get("playback_state") or "playing",
+                        command_playback_state,
                     )
 
-                    # A guest acknowledges the exact command only after Kodi
-                    # has actually applied it.
-                    if action in ("play", "pause", "seek"):
-                        xbmc.sleep(100)
+                    if not applied:
+                        log(
+                            "Watch Party command %s was not applied yet."
+                            % command_id,
+                            xbmc.LOGWARNING,
+                        )
+                        # The next snapshot/repeated command can retry once the
+                        # player is actually available. Do not acknowledge it.
+                        continue
+
+                    last_command_id = command_id
+
+                    # A guest acknowledges only after the player actually
+                    # matches the requested transport state.
+                    xbmc.sleep(100)
+                    actual_position = player_position(player)
+                    actual_paused = player_paused(player)
+                    target_position = authoritative_position()
+                    target_paused = command_playback_state == "paused"
+
+                    if (
+                        abs(actual_position - target_position) <= 1.0
+                        and actual_paused == target_paused
+                    ):
                         send({
                             "type": "ready",
                             "session_id": session_id,
                             "command_id": command_id,
-                            "position_seconds": player_position(),
-                            "is_paused": player_paused(),
+                            "position_seconds": actual_position,
+                            "is_paused": actual_paused,
                         })
+                    else:
+                        log(
+                            "Watch Party command %s applied locally but did "
+                            "not settle at the authoritative state yet."
+                            % command_id,
+                            xbmc.LOGDEBUG,
+                        )
 
                 elif message_type == "pong":
-                    try:
-                        sent = datetime.datetime.fromisoformat(
-                            str(message.get("client_sent_at")).replace(
-                                "Z", "+00:00"
-                            )
-                        ).timestamp()
-                        server_received = datetime.datetime.fromisoformat(
-                            str(message.get("server_received_at")).replace(
-                                "Z", "+00:00"
-                            )
-                        ).timestamp()
-                        server_sent = datetime.datetime.fromisoformat(
-                            str(message.get("server_sent_at")).replace(
-                                "Z", "+00:00"
-                            )
-                        ).timestamp()
-                        received = time.time()
+                    sent = parse_server_timestamp(message.get("client_sent_at"))
+                    server_received = parse_server_timestamp(
+                        message.get("server_received_at")
+                    )
+                    server_sent = parse_server_timestamp(
+                        message.get("server_sent_at")
+                    )
+                    received = time.time()
+                    if (
+                        sent is not None
+                        and server_received is not None
+                        and server_sent is not None
+                    ):
                         server_time_offset = (
                             server_received
                             - sent
                             + server_sent
                             - received
                         ) / 2.0
-                    except (TypeError, ValueError, OverflowError):
-                        pass
 
                 elif message_type == "room_closed":
                     xbmcgui.Dialog().notification(
@@ -3160,7 +3391,11 @@ def _watch_party_monitor(client, room_id, room_token):
                 }):
                     attached = True
 
-            # Report the guest's current state just like the web client.
+            # Enforce the current room transport after applying any new socket
+            # message, so an unauthorized local pause/seek is corrected against
+            # the newest host state before the next guest report.
+            enforce_guest_transport(player)
+
             if (
                 session_id
                 and attached
@@ -3170,8 +3405,8 @@ def _watch_party_monitor(client, room_id, room_token):
                 send({
                     "type": "state_report",
                     "session_id": session_id,
-                    "position_seconds": player_position(),
-                    "is_paused": player_paused(),
+                    "position_seconds": player_position(player),
+                    "is_paused": player_paused(player),
                 })
                 last_state_report = now
 
@@ -3184,9 +3419,8 @@ def _watch_party_monitor(client, room_id, room_token):
             pass
 
 
-
-def _wait_for_watch_party_player(player, timeout=10.0):
-    """Wait for Kodi to finish opening Watch Party media before seeking."""
+def _wait_for_watch_party_player(player, timeout=20.0):
+    """Wait for Kodi to finish opening Watch Party media before transport changes."""
     deadline = time.time() + max(0.0, float(timeout or 0.0))
 
     while time.time() < deadline:
@@ -3204,6 +3438,59 @@ def _wait_for_watch_party_player(player, timeout=10.0):
         return False
 
 
+def _watch_party_apply_transport_state(player, position, paused):
+    """Force Kodi onto one authoritative Watch Party transport state."""
+    if not player.isPlaying():
+        return False
+
+    try:
+        current = max(0.0, float(player.getTime()))
+    except Exception:
+        current = 0.0
+
+    if abs(current - position) > 0.75:
+        try:
+            player.seekTime(position)
+            xbmc.sleep(75)
+        except Exception as exc:
+            log(
+                "Unable to apply Watch Party seek to %.3fs: %s"
+                % (position, exc),
+                xbmc.LOGWARNING,
+            )
+            return False
+
+    try:
+        currently_paused = int(player.getPlaySpeed()) == 0
+    except Exception:
+        currently_paused = bool(xbmc.getCondVisibility("Player.Paused"))
+
+    if paused:
+        if not currently_paused:
+            try:
+                player.pause()
+                xbmc.sleep(50)
+            except Exception as exc:
+                log(
+                    "Unable to pause Watch Party playback: %s" % exc,
+                    xbmc.LOGWARNING,
+                )
+                return False
+    else:
+        if currently_paused:
+            try:
+                player.play()
+                xbmc.sleep(50)
+            except Exception as exc:
+                log(
+                    "Unable to resume Watch Party playback: %s" % exc,
+                    xbmc.LOGWARNING,
+                )
+                return False
+
+    return True
+
+
 def _apply_watch_party_guest_command(
     action,
     position,
@@ -3211,7 +3498,10 @@ def _apply_watch_party_guest_command(
     playback_state="playing",
 ):
     """Apply a host transport command after Kodi has opened the media."""
-    if action in ("seek", "play", "pause") and not player.isPlaying():
+    if action not in ("seek", "play", "pause"):
+        return False
+
+    if not player.isPlaying():
         if not _wait_for_watch_party_player(player):
             log(
                 "Watch Party command deferred because Kodi did not start "
@@ -3220,45 +3510,11 @@ def _apply_watch_party_guest_command(
             )
             return False
 
-    try:
-        current = max(0.0, float(player.getTime()))
-    except Exception:
-        current = 0.0
-
-    if action in ("seek", "play", "pause"):
-        if abs(current - position) > 0.75:
-            try:
-                player.seekTime(position)
-                xbmc.sleep(75)
-            except Exception as exc:
-                log(
-                    "Unable to apply Watch Party seek to %.3fs: %s"
-                    % (position, exc),
-                    xbmc.LOGWARNING,
-                )
-                return False
-
-    if action in ("play", "seek"):
-        if playback_state == "playing":
-            try:
-                if int(player.getPlaySpeed()) == 0:
-                    player.pause()
-            except Exception:
-                pass
-        elif playback_state == "paused":
-            try:
-                if int(player.getPlaySpeed()) != 0:
-                    player.pause()
-            except Exception:
-                pass
-    elif action == "pause":
-        try:
-            if int(player.getPlaySpeed()) != 0:
-                player.pause()
-        except Exception:
-            pass
-
-    return True
+    return _watch_party_apply_transport_state(
+        player,
+        position,
+        playback_state == "paused",
+    )
 
 
 def _start_watch_party_guest_playback(
