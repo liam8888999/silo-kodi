@@ -2528,7 +2528,7 @@ def open_settings(client):
 
 
 def add_your_stuff_folder():
-    """Add the Silo web client's personal/watch-party destinations."""
+    """Add the Silo web client's personal destinations."""
     item = xbmcgui.ListItem(label="Your Stuff")
     item.setArt({"icon": "DefaultFolder.png"})
     xbmcplugin.addDirectoryItem(
@@ -2566,21 +2566,12 @@ def list_your_stuff(client):
         True,
     )
 
-    party_item = xbmcgui.ListItem(label="Watch Party")
-    party_item.setArt({"icon": "DefaultFolder.png"})
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="watch_party"),
-        party_item,
-        True,
-    )
-
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
 
 
 def _list_personal_catalog(client, source, cursor=None, collection_id=None):
-    """Display a Silo personal catalog source using opaque server cursors."""
+    """Display a Silo personal catalog source using the normal media pipeline."""
     if source not in ("favorites", "watchlist", "history", "user_collection"):
         raise SiloError("Unsupported personal catalog source.")
 
@@ -2602,7 +2593,38 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
     )
     xbmcplugin.setContent(HANDLE, "videos")
 
-    detail_map = fetch_detail_metadata(client, items, None)
+    # Keep personal-list cards in lockstep with Search and Library browsing:
+    # full detail metadata first, then fresh in-progress positions, then the
+    # authoritative series/season watch rollups.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        None,
+    )
+
+    try:
+        in_progress_map = client.in_progress_map()
+    except SiloError as exc:
+        log(
+            "Unable to retrieve in-progress Silo records for %s: %s"
+            % (source, exc),
+            xbmc.LOGWARNING,
+        )
+        in_progress_map = {}
+
+    try:
+        series_watch_map, season_watch_map = fetch_series_watch_data(
+            client,
+            items,
+        )
+    except SiloError as exc:
+        log(
+            "Unable to retrieve %s series watch-state rollups: %s"
+            % (source, exc),
+            xbmc.LOGWARNING,
+        )
+        series_watch_map, season_watch_map = {}, {}
+
     batch = []
 
     for catalog_item in items:
@@ -2610,46 +2632,70 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
         if not content_id:
             continue
 
-        progress = catalog_progress(catalog_item)
-        list_item, media_type, content_id, title, display_progress = build_catalog_list_item(
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+
+        display_progress = (
+            in_progress_map.get(str(content_id))
+            or catalog_progress(catalog_item)
+        )
+
+        item, media_type, content_id, title, display_progress = build_catalog_list_item(
             client,
             catalog_item,
             detail=detail_map.get(str(content_id)),
-            progress=progress,
+            progress=display_progress,
+            series_rollup=series_watch_map.get(str(content_id)),
+            season_rollup=(
+                season_watch_map.get(str(content_id))
+                or season_watch_map.get(
+                    "%s:%s" % (
+                        catalog_item.get("series_id"),
+                        catalog_item.get("season_number"),
+                    )
+                )
+            ),
         )
 
         if media_type in PLAYABLE:
-            list_item.setProperty("IsPlayable", "true")
+            item.setProperty("IsPlayable", "true")
+            # Match Search: do not bake a possibly stale library ID or runtime
+            # into the URL. Playback resolves any missing library at play time
+            # and performs its own fresh server resume lookup.
             url = build_url(
                 action="play",
-                content_id=content_id,
-                library_id=catalog_item.get("library_id"),
-                duration_seconds=(
-                    catalog_item.get("duration_seconds")
-                    or catalog_item.get("runtime")
+                content_id=(
+                    catalog_item.get("play_content_id")
+                    or content_id
                 ),
-                resume_available=1 if display_progress and display_progress.get("resume_available") else 0,
+                resume_available=int(
+                    has_usable_resume(display_progress)
+                ),
             )
             is_folder = False
         elif media_type == "series":
             url = build_url(
                 action="seasons",
                 series_id=content_id,
-                library_id=catalog_item.get("library_id"),
             )
             is_folder = True
         else:
-            url = build_url(
-                action="details",
-                content_id=content_id,
-                library_id=catalog_item.get("library_id"),
-            )
-            is_folder = True
+            # Keep non-video catalog types visible without inventing a
+            # playback URL. The normal item-details route can be added later
+            # alongside the dedicated Kodi details screen.
+            continue
 
-        batch.append((url, list_item, is_folder))
+        batch.append((url, item, is_folder))
 
     if batch:
-        xbmcplugin.addDirectoryItems(HANDLE, batch, len(batch))
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(batch) + (1 if next_cursor else 0),
+        )
 
     if next_cursor:
         next_item = xbmcgui.ListItem(label="More")
@@ -2726,88 +2772,6 @@ def list_collection(client, collection_id, title=None, cursor=None):
         cursor=cursor,
         collection_id=collection_id,
     )
-
-
-def watch_party(client):
-    """Provide the web client's Watch Party create/join entry point in Kodi."""
-    choice = xbmcgui.Dialog().select(
-        "Watch Party",
-        [
-            "Create Watch Party",
-            "Join Watch Party",
-        ],
-    )
-
-    if choice < 0:
-        xbmcplugin.endOfDirectory(HANDLE)
-        return
-
-    if choice == 0:
-        mode = xbmcgui.Dialog().select(
-            "How should the room pick what to watch?",
-            [
-                "Host picks",
-                "Everyone votes",
-            ],
-        )
-        if mode < 0:
-            xbmcplugin.endOfDirectory(HANDLE)
-            return
-
-        response = client.watch_party_create(
-            "vote" if mode == 1 else "host_pick"
-        )
-        room = response.get("room") or {}
-        room_id = room.get("room_id")
-        room_token = response.get("room_access_token")
-
-        if not room_id or not room_token:
-            raise SiloError("Silo did not return Watch Party room credentials.")
-
-        code = room.get("code") or ""
-        xbmcgui.Dialog().ok(
-            "Watch Party Created",
-            "Code: %s\\n\\nRoom: %s\\n\\nUse this code in Silo to join."
-            % (code, room_id),
-        )
-
-        # Keep the credentials in Kodi's current window so the room can be
-        # refreshed during this session without persisting a sensitive token.
-        window = xbmcgui.Window(10000)
-        window.setProperty("Silo.WatchParty.RoomID", str(room_id))
-        window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
-        window.setProperty("Silo.WatchParty.Code", str(code))
-
-    else:
-        code = xbmcgui.Dialog().input(
-            "Watch Party code",
-            type=xbmcgui.INPUT_ALPHANUM,
-        ).strip()
-
-        if not code:
-            xbmcplugin.endOfDirectory(HANDLE)
-            return
-
-        response = client.watch_party_join(code=code)
-        room = response.get("room") or {}
-        room_id = room.get("room_id")
-        room_token = response.get("room_access_token")
-
-        if not room_id or not room_token:
-            raise SiloError("Silo did not return Watch Party room credentials.")
-
-        xbmcgui.Dialog().ok(
-            "Watch Party Joined",
-            "Code: %s\\n\\nRoom: %s"
-            % (room.get("code") or code, room_id),
-        )
-
-        window = xbmcgui.Window(10000)
-        window.setProperty("Silo.WatchParty.RoomID", str(room_id))
-        window.setProperty("Silo.WatchParty.RoomToken", str(room_token))
-
-    xbmcplugin.setContent(HANDLE, "files")
-    xbmcplugin.endOfDirectory(HANDLE)
 
 
 def list_root(client, page=None):
@@ -5688,10 +5652,6 @@ def router(client):
             params.get("title"),
             params.get("cursor"),
         )
-        return
-
-    if action == "watch_party":
-        watch_party(client)
         return
 
     if action == "libraries":
