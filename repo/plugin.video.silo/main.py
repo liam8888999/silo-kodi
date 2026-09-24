@@ -2658,11 +2658,6 @@ def _watch_party_update_window_state(ui_state):
     window.setProperty("Silo.WatchParty.Finished", "true" if finished else "false")
     window.setProperty("Silo.WatchParty.Ended", "true" if ended else "false")
 
-    # Only refresh the dedicated lobby. This makes host-stop/disconnect state
-    # appear as a directory without ever re-running the room-code prompt.
-    if lobby or finished:
-        _watch_party_refresh_lobby()
-
     return status, lobby, finished, ended
 
 
@@ -2816,17 +2811,11 @@ def _watch_party_join(client):
     thread.daemon = False
     thread.start()
 
-    # Move away from the join action before returning control to Kodi.
-    # The lobby has its own plugin action, so later Container.Refresh calls
-    # redraw this directory instead of executing the room-code prompt again.
-    try:
-        xbmc.executebuiltin(
-            "Container.Update(%s,replace)"
-            % build_url(action="watch_party_lobby")
-        )
-    except Exception:
-        # Keep a usable lobby even if Kodi declines the navigation command.
-        list_watch_party_lobby()
+    # Finish the current join action with the normal Kodi directory
+    # contents. The monitor remains alive in the background. Later refreshes
+    # are limited to an already-open lobby container, so they never re-open
+    # the room-code prompt.
+    list_watch_party_lobby()
 
 
 def _watch_party_leave():
@@ -3834,6 +3823,7 @@ def _watch_party_monitor(
 
                     if phase == "playing":
                         was_room_playing = True
+                        _watch_party_refresh_lobby()
                         if not player.isPlaying():
                             update_ui(
                                 status="Host is starting playback...",
@@ -3903,6 +3893,8 @@ def _watch_party_monitor(
                                     % exc,
                                     xbmc.LOGWARNING,
                                 )
+
+                        _watch_party_refresh_lobby()
 
                 elif message_type == "transport_command":
                     command = message.get("command") or {}
