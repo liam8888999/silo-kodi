@@ -4047,6 +4047,29 @@ def _watch_party_monitor(
         ):
             now = time.time()
 
+            # The room WebSocket carries Watch Party transport. The playback
+            # control WebSocket separately carries authoritative server Stop/
+            # Terminate commands for this exact playback session.
+            if session_id:
+                try:
+                    if now >= watch_party_control_reconnect_after:
+                        connect_watch_party_control_socket(session_id)
+                    if watch_party_control_socket is not None:
+                        while True:
+                            control_message = watch_party_control_socket.recv()
+                            if control_message is None:
+                                break
+                            if handle_watch_party_control_message(control_message):
+                                break
+                except Exception as exc:
+                    close_watch_party_control_socket()
+                    watch_party_control_reconnect_after = now + 1.0
+                    log(
+                        "Watch Party playback control socket failed: %s"
+                        % exc,
+                        xbmc.LOGWARNING,
+                    )
+
             if (
                 _watch_party_window().getProperty(
                     "Silo.WatchParty.LeaveRequested"
