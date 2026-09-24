@@ -3491,7 +3491,7 @@ def _watch_party_monitor(
             )
             last_transport_enforcement = now
 
-        set_transport_guard()
+        set_transport_guard(2.0 if needs_seek else 1.0)
         _watch_party_apply_transport_state(
             player,
             target_position,
@@ -3540,16 +3540,16 @@ def _watch_party_monitor(
             except (TypeError, ValueError):
                 local_seek = target
 
-            # Pull Kodi straight back to the room position after a native skip
-            # or timeline seek. Ignore our own corrective seek via the guard.
+            # Pull Kodi straight back to the room position after a native
+            # skip or timeline seek. Pause during the correction so the player
+            # cannot advance while the authoritative position is restored.
             if abs(local_seek - target) > 0.75:
-                set_transport_guard()
-                try:
-                    self.seekTime(target)
-                    if room_playback_state == "paused":
-                        self.pause()
-                except Exception:
-                    pass
+                set_transport_guard(2.0)
+                _watch_party_apply_transport_state(
+                    self,
+                    target,
+                    room_playback_state == "paused",
+                )
 
         def onPlayBackStarted(self):
             if not self._transport_locked():
@@ -3682,21 +3682,6 @@ def _watch_party_monitor(
                 if message_type == "snapshot":
                     room = message.get("room") or {}
                     update_authoritative_room_state(room)
-                    if (
-                        local_transport_request_state is not None
-                        and room_playback_state
-                        == (
-                            "paused"
-                            if local_transport_request_state
-                            else "playing"
-                        )
-                    ):
-                        local_transport_request_state = None
-                        local_transport_request_until = 0.0
-                        try:
-                            last_observed_paused = player_paused(player)
-                        except Exception:
-
                     phase = room.get("phase")
                     selection_revision = room.get("selection_revision")
                     selected_content_id = room.get("selected_content_id")
@@ -3760,7 +3745,7 @@ def _watch_party_monitor(
                             last_command_id = None
                             last_state_report = 0.0
                             set_transport_guard(0.75)
-                                    update_ui(
+                            update_ui(
                                 status="Playing with the Watch Party host.",
                                 lobby=False,
                             )
@@ -3854,8 +3839,9 @@ def _watch_party_monitor(
                     room_transport_known = room_phase == "playing"
                     # Ignore local transport callbacks while Kodi settles
                     # this server-scheduled command.
-                    set_transport_guard(0.75)
-                    last_observed_paused = None
+                    set_transport_guard(
+                        2.0 if action == "seek" else 0.75
+                    )
 
                     applied = _apply_watch_party_guest_command(
                         action,
@@ -4112,7 +4098,12 @@ def _kodi_set_watch_party_play_state(player, should_play):
 
 
 def _watch_party_apply_transport_state(player, position, paused):
-    """Force Kodi onto one authoritative Watch Party transport state."""
+    """Force Kodi onto one authoritative Watch Party transport state.
+
+    Every corrective position sync is performed while Kodi is paused. This
+    prevents the player from advancing during the seek and then briefly
+    running ahead of the authoritative Watch Party position.
+    """
     if not player.isPlaying():
         return False
 
@@ -4121,7 +4112,22 @@ def _watch_party_apply_transport_state(player, position, paused):
     except Exception:
         current = 0.0
 
-    if abs(current - position) > 0.75:
+    needs_seek = abs(current - position) > 0.75
+
+    if needs_seek:
+        try:
+            currently_paused = int(player.getPlaySpeed()) == 0
+        except Exception:
+            currently_paused = bool(xbmc.getCondVisibility("Player.Paused"))
+
+        if not currently_paused:
+            if not _kodi_set_watch_party_play_state(player, False):
+                log(
+                    "Unable to pause Kodi before Watch Party resynchronisation.",
+                    xbmc.LOGWARNING,
+                )
+                return False
+
         try:
             player.seekTime(position)
             xbmc.sleep(75)
