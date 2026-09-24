@@ -3389,25 +3389,34 @@ def _watch_party_monitor(
             return True
 
         close_watch_party_control_socket()
+
+        ticket_data = client.playback_control_socket_ticket(active_session_id)
+        ticket = str(ticket_data.get("ticket") or "")
+        protocol = str(ticket_data.get("protocol") or "")
+        if not ticket or protocol != "silo.playback-control.v2":
+            raise SiloError("Invalid Watch Party playback control ticket.")
+
         base = str(client.base).rstrip("/")
         parsed = urlparse(base)
         ws_scheme = "wss" if parsed.scheme == "https" else "ws"
-        # Silo's playback-control socket is the v1 API route even when
-        # playback itself is using the v2 API.
         api_prefix = parsed.path.rstrip("/")
-        control_url = "%s://%s%s/api/v1/playback/sessions/%s/control/ws" % (
+        if api_prefix.endswith("/api/v1"):
+            api_prefix = api_prefix[:-7]
+        control_url = "%s://%s%s/api/v2/playback/sessions/%s/control/ws" % (
             ws_scheme,
             parsed.netloc,
             api_prefix,
-            active_session_id,
+            quote(str(active_session_id), safe=""),
         )
+
         control = _SiloWebSocket(
             control_url,
+            protocols=[protocol, "silo.ticket.%s" % ticket],
             timeout=5,
             origin=_watch_party_http_origin(client),
-            headers=client._headers(),
         ).connect()
         control.sock.settimeout(0.05)
+
         control.send({
             "type": "hello",
             "session_id": active_session_id,
@@ -3419,6 +3428,7 @@ def _watch_party_monitor(
                 "commands": ["stop", "terminate"],
             },
         })
+
         watch_party_control_socket = control
         watch_party_control_session_id = active_session_id
         log(
