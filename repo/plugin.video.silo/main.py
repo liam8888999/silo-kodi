@@ -2760,7 +2760,7 @@ def _watch_party_join(client):
     code = xbmcgui.Dialog().input(
         "Watch Party code",
         type=xbmcgui.INPUT_ALPHANUM,
-    ).strip()
+    ).strip().upper()
 
     if not code:
         xbmcplugin.endOfDirectory(HANDLE)
