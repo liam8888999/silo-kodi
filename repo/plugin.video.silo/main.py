@@ -2827,17 +2827,25 @@ def _watch_party_leave():
         xbmcplugin.endOfDirectory(HANDLE)
         return
 
+    # Update the visible directory immediately. The background monitor will
+    # close the socket, but it must not leave Kodi showing the old room lobby
+    # while that shutdown is happening.
     window.setProperty("Silo.WatchParty.LeaveRequested", "true")
-    window.setProperty("Silo.WatchParty.Status", "Leaving Watch Party...")
-    window.setProperty("Silo.WatchParty.Lobby", "true")
-    window.setProperty("Silo.WatchParty.LeaveRequested", "true")
+    window.setProperty("Silo.WatchParty.Status", "Left Watch Party.")
+    window.setProperty("Silo.WatchParty.Lobby", "false")
+    window.setProperty("Silo.WatchParty.Finished", "true")
+    window.setProperty("Silo.WatchParty.Ended", "false")
+
     xbmcgui.Dialog().notification(
         "Watch Party",
-        "Leaving Watch Party...",
+        "Left Watch Party.",
         xbmcgui.NOTIFICATION_INFO,
         2000,
     )
-    xbmcplugin.endOfDirectory(HANDLE)
+
+    # Render the finished lobby state in the same plugin invocation so the
+    # Leave button disappears immediately.
+    list_watch_party_lobby()
 
 
 
