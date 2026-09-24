@@ -2729,8 +2729,24 @@ def list_watch_party_lobby():
         )
         xbmcplugin.addDirectoryItem(
             HANDLE,
-            build_url(action="watch_party_leave"),
+            build_url(action="watch_party_lobby"),
             info_item,
+            False,
+        )
+
+        leave_item = xbmcgui.ListItem(label="Leave Watch Party")
+        leave_item.setArt({"icon": "DefaultFolder.png"})
+        leave_item.setInfo(
+            "video",
+            {
+                "title": "Leave Watch Party",
+                "plot": "Close the Watch Party connection.",
+            },
+        )
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_leave"),
+            leave_item,
             False,
         )
 
@@ -4288,21 +4304,6 @@ def list_your_stuff(client):
         True,
     )
 
-    party_item = xbmcgui.ListItem(
-        label=(
-            "Open Watch Party"
-            if _watch_party_connection_active()
-            else "Join Watch Party"
-        )
-    )
-    party_item.setArt({"icon": "DefaultFolder.png"})
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="watch_party_join"),
-        party_item,
-        True,
-    )
-
     xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.endOfDirectory(HANDLE)
 
@@ -4552,6 +4553,21 @@ def list_root(client, page=None):
             xbmcplugin.setContent(HANDLE, "files")
             xbmcplugin.endOfDirectory(HANDLE)
             return
+
+    watch_party_item = xbmcgui.ListItem(
+        label=(
+            "Open Watch Party"
+            if _watch_party_connection_active()
+            else "Watch Party"
+        )
+    )
+    watch_party_item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="watch_party_join"),
+        watch_party_item,
+        True,
+    )
 
     search_item = xbmcgui.ListItem(label="Search")
     xbmcplugin.addDirectoryItem(
