@@ -4063,7 +4063,7 @@ def _watch_party_monitor(
                                 player=player,
                             )
                             session_id = watch_party_playback_info.get("session_id")
-                            watch_party_token_refresh_expiry = client.access_token_expiry()
+                            watch_party_token_refresh_expiry = None
                             playback_sequence = 0
 
                             # Kodi starts the stream asynchronously. Keep it
