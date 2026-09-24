@@ -3320,6 +3320,7 @@ def _watch_party_monitor(
     last_command_id = None
     last_ping = 0.0
     last_state_report = 0.0
+    playback_sequence = 0
     server_time_offset = 0.0
 
     # The room is authoritative for guest transport. Snapshots and host
@@ -3362,7 +3363,7 @@ def _watch_party_monitor(
 
     def close_watch_party_playback_session(reason):
         """Stop Kodi media and explicitly terminate its Silo playback session."""
-        nonlocal session_id, attached
+        nonlocal session_id, attached, playback_sequence
 
         active_session_id = session_id
         active_player = player
@@ -3394,9 +3395,10 @@ def _watch_party_monitor(
             # Stop Kodi first so the stream consumer closes as well. Then tell
             # Silo explicitly that this Watch Party playback attempt is over.
             try:
+                stop_sequence = max(1, playback_sequence + 1)
                 client.stop_playback(
                     active_session_id,
-                    1,
+                    stop_sequence,
                     last_position,
                 )
                 log(
@@ -3868,6 +3870,7 @@ def _watch_party_monitor(
                                 selected_library_id,
                                 player=player,
                             )
+                            playback_sequence = 0
 
                             # Kodi starts the stream asynchronously. Keep it
                             # paused while the initial Watch Party position is
@@ -4169,10 +4172,60 @@ def _watch_party_monitor(
 
                 if now - last_state_report >= 1.5:
                     actual_paused = player_paused(player)
+                    current_position = player_position(player)
+
+                    # Mirror normal playback: direct sequenced progress lets
+                    # Watch Party detect server-side playback termination.
+                    playback_sequence += 1
+                    try:
+                        client.report_progress(
+                            session_id,
+                            playback_sequence,
+                            current_position,
+                            actual_paused,
+                        )
+                    except SiloError as exc:
+                        if playback_session_was_terminated(exc):
+                            log(
+                                "Silo Watch Party playback session was terminated "
+                                "by the server; stopping Kodi playback.",
+                                xbmc.LOGWARNING,
+                            )
+                            disconnect_requested.set()
+                            try:
+                                if player.isPlaying():
+                                    player.stop()
+                            except Exception as stop_exc:
+                                log(
+                                    "Unable to stop Kodi Watch Party playback "
+                                    "after server termination: %s"
+                                    % stop_exc,
+                                    xbmc.LOGWARNING,
+                                )
+                            update_ui(
+                                status="Playback was terminated by the server.",
+                                lobby=False,
+                                finished=True,
+                            )
+                            _watch_party_reset_lobby()
+                            _watch_party_refresh_lobby()
+                            try:
+                                socket.close()
+                            except Exception:
+                                pass
+                            break
+
+                        log(
+                            "Unable to report Watch Party playback progress: %s"
+                            % exc,
+                            xbmc.LOGWARNING,
+                        )
+
+                    # Keep the room-level state report too.
                     send({
                         "type": "state_report",
                         "session_id": session_id,
-                        "position_seconds": player_position(player),
+                        "position_seconds": current_position,
                         "is_paused": actual_paused,
                     })
                     last_state_report = now
