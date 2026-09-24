@@ -34,6 +34,7 @@ Endpoints used by this addon:
 """
 
 # Standard library modules used for configuration, UUID generation and URL handling.
+import base64
 import json
 import uuid
 from urllib.parse import quote
@@ -672,6 +673,35 @@ class SiloClient:
         self._requested_profile_name = ""
 
         log("Silo account settings and authentication state cleared")
+
+    # Return the access-token expiry without logging or exposing the token.
+    # Silo currently uses JWT access tokens. Decoding the payload is sufficient
+    # here because this value is only used as a local scheduling hint; the server
+    # remains authoritative for authentication and every API call still handles
+    # 401 by refreshing normally.
+    def access_token_expiry(self):
+        token = str(self.cfg.get("token") or _setting("token") or "").strip()
+        if not token:
+            return None
+
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+
+            payload = parts[1]
+            payload += "=" * (-len(payload) % 4)
+            decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+            claims = json.loads(decoded.decode("utf-8"))
+            expiry = claims.get("exp")
+            if expiry is None:
+                return None
+
+            return float(expiry)
+        except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+            return None
+        except Exception:
+            return None
 
     # ----------------------------------------------------------- profiles
 
@@ -1609,6 +1639,9 @@ class SiloClient:
             "playback_plan": plan,
             "file_id": str(file_id),
             "playback_attempt_id": body.get("playback_attempt_id"),
+            # Preserve the requested quality so a seek_reanchor can reproduce
+            # the attempt's intent while the server keeps its current frozen route.
+            "quality_preference": str(quality_preference or "original"),
             # plan_attempt_id is client-owned; keep one stable ID for all
             # replans in this playback session, matching Silo's other clients.
             "plan_attempt_id": uuid.uuid4().hex,
