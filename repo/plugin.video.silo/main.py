@@ -3668,6 +3668,41 @@ def _watch_party_monitor(
                 set_transport_guard()
                 _kodi_set_watch_party_play_state(self, False)
 
+        def onPlayBackSpeedChanged(self, speed):
+            if not self._transport_locked():
+                return
+
+            try:
+                current_speed = int(speed)
+            except (TypeError, ValueError):
+                return
+
+            # Fast-forward and rewind are implemented by Kodi as playback
+            # speed changes. Guests are not allowed to control transport, so
+            # immediately return to normal playback speed.
+            if current_speed in (0, 1):
+                return
+
+            log(
+                "Ignoring local Watch Party playback speed change: %s"
+                % current_speed,
+                xbmc.LOGDEBUG,
+            )
+            set_transport_guard(1.0)
+
+            try:
+                # PlayerControl(Play) returns FF/RW to normal 1x playback.
+                xbmc.executebuiltin("PlayerControl(Play)")
+            except Exception:
+                pass
+
+            # If the room is paused/waiting, the Play control above may have
+            # resumed Kodi as part of leaving FF/RW. Restore the authoritative
+            # paused state immediately.
+            if room_playback_state in ("paused", "waiting"):
+                set_transport_guard(1.0)
+                _kodi_set_watch_party_play_state(self, False)
+
         def onPlayBackSeek(self, time_value, seek_offset):
             if not self._transport_locked():
                 return
@@ -3688,6 +3723,19 @@ def _watch_party_monitor(
                     target,
                     room_playback_state in ("paused", "waiting"),
                 )
+
+        def onPlayBackSeekChapter(self, chapter):
+            if not self._transport_locked():
+                return
+
+            # Chapter/previous/next seek actions are also local seeks and are
+            # not permitted for Watch Party guests.
+            set_transport_guard(2.0)
+            _watch_party_apply_transport_state(
+                self,
+                authoritative_position(),
+                room_playback_state in ("paused", "waiting"),
+            )
 
         def onPlayBackStarted(self):
             if not self._transport_locked():
