@@ -3362,6 +3362,8 @@ def _watch_party_monitor(
 <keymap>
   <FullscreenVideo>
     <keyboard>
+      <p>noop</p>
+      <space>noop</space>
       <f>noop</f>
       <r>noop</r>
       <period>noop</period>
@@ -3379,6 +3381,9 @@ def _watch_party_monitor(
       <right mod="ctrl">noop</right>
     </keyboard>
     <remote>
+      <play>noop</play>
+      <pause>noop</pause>
+      <play_pause>noop</play_pause>
       <forward>noop</forward>
       <reverse>noop</reverse>
       <skipplus>noop</skipplus>
@@ -3387,6 +3392,8 @@ def _watch_party_monitor(
   </FullscreenVideo>
   <FullscreenInfo>
     <keyboard>
+      <p>noop</p>
+      <space>noop</space>
       <f>noop</f>
       <r>noop</r>
       <period>noop</period>
@@ -3404,6 +3411,9 @@ def _watch_party_monitor(
       <right mod="ctrl">noop</right>
     </keyboard>
     <remote>
+      <play>noop</play>
+      <pause>noop</pause>
+      <play_pause>noop</play_pause>
       <forward>noop</forward>
       <reverse>noop</reverse>
       <skipplus>noop</skipplus>
