@@ -4639,21 +4639,6 @@ def list_root(client, page=None):
             xbmcplugin.endOfDirectory(HANDLE)
             return
 
-    watch_party_item = xbmcgui.ListItem(
-        label=(
-            "Open Watch Party"
-            if _watch_party_connection_active()
-            else "Watch Party"
-        )
-    )
-    watch_party_item.setArt({"icon": "DefaultFolder.png"})
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="watch_party_join"),
-        watch_party_item,
-        True,
-    )
-
     search_item = xbmcgui.ListItem(label="Search")
     xbmcplugin.addDirectoryItem(
         HANDLE,
@@ -4675,6 +4660,22 @@ def list_root(client, page=None):
 
     # Keep personal lists and collections immediately below Libraries.
     add_your_stuff_folder()
+
+    # Keep Watch Party directly underneath Your Stuff in the root list.
+    watch_party_item = xbmcgui.ListItem(
+        label=(
+            "Open Watch Party"
+            if _watch_party_connection_active()
+            else "Watch Party"
+        )
+    )
+    watch_party_item.setArt({"icon": "DefaultFolder.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="watch_party_join"),
+        watch_party_item,
+        True,
+    )
 
     # Silo Home sections are profile-wide: they combine content across all
     # libraries visible to the selected profile. This keeps Continue Watching,
