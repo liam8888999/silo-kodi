@@ -4429,17 +4429,14 @@ def _watch_party_monitor(
                                             xbmc.sleep(100)
 
                                         if attached_to_new_stream:
-                                            timeline = (
-                                                refreshed_info.get("playback_plan") or {}
-                                            ).get("timeline") or {}
-                                            try:
-                                                start_offset = float(
-                                                    timeline.get("player_start_seconds")
-                                                )
-                                            except (TypeError, ValueError):
-                                                start_offset = current_room_position
-
-                                            if abs(start_offset - current_room_position) > 0.25:
+                                            # The replacement plan is anchored at
+                                            # the requested room position, but Kodi
+                                            # may still open the new URL at zero
+                                            # depending on the delivery. Verify the
+                                            # actual player position rather than
+                                            # assuming StartOffset was honored.
+                                            replacement_position = player_position(player)
+                                            if abs(replacement_position - current_room_position) > 0.25:
                                                 player.seekTime(current_room_position)
                                                 xbmc.sleep(75)
 
