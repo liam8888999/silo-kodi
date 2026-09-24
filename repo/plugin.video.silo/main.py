@@ -3313,28 +3313,32 @@ def _watch_party_monitor(
         active_session_id = session_id
         active_player = player
 
-        if active_session_id:
-            try:
-                last_position = player_position(active_player)
-            except Exception:
-                last_position = 0.0
+        try:
+            last_position = player_position(active_player)
+        except Exception:
+            last_position = 0.0
 
+        # A permanent Watch Party shutdown must always stop the Kodi player,
+        # even if the playback session ID was already cleared by a room
+        # transition. This prevents direct media from continuing independently
+        # after the Watch Party itself has disappeared.
+        try:
+            if active_player.isPlaying():
+                log(
+                    "Stopping local Watch Party playback: %s" % reason,
+                    xbmc.LOGINFO,
+                )
+                active_player.stop()
+        except Exception as exc:
+            log(
+                "Unable to stop local Watch Party playback: %s"
+                % exc,
+                xbmc.LOGWARNING,
+            )
+
+        if active_session_id:
             # Stop Kodi first so the stream consumer closes as well. Then tell
             # Silo explicitly that this Watch Party playback attempt is over.
-            try:
-                if active_player.isPlaying():
-                    log(
-                        "Stopping local Watch Party playback: %s" % reason,
-                        xbmc.LOGINFO,
-                    )
-                    active_player.stop()
-            except Exception as exc:
-                log(
-                    "Unable to stop local Watch Party playback: %s"
-                    % exc,
-                    xbmc.LOGWARNING,
-                )
-
             try:
                 client.stop_playback(
                     active_session_id,
@@ -3730,6 +3734,26 @@ def _watch_party_monitor(
                                 xbmc.LOGINFO,
                             )
                             break
+                        except SiloError as reconnect_exc:
+                            log(
+                                "Watch Party reconnect attempt failed: %s"
+                                % reconnect_exc,
+                                xbmc.LOGWARNING,
+                            )
+
+                            if reconnect_exc.status in (403, 404, 410):
+                                disconnect_reason = (
+                                    "Watch Party room is no longer available"
+                                )
+                                request_watch_party_disconnect(
+                                    disconnect_reason
+                                )
+                                reconnected = False
+                                break
+
+                            xbmc.sleep(int(reconnect_delay * 1000))
+                            reconnect_delay = min(5.0, reconnect_delay * 2.0)
+
                         except Exception as reconnect_exc:
                             log(
                                 "Watch Party reconnect attempt failed: %s"
