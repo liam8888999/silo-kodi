@@ -3362,6 +3362,128 @@ def _watch_party_monitor(
     # physical button/hotkey press a true no-op. Watch Party therefore installs
     # a temporary keymap while playback is active and maps common seek/FF/RW
     # inputs to Kodi's documented noop action.
+    watch_party_control_socket = None
+    watch_party_control_session_id = None
+
+    def close_watch_party_control_socket():
+        nonlocal watch_party_control_socket, watch_party_control_session_id
+        control = watch_party_control_socket
+        watch_party_control_socket = None
+        watch_party_control_session_id = None
+        if control is not None:
+            try:
+                control.close()
+            except Exception:
+                pass
+
+    def connect_watch_party_control_socket(active_session_id):
+        nonlocal watch_party_control_socket, watch_party_control_session_id
+        if not active_session_id:
+            return False
+        if (
+            watch_party_control_socket is not None
+            and watch_party_control_session_id == active_session_id
+        ):
+            return True
+
+        close_watch_party_control_socket()
+        base = str(client.base).rstrip("/")
+        parsed = urlparse(base)
+        ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+        control_url = "%s://%s/playback/ws/%s" % (
+            ws_scheme,
+            parsed.netloc,
+            active_session_id,
+        )
+        control = _SiloWebSocket(
+            control_url,
+            timeout=15,
+            origin=_watch_party_http_origin(client),
+            headers=client._headers(),
+        ).connect()
+        control.sock.settimeout(0.05)
+        control.send({
+            "type": "hello",
+            "session_id": active_session_id,
+            "client": {
+                "name": "kodi-silo",
+                "version": ADDON_VERSION,
+            },
+            "capabilities": {
+                "commands": ["stop", "terminate"],
+            },
+        })
+        watch_party_control_socket = control
+        watch_party_control_session_id = active_session_id
+        log(
+            "Watch Party playback control socket connected for session %s"
+            % active_session_id,
+            xbmc.LOGDEBUG,
+        )
+        return True
+
+    def handle_watch_party_control_message(message):
+        nonlocal watch_party_token_refresh_expiry
+        try:
+            envelope = json.loads(message or "")
+        except Exception:
+            return False
+        if not isinstance(envelope, dict) or envelope.get("type") != "command":
+            return False
+
+        command = str(envelope.get("name") or "").strip().lower()
+        command_id = str(envelope.get("command_id") or "").strip()
+        if command not in ("stop", "terminate"):
+            return False
+
+        log(
+            "Watch Party server playback command received: %s%s"
+            % (
+                command,
+                " (%s)" % command_id if command_id else "",
+            ),
+            xbmc.LOGINFO,
+        )
+
+        # A terminate/stop is already authoritative on the server. Stop Kodi
+        # immediately, then acknowledge completion so the server's realtime
+        # command ledger can converge without waiting for a progress 410.
+        set_transport_guard(3.0)
+        try:
+            if player.isPlaying():
+                player.stop()
+        except Exception as exc:
+            log(
+                "Unable to stop Kodi after Watch Party server %s: %s"
+                % (command, exc),
+                xbmc.LOGWARNING,
+            )
+
+        try:
+            if command_id:
+                watch_party_control_socket.send({
+                    "type": "ack",
+                    "session_id": session_id,
+                    "command_id": command_id,
+                    "status": "accepted",
+                })
+                watch_party_control_socket.send({
+                    "type": "result",
+                    "session_id": session_id,
+                    "command_id": command_id,
+                    "status": "completed",
+                })
+        except Exception as exc:
+            log(
+                "Unable to acknowledge Watch Party %s command: %s"
+                % (command, exc),
+                xbmc.LOGWARNING,
+            )
+
+        watch_party_token_refresh_expiry = None
+        disconnect_requested.set()
+        return True
+
     watch_party_keymap_path = os.path.join(
         xbmcvfs.translatePath("special://profile"),
         "keymaps",
