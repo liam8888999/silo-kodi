@@ -2635,8 +2635,14 @@ def _watch_party_clear_properties(window=None):
 
 
 def _watch_party_refresh_lobby():
-    """Refresh the visible Kodi Watch Party lobby without creating a dialog."""
+    """Refresh the visible Kodi Watch Party lobby without re-running the join prompt."""
     try:
+        # Only refresh when Kodi is actually displaying the dedicated lobby.
+        # Refreshing the join action would execute _watch_party_join() again
+        # and show the room-code dialog a second time.
+        folder_path = xbmc.getInfoLabel("Container.FolderPath") or ""
+        if "action=watch_party_lobby" not in folder_path:
+            return
         xbmc.executebuiltin("Container.Refresh")
     except Exception:
         pass
@@ -2651,6 +2657,11 @@ def _watch_party_update_window_state(ui_state):
     window.setProperty("Silo.WatchParty.Lobby", "true" if lobby else "false")
     window.setProperty("Silo.WatchParty.Finished", "true" if finished else "false")
     window.setProperty("Silo.WatchParty.Ended", "true" if ended else "false")
+
+    # Only refresh the dedicated lobby. This makes host-stop/disconnect state
+    # appear as a directory without ever re-running the room-code prompt.
+    if lobby or finished:
+        _watch_party_refresh_lobby()
 
     return status, lobby, finished, ended
 
@@ -2805,9 +2816,17 @@ def _watch_party_join(client):
     thread.daemon = False
     thread.start()
 
-    # This is now a normal Kodi directory. The monitor remains alive in the
-    # background and refreshes the directory when the room status changes.
-    list_watch_party_lobby()
+    # Move away from the join action before returning control to Kodi.
+    # The lobby has its own plugin action, so later Container.Refresh calls
+    # redraw this directory instead of executing the room-code prompt again.
+    try:
+        xbmc.executebuiltin(
+            "Container.Update(%s,replace)"
+            % build_url(action="watch_party_lobby")
+        )
+    except Exception:
+        # Keep a usable lobby even if Kodi declines the navigation command.
+        list_watch_party_lobby()
 
 
 def _watch_party_leave():
@@ -3748,10 +3767,17 @@ def _watch_party_monitor(
                         try:
                             socket = connect_watch_party_socket()
                             reconnected = True
-                            last_ping = time.time()
-                            last_state_report = time.time()
+
+                            # The previous WebSocket connection's attachment
+                            # does not carry over to the new connection. Keep
+                            # the existing playback session ID, but explicitly
+                            # attach that session again after reconnecting.
+                            attached = False
+                            last_state_report = 0.0
+
                             log(
-                                "Watch Party WebSocket reconnected successfully.",
+                                "Watch Party WebSocket reconnected successfully; "
+                                "reattaching playback session.",
                                 xbmc.LOGINFO,
                             )
                             break
@@ -3849,6 +3875,20 @@ def _watch_party_monitor(
                         last_command_id = None
                         current_selection_revision = selection_revision
                         remote_stop_until = time.time() + 3.0
+
+                        update_ui(
+                            status=(
+                                "Watch Party %s — waiting for the host to "
+                                "start playback again."
+                            )
+                            % (
+                                _watch_party_window().getProperty(
+                                    "Silo.WatchParty.Code"
+                                )
+                                or "lobby",
+                            ),
+                            lobby=True,
+                        )
 
                         if player.isPlaying():
                             log(
