@@ -2634,6 +2634,23 @@ def _watch_party_clear_properties(window=None):
                 pass
 
 
+def _watch_party_reset_lobby():
+    """Reset the Watch Party folder to its disconnected/joinable state."""
+    window = _watch_party_window()
+
+    # Clear room credentials and stale finished/playing state together so a
+    # refreshed lobby cannot continue displaying the previous room.
+    _watch_party_clear_properties(window)
+
+    window.setProperty(
+        "Silo.WatchParty.Status",
+        "Not connected to a Watch Party.",
+    )
+    window.setProperty("Silo.WatchParty.Lobby", "true")
+    window.setProperty("Silo.WatchParty.Finished", "false")
+    window.setProperty("Silo.WatchParty.Ended", "false")
+
+
 def _watch_party_refresh_lobby():
     """Refresh the visible Kodi Watch Party lobby without re-running the join prompt."""
     try:
@@ -2673,7 +2690,40 @@ def list_watch_party_lobby():
     xbmcplugin.setPluginCategory(HANDLE, "Watch Party")
     xbmcplugin.setContent(HANDLE, "files")
 
-    if finished:
+    if not room_code and not finished:
+        info_item = xbmcgui.ListItem(label=status)
+        info_item.setArt({"icon": "DefaultInfo.png"})
+        info_item.setInfo(
+            "video",
+            {
+                "title": "Watch Party",
+                "plot": status,
+            },
+        )
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_join"),
+            info_item,
+            True,
+        )
+
+        join_item = xbmcgui.ListItem(label="Join Watch Party")
+        join_item.setArt({"icon": "DefaultFolder.png"})
+        join_item.setInfo(
+            "video",
+            {
+                "title": "Join Watch Party",
+                "plot": "Enter a Watch Party room code.",
+            },
+        )
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="watch_party_join"),
+            join_item,
+            True,
+        )
+
+    elif finished:
         message = (
             "The Watch Party has ended."
             if ended
@@ -2683,9 +2733,9 @@ def list_watch_party_lobby():
         info_item.setArt({"icon": "DefaultInfo.png"})
         xbmcplugin.addDirectoryItem(
             HANDLE,
-            build_url(action="watch_party_leave"),
+            build_url(action="watch_party_join"),
             info_item,
-            False,
+            True,
         )
     elif lobby:
         info_item = xbmcgui.ListItem(label=status)
@@ -2832,6 +2882,7 @@ def _watch_party_join(client):
                 finished=True,
             )
             _watch_party_update_window_state(state)
+            _watch_party_reset_lobby()
             _watch_party_refresh_lobby()
 
     thread = threading.Thread(
@@ -2869,6 +2920,9 @@ def _watch_party_leave():
     window.setProperty("Silo.WatchParty.Lobby", "false")
     window.setProperty("Silo.WatchParty.Finished", "true")
     window.setProperty("Silo.WatchParty.Ended", "false")
+
+    _watch_party_reset_lobby()
+    _watch_party_refresh_lobby()
 
     xbmcgui.Dialog().notification(
         "Watch Party",
@@ -3383,6 +3437,8 @@ def _watch_party_monitor(
         )
         disconnect_requested.set()
         close_watch_party_playback_session(reason)
+        _watch_party_reset_lobby()
+        _watch_party_refresh_lobby()
         update_ui(
             status="Disconnected from Watch Party.",
             lobby=False,
