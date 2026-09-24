@@ -1375,7 +1375,7 @@ class SiloClient:
         return {
             "installation_id": self._installation_id(),
             "protocol_version": pv,
-            "client_features": [],
+            "client_features": ["playback_plan_v3", "seek_reanchor_v1"],
             "file_id": str(file_id),
             "profile_id": str(self.cfg["profile_id"]),
             "start_position": float(start_position),
