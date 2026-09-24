@@ -3331,6 +3331,7 @@ def _watch_party_monitor(
     room_can_control_transport = False
     room_target_position = 0.0
     room_target_updated_at = time.time()
+    room_target_server_updated_at = None
     room_transport_known = False
     transport_guard_until = 0.0
     remote_stop_until = 0.0
@@ -3508,10 +3509,18 @@ def _watch_party_monitor(
             room_transport_known
             and room_playback_state == "playing"
         ):
+            if room_target_server_updated_at is not None:
+                server_now = now + server_time_offset
+                elapsed = max(
+                    0.0,
+                    server_now - room_target_server_updated_at,
+                )
+            else:
+                elapsed = max(0.0, now - room_target_updated_at)
+
             return max(
                 0.0,
-                room_target_position
-                + max(0.0, now - room_target_updated_at),
+                room_target_position + elapsed,
             )
 
         return max(0.0, room_target_position)
@@ -3525,7 +3534,8 @@ def _watch_party_monitor(
 
     def update_authoritative_room_state(room):
         nonlocal room_phase, room_playback_state, room_can_control_transport
-        nonlocal room_target_position, room_target_updated_at, room_transport_known
+        nonlocal room_target_position, room_target_updated_at
+        nonlocal room_target_server_updated_at, room_transport_known
 
         room_phase = room.get("phase")
         room_playback_state = room.get("playback_state")
@@ -3541,10 +3551,19 @@ def _watch_party_monitor(
         except (TypeError, ValueError):
             room_target_position = 0.0
 
-        # The snapshot reached this client over the already-established socket,
-        # so use the receive time as the local anchor. Host commands use their
-        # execute_at timestamp, which is clock-corrected separately.
-        room_target_updated_at = time.time()
+        # Keep the server's actual anchor timestamp. Treating an old snapshot
+        # as if its position were current at receive time makes Kodi use a stale
+        # room position until the next snapshot arrives.
+        room_target_server_updated_at = parse_server_timestamp(
+            room.get("anchor_updated_at")
+        )
+        if room_target_server_updated_at is None:
+            room_target_updated_at = time.time()
+        else:
+            room_target_updated_at = (
+                room_target_server_updated_at - server_time_offset
+            )
+
         room_transport_known = (
             room_phase == "playing"
             and room_playback_state in ("playing", "paused", "waiting")
@@ -3609,11 +3628,23 @@ def _watch_party_monitor(
         current_paused = player_paused(player)
 
         position_drift = abs(current_position - target_position)
-        needs_seek = position_drift > 0.75
+        needs_seek = position_drift > 0.50
         needs_pause_change = current_paused != target_paused
 
         if not needs_seek and not needs_pause_change:
             return
+
+        if position_drift >= 3.0:
+            log(
+                "Large Watch Party transport drift detected: "
+                "kodi=%s server=%s delta=%+.3fs"
+                % (
+                    format_position(current_position),
+                    format_position(target_position),
+                    current_position - target_position,
+                ),
+                xbmc.LOGWARNING,
+            )
 
         if now - last_transport_enforcement >= 1.0:
             log(
@@ -4238,7 +4269,7 @@ def _watch_party_monitor(
                     )
                     last_transport_offset_log = now
 
-                if now - last_state_report >= 1.5:
+                if now - last_state_report >= 1.0:
                     actual_paused = player_paused(player)
                     current_position = player_position(player)
 
