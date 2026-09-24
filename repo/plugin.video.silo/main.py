@@ -3327,6 +3327,8 @@ def _watch_party_monitor(
     last_ping = 0.0
     last_state_report = 0.0
     playback_sequence = 0
+    last_reported_paused = None
+    next_progress_report_at = time.time()
     server_time_offset = 0.0
 
     # The room is authoritative for guest transport. Snapshots and host
@@ -3461,9 +3463,24 @@ def _watch_party_monitor(
             xbmc.LOGINFO,
         )
 
-        # A terminate/stop is already authoritative on the server. Stop Kodi
-        # immediately, then acknowledge completion so the server's realtime
-        # command ledger can converge without waiting for a progress 410.
+        # Server Terminate/Stop is already authoritative. Acknowledge first,
+        # then stop Kodi. Normal Silo progress remains the fallback if the
+        # realtime control lane is missed.
+        try:
+            if command_id and watch_party_control_socket is not None:
+                watch_party_control_socket.send({
+                    "type": "ack",
+                    "session_id": session_id,
+                    "command_id": command_id,
+                    "status": "accepted",
+                })
+        except Exception as exc:
+            log(
+                "Unable to acknowledge Watch Party %s command: %s"
+                % (command, exc),
+                xbmc.LOGWARNING,
+            )
+
         set_transport_guard(3.0)
         try:
             if player.isPlaying():
@@ -3476,13 +3493,7 @@ def _watch_party_monitor(
             )
 
         try:
-            if command_id:
-                watch_party_control_socket.send({
-                    "type": "ack",
-                    "session_id": session_id,
-                    "command_id": command_id,
-                    "status": "accepted",
-                })
+            if command_id and watch_party_control_socket is not None:
                 watch_party_control_socket.send({
                     "type": "result",
                     "session_id": session_id,
@@ -3491,13 +3502,14 @@ def _watch_party_monitor(
                 })
         except Exception as exc:
             log(
-                "Unable to acknowledge Watch Party %s command: %s"
+                "Unable to complete Watch Party %s command: %s"
                 % (command, exc),
                 xbmc.LOGWARNING,
             )
 
         watch_party_token_refresh_expiry = None
         disconnect_requested.set()
+        close_watch_party_control_socket()
         return True
 
     watch_party_keymap_path = os.path.join(
@@ -3507,69 +3519,60 @@ def _watch_party_monitor(
     )
     watch_party_keymap_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <keymap>
-  <FullscreenVideo>
-    <keyboard>
-      <p>noop</p>
-      <space>noop</space>
-      <f>noop</f>
-      <r>noop</r>
-      <period>noop</period>
-      <comma>noop</comma>
-      <quote>noop</quote>
-      <opensquarebracket>noop</opensquarebracket>
-      <closesquarebracket>noop</closesquarebracket>
-      <pageup>noop</pageup>
-      <pagedown>noop</pagedown>
-      <channel_up>noop</channel_up>
-      <channel_down>noop</channel_down>
-      <fastforward>noop</fastforward>
-      <rewind>noop</rewind>
-      <left mod="ctrl">noop</left>
-      <right mod="ctrl">noop</right>
-    </keyboard>
-    <remote>
-      <play>noop</play>
-      <pause>noop</pause>
-      <play_pause>noop</play_pause>
-      <forward>noop</forward>
-      <reverse>noop</reverse>
-      <skipplus>noop</skipplus>
-      <skipminus>noop</skipminus>
-    </remote>
-  </FullscreenVideo>
-  <FullscreenInfo>
-    <keyboard>
-      <p>noop</p>
-      <space>noop</space>
-      <f>noop</f>
-      <r>noop</r>
-      <period>noop</period>
-      <comma>noop</comma>
-      <quote>noop</quote>
-      <opensquarebracket>noop</opensquarebracket>
-      <closesquarebracket>noop</closesquarebracket>
-      <pageup>noop</pageup>
-      <pagedown>noop</pagedown>
-      <channel_up>noop</channel_up>
-      <channel_down>noop</channel_down>
-      <fastforward>noop</fastforward>
-      <rewind>noop</rewind>
-      <left mod="ctrl">noop</left>
-      <right mod="ctrl">noop</right>
-    </keyboard>
-    <remote>
-      <play>noop</play>
-      <pause>noop</pause>
-      <play_pause>noop</play_pause>
-      <forward>noop</forward>
-      <reverse>noop</reverse>
-      <skipplus>noop</skipplus>
-      <skipminus>noop</skipminus>
-    </remote>
-  </FullscreenInfo>
+  <FullscreenVideo><keyboard>
+    <p>noop</p><space>noop</space><f>noop</f><r>noop</r>
+    <period>noop</period><comma>noop</comma><quote>noop</quote>
+    <opensquarebracket>noop</opensquarebracket><closesquarebracket>noop</closesquarebracket>
+    <pageup>noop</pageup><pagedown>noop</pagedown>
+    <channel_up>noop</channel_up><channel_down>noop</channel_down>
+    <fastforward>noop</fastforward><rewind>noop</rewind>
+    <left>noop</left><right>noop</right>
+    <left mod="ctrl">noop</left><right mod="ctrl">noop</right>
+  </keyboard><remote>
+    <play>noop</play><pause>noop</pause><play_pause>noop</play_pause>
+    <forward>noop</forward><reverse>noop</reverse>
+    <skipplus>noop</skipplus><skipminus>noop</skipminus>
+  </remote></FullscreenVideo>
+  <VideoOSD><keyboard>
+    <p>noop</p><space>noop</space><f>noop</f><r>noop</r>
+    <period>noop</period><comma>noop</comma><quote>noop</quote>
+    <opensquarebracket>noop</opensquarebracket><closesquarebracket>noop</closesquarebracket>
+    <pageup>noop</pageup><pagedown>noop</pagedown>
+    <channel_up>noop</channel_up><channel_down>noop</channel_down>
+    <fastforward>noop</fastforward><rewind>noop</rewind>
+    <left>noop</left><right>noop</right>
+    <left mod="ctrl">noop</left><right mod="ctrl">noop</right>
+  </keyboard><remote>
+    <play>noop</play><pause>noop</pause><play_pause>noop</play_pause>
+    <forward>noop</forward><reverse>noop</reverse>
+    <skipplus>noop</skipplus><skipminus>noop</skipminus>
+  </remote></VideoOSD>
+  <FullscreenInfo><keyboard>
+    <p>noop</p><space>noop</space><f>noop</f><r>noop</r>
+    <period>noop</period><comma>noop</comma><quote>noop</quote>
+    <opensquarebracket>noop</opensquarebracket><closesquarebracket>noop</closesquarebracket>
+    <pageup>noop</pageup><pagedown>noop</pagedown>
+    <channel_up>noop</channel_up><channel_down>noop</channel_down>
+    <fastforward>noop</fastforward><rewind>noop</rewind>
+    <left>noop</left><right>noop</right>
+    <left mod="ctrl">noop</left><right mod="ctrl">noop</right>
+  </keyboard><remote>
+    <play>noop</play><pause>noop</pause><play_pause>noop</play_pause>
+    <forward>noop</forward><reverse>noop</reverse>
+    <skipplus>noop</skipplus><skipminus>noop</skipminus>
+  </remote></FullscreenInfo>
+  <PlayerControls><keyboard>
+    <p>noop</p><space>noop</space><f>noop</f><r>noop</r>
+    <period>noop</period><comma>noop</comma><pageup>noop</pageup><pagedown>noop</pagedown>
+    <fastforward>noop</fastforward><rewind>noop</rewind>
+    <left>noop</left><right>noop</right>
+  </keyboard><remote>
+    <play>noop</play><pause>noop</pause><play_pause>noop</play_pause>
+    <forward>noop</forward><reverse>noop</reverse>
+    <skipplus>noop</skipplus><skipminus>noop</skipminus>
+  </remote></PlayerControls>
 </keymap>
 """
-
     def set_watch_party_input_lock(enabled):
         """Temporarily make Watch Party seek/FF/RW inputs true no-ops."""
         nonlocal watch_party_input_lock_enabled
@@ -3628,6 +3631,8 @@ def _watch_party_monitor(
         nonlocal session_id, attached, playback_sequence
         nonlocal watch_party_playback_info, watch_party_token_refresh_expiry
         nonlocal watch_party_token_retry_after
+
+        close_watch_party_control_socket()
 
         active_session_id = session_id
         active_player = player
@@ -3751,10 +3756,9 @@ def _watch_party_monitor(
             return False
 
     def player_paused(player):
-        try:
-            return int(player.getPlaySpeed()) == 0
-        except Exception:
-            return bool(xbmc.getCondVisibility("Player.Paused"))
+        # Match normal Silo playback monitoring exactly. getPlaySpeed() also
+        # changes for fast-forward/rewind and is not a reliable paused signal.
+        return bool(xbmc.getCondVisibility("Player.Paused"))
 
     def player_position(player):
         try:
@@ -4060,6 +4064,42 @@ def _watch_party_monitor(
             and not stop_event.is_set()
         ):
             now = time.time()
+            
+            # Poll the v2 Silo playback-control lane before the room socket.
+            # Admin Terminate/Stop is therefore immediate; progress reporting
+            # remains an independent fallback.
+            if (
+                session_id
+                and watch_party_control_socket is None
+                and now >= watch_party_control_reconnect_after
+            ):
+                try:
+                    connect_watch_party_control_socket(session_id)
+                    watch_party_control_reconnect_after = 0.0
+                except Exception as exc:
+                    watch_party_control_reconnect_after = now + 2.0
+                    log(
+                        "Watch Party playback control socket unavailable; "
+                        "retrying: %s" % exc,
+                        xbmc.LOGDEBUG,
+                    )
+
+            if watch_party_control_socket is not None:
+                try:
+                    control_raw = watch_party_control_socket.recv()
+                except Exception as exc:
+                    close_watch_party_control_socket()
+                    watch_party_control_reconnect_after = now + 1.0
+                    log(
+                        "Watch Party playback control socket disconnected; "
+                        "retrying: %s" % exc,
+                        xbmc.LOGDEBUG,
+                    )
+                    control_raw = None
+
+                if control_raw and handle_watch_party_control_message(control_raw):
+                    break
+
 
             # Kodi does not reliably invoke onPlayBackError/onPlayBackEnded for
             # every HTTP/demuxer failure. Detect the transition ourselves so a
@@ -4239,6 +4279,19 @@ def _watch_party_monitor(
                             watch_party_token_refresh_expiry = None
                             watch_party_player_was_playing = False
                             playback_sequence = 0
+                            last_reported_paused = None
+                            next_progress_report_at = time.time()
+                            watch_party_control_reconnect_after = 0.0
+                            try:
+                                connect_watch_party_control_socket(session_id)
+                            except Exception as exc:
+                                watch_party_control_reconnect_after = time.time() + 1.0
+                                log(
+                                    "Unable to connect Watch Party playback "
+                                    "control socket: %s" % exc,
+                                    xbmc.LOGWARNING,
+                                )
+
 
                             # Kodi starts the stream asynchronously. Keep it
                             # paused while the initial Watch Party position is
@@ -4678,38 +4731,18 @@ def _watch_party_monitor(
             # the newest host state before the next guest report.
             reconcile_guest_transport(player, now)
 
-            if session_id and xbmc.getCondVisibility("Player.HasMedia"):
-                if (
-                    player.isPlaying()
-                    and now - last_transport_offset_log >= 5.0
-                    and room_transport_known
-                ):
-                    local_position = player_position(player)
-                    server_position = authoritative_position(now)
-                    log(
-                        "Watch Party guest transport offset: "
-                        "kodi=%.3fs server=%.3fs delta=%+.3fs%s"
-                        % (
-                            local_position,
-                            server_position,
-                            local_position - server_position,
-                            " paused" if player_paused(player) else "",
-                        ),
-                        xbmc.LOGDEBUG,
-                    )
-                    last_transport_offset_log = now
+            if session_id and player.isPlaying():
+                actual_paused = player_paused(player)
+                current_position = player_position(player)
 
-                if (
-                    now >= transport_sync_hold_until
-                    and now - last_state_report >= 1.5
-                ):
-                    actual_paused = player_paused(player)
-                    current_position = player_position(player)
-
-                    # Report the real Kodi position to Silo independently
-                    # of Watch Party room attachment. Room attachment controls
-                    # Watch Party reconciliation, not the underlying playback
-                    # session's progress persistence.
+                # Use the same persistent-progress cadence as normal Silo
+                # playback: every 5 seconds, plus immediate pause/resume
+                # changes. This must not be blocked by room transport holds.
+                pause_state_changed = (
+                    last_reported_paused is not None
+                    and bool(actual_paused) != bool(last_reported_paused)
+                )
+                if now >= next_progress_report_at or pause_state_changed:
                     playback_sequence += 1
                     try:
                         client.report_progress(
@@ -4717,6 +4750,18 @@ def _watch_party_monitor(
                             playback_sequence,
                             current_position,
                             actual_paused,
+                        )
+                        last_reported_paused = bool(actual_paused)
+                        next_progress_report_at = now + 5.0
+                        log(
+                            "Watch Party Silo progress reported: "
+                            "sequence=%d position=%.3f paused=%s"
+                            % (
+                                playback_sequence,
+                                current_position,
+                                bool(actual_paused),
+                            ),
+                            xbmc.LOGDEBUG,
                         )
                     except SiloError as exc:
                         if playback_session_was_terminated(exc):
@@ -4736,6 +4781,8 @@ def _watch_party_monitor(
                                     % stop_exc,
                                     xbmc.LOGWARNING,
                                 )
+                            watch_party_token_refresh_expiry = None
+                            close_watch_party_control_socket()
                             update_ui(
                                 status="Playback was terminated by the server.",
                                 lobby=False,
@@ -4749,24 +4796,34 @@ def _watch_party_monitor(
                                 pass
                             break
 
+                        next_progress_report_at = now + 5.0
                         log(
                             "Unable to report Watch Party playback progress: %s"
                             % exc,
                             xbmc.LOGWARNING,
                         )
 
-                    # Keep the room-level state report too.
-                    send({
-                        "type": "state_report",
-                        "session_id": session_id,
-                        "position_seconds": current_position,
-                        "is_paused": actual_paused,
-                    })
-                    last_state_report = now
+            # Room synchronization reporting remains separate from persistent
+            # Silo progress and continues at the faster 1.5-second cadence.
+            if (
+                session_id
+                and player.isPlaying()
+                and now - last_state_report >= 1.5
+            ):
+                current_position = player_position(player)
+                actual_paused = player_paused(player)
+                send({
+                    "type": "state_report",
+                    "session_id": session_id,
+                    "position_seconds": current_position,
+                    "is_paused": actual_paused,
+                })
+                last_state_report = now
 
             xbmc.sleep(25)
 
     finally:
+        close_watch_party_control_socket()
         set_watch_party_input_lock(False)
         if not disconnect_requested.is_set():
             disconnect_requested.set()
