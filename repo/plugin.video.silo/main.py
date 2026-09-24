@@ -3409,7 +3409,7 @@ def _watch_party_monitor(
         room_target_updated_at = time.time()
         room_transport_known = (
             room_phase == "playing"
-            and room_playback_state in ("playing", "paused")
+            and room_playback_state in ("playing", "paused", "waiting")
         )
 
     def handle_local_transport_event(action, player):
@@ -3466,7 +3466,7 @@ def _watch_party_monitor(
 
         now = time.time()
         target_position = authoritative_position(now)
-        target_paused = room_playback_state == "paused"
+        target_paused = room_playback_state in ("paused", "waiting")
         current_position = player_position(player)
         current_paused = player_paused(player)
 
@@ -3525,8 +3525,9 @@ def _watch_party_monitor(
                 return
 
             # A local resume is never allowed to change the Watch Party state.
-            # Restore the room's authoritative paused state immediately.
-            if room_playback_state == "paused":
+            # Restore the room's authoritative paused state immediately,
+            # including the temporary "waiting" state used during resync.
+            if room_playback_state in ("paused", "waiting"):
                 set_transport_guard()
                 _kodi_set_watch_party_play_state(self, False)
 
@@ -3557,7 +3558,7 @@ def _watch_party_monitor(
 
             # Starting the media is allowed, but the room's paused state is
             # still authoritative once Kodi has a playable item.
-            if room_playback_state == "paused":
+            if room_playback_state in ("paused", "waiting"):
                 set_transport_guard()
                 try:
                     self.pause()
@@ -3836,7 +3837,14 @@ def _watch_party_monitor(
                     room_target_position = position
                     room_target_updated_at = time.time()
                     room_playback_state = command_playback_state
-                    room_transport_known = room_phase == "playing"
+                    room_transport_known = (
+                        room_phase == "playing"
+                        and command_playback_state in (
+                            "playing",
+                            "paused",
+                            "waiting",
+                        )
+                    )
                     # Ignore local transport callbacks while Kodi settles
                     # this server-scheduled command.
                     set_transport_guard(
@@ -3868,7 +3876,7 @@ def _watch_party_monitor(
                     actual_position = player_position(player)
                     actual_paused = player_paused(player)
                     target_position = authoritative_position()
-                    target_paused = command_playback_state == "paused"
+                    target_paused = command_playback_state in ("paused", "waiting")
 
                     if (
                         abs(actual_position - target_position) <= 1.0
@@ -3966,7 +3974,7 @@ def _watch_party_monitor(
                 and player.isPlaying()
                 and time.time() >= transport_guard_until
             ):
-                if player_paused(player) != (room_playback_state == "paused"):
+                if player_paused(player) != (room_playback_state in ("paused", "waiting")):
                     enforce_guest_transport(player)
 
 
@@ -4186,7 +4194,7 @@ def _apply_watch_party_guest_command(
     return _watch_party_apply_transport_state(
         player,
         position,
-        playback_state == "paused",
+        playback_state in ("paused", "waiting"),
     )
 
 
