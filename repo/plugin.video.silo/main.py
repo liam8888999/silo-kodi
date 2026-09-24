@@ -3356,6 +3356,7 @@ def _watch_party_monitor(
     watch_party_playback_info = None
     watch_party_token_refresh_expiry = None
     watch_party_token_retry_after = 0.0
+    watch_party_control_reconnect_after = 0.0
 
     # Kodi keymaps run before xbmc.Player callbacks. Those callbacks can undo
     # a seek or speed change after it happens, but they cannot make the original
