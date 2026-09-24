@@ -3346,6 +3346,113 @@ def _watch_party_monitor(
     # disconnect.
     disconnect_requested = threading.Event()
     switching_media_until = 0.0
+    watch_party_input_lock_enabled = False
+
+    # Kodi keymaps run before xbmc.Player callbacks. Those callbacks can undo
+    # a seek or speed change after it happens, but they cannot make the original
+    # physical button/hotkey press a true no-op. Watch Party therefore installs
+    # a temporary keymap while playback is active and maps common seek/FF/RW
+    # inputs to Kodi's documented noop action.
+    watch_party_keymap_path = os.path.join(
+        xbmcvfs.translatePath("special://profile"),
+        "keymaps",
+        "silo_watch_party.xml",
+    )
+    watch_party_keymap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<keymap>
+  <FullscreenVideo>
+    <keyboard>
+      <f>noop</f>
+      <r>noop</r>
+      <period>noop</period>
+      <comma>noop</comma>
+      <quote>noop</quote>
+      <opensquarebracket>noop</opensquarebracket>
+      <closesquarebracket>noop</closesquarebracket>
+      <pageup>noop</pageup>
+      <pagedown>noop</pagedown>
+      <channel_up>noop</channel_up>
+      <channel_down>noop</channel_down>
+      <fastforward>noop</fastforward>
+      <rewind>noop</rewind>
+      <left mod="ctrl">noop</left>
+      <right mod="ctrl">noop</right>
+    </keyboard>
+    <remote>
+      <forward>noop</forward>
+      <reverse>noop</reverse>
+      <skipplus>noop</skipplus>
+      <skipminus>noop</skipminus>
+    </remote>
+  </FullscreenVideo>
+  <FullscreenInfo>
+    <keyboard>
+      <f>noop</f>
+      <r>noop</r>
+      <period>noop</period>
+      <comma>noop</comma>
+      <quote>noop</quote>
+      <opensquarebracket>noop</opensquarebracket>
+      <closesquarebracket>noop</closesquarebracket>
+      <pageup>noop</pageup>
+      <pagedown>noop</pagedown>
+      <channel_up>noop</channel_up>
+      <channel_down>noop</channel_down>
+      <fastforward>noop</fastforward>
+      <rewind>noop</rewind>
+      <left mod="ctrl">noop</left>
+      <right mod="ctrl">noop</right>
+    </keyboard>
+    <remote>
+      <forward>noop</forward>
+      <reverse>noop</reverse>
+      <skipplus>noop</skipplus>
+      <skipminus>noop</skipminus>
+    </remote>
+  </FullscreenInfo>
+</keymap>
+"""
+
+    def set_watch_party_input_lock(enabled):
+        """Temporarily make Watch Party seek/FF/RW inputs true no-ops."""
+        nonlocal watch_party_input_lock_enabled
+
+        enabled = bool(enabled)
+        if enabled == watch_party_input_lock_enabled:
+            return True
+
+        try:
+            keymap_dir = os.path.dirname(watch_party_keymap_path)
+
+            if enabled:
+                if not xbmcvfs.exists(keymap_dir):
+                    xbmcvfs.mkdirs(keymap_dir)
+
+                handle = xbmcvfs.File(watch_party_keymap_path, "w")
+                try:
+                    handle.write(watch_party_keymap_xml)
+                finally:
+                    handle.close()
+            else:
+                if xbmcvfs.exists(watch_party_keymap_path):
+                    xbmcvfs.delete(watch_party_keymap_path)
+
+            xbmc.executebuiltin("ReloadKeymaps")
+            watch_party_input_lock_enabled = enabled
+
+            log(
+                "Watch Party input lock %s."
+                % ("enabled" if enabled else "disabled"),
+                xbmc.LOGDEBUG,
+            )
+            return True
+        except Exception as exc:
+            log(
+                "Unable to %s Watch Party input keymap: %s"
+                % ("enable" if enabled else "disable", exc),
+                xbmc.LOGWARNING,
+            )
+            return False
 
     def clear_watch_party_state():
         window = xbmcgui.Window(10000)
@@ -3438,6 +3545,7 @@ def _watch_party_monitor(
             "Watch Party participant disconnecting: %s" % reason,
             xbmc.LOGINFO,
         )
+        set_watch_party_input_lock(False)
         disconnect_requested.set()
         close_watch_party_playback_session(reason)
         _watch_party_reset_lobby()
@@ -3932,6 +4040,7 @@ def _watch_party_monitor(
 
                     if phase == "playing":
                         was_room_playing = True
+                        set_watch_party_input_lock(True)
                         _watch_party_refresh_lobby()
                         if not player.isPlaying():
                             update_ui(
@@ -4002,6 +4111,7 @@ def _watch_party_monitor(
                         close_watch_party_playback_session(
                             "Host stopped Watch Party playback"
                         )
+                        set_watch_party_input_lock(False)
                         session_id = None
                         attached = False
                         last_command_id = None
@@ -4337,6 +4447,7 @@ def _watch_party_monitor(
             xbmc.sleep(25)
 
     finally:
+        set_watch_party_input_lock(False)
         if not disconnect_requested.is_set():
             disconnect_requested.set()
             close_watch_party_playback_session(
