@@ -3357,6 +3357,7 @@ def _watch_party_monitor(
     watch_party_token_refresh_expiry = None
     watch_party_token_retry_after = 0.0
     watch_party_control_reconnect_after = 0.0
+    watch_party_player_was_playing = False
 
     # Kodi keymaps run before xbmc.Player callbacks. Those callbacks can undo
     # a seek or speed change after it happens, but they cannot make the original
@@ -3676,6 +3677,7 @@ def _watch_party_monitor(
         watch_party_playback_info = None
         watch_party_token_refresh_expiry = None
         watch_party_token_retry_after = 0.0
+        watch_party_player_was_playing = False
 
     def request_watch_party_disconnect(reason):
         nonlocal switching_media_until
@@ -4048,6 +4050,31 @@ def _watch_party_monitor(
         ):
             now = time.time()
 
+            # Kodi does not reliably invoke onPlayBackError/onPlayBackEnded for
+            # every HTTP/demuxer failure. Detect the transition ourselves so a
+            # dead stream cannot leave its Silo playback session alive.
+            if (
+                session_id
+                and attached
+                and watch_party_player_was_playing
+                and not player.isPlaying()
+                and not disconnect_requested.is_set()
+                and now >= switching_media_until
+                and now >= remote_stop_until
+            ):
+                log(
+                    "Watch Party Kodi playback ended without a playback callback; "
+                    "finalizing the Silo playback session.",
+                    xbmc.LOGWARNING,
+                )
+                request_watch_party_disconnect("Kodi playback ended unexpectedly")
+                break
+
+            if session_id and player.isPlaying():
+                watch_party_player_was_playing = True
+            elif not session_id:
+                watch_party_player_was_playing = False
+
             # The room WebSocket carries Watch Party transport. The playback
             # control WebSocket separately carries authoritative server Stop/
             # Terminate commands for this exact playback session.
@@ -4219,6 +4246,7 @@ def _watch_party_monitor(
                             )
                             session_id = watch_party_playback_info.get("session_id")
                             watch_party_token_refresh_expiry = None
+                            watch_party_player_was_playing = False
                             playback_sequence = 0
 
                             # Kodi starts the stream asynchronously. Keep it
@@ -4272,6 +4300,7 @@ def _watch_party_monitor(
                         set_watch_party_input_lock(False)
                         session_id = None
                         attached = False
+                        watch_party_player_was_playing = False
                         last_command_id = None
                         current_selection_revision = selection_revision
                         remote_stop_until = time.time() + 3.0
