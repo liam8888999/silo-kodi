@@ -3338,7 +3338,9 @@ def _watch_party_monitor(
     room_playback_state = None
     room_can_control_transport = False
     room_target_position = 0.0
-    room_target_updated_at = time.time()
+    room_target_updated_at = None
+    room_target_received_at = time.time()
+    server_time_offset_known = False
     room_transport_known = False
     transport_sync_hold_until = 0.0
     transport_guard_until = 0.0
@@ -3777,18 +3779,22 @@ def _watch_party_monitor(
     def authoritative_position(now=None):
         now = time.time() if now is None else now
 
-        if (
-            room_transport_known
-            and room_playback_state == "playing"
-        ):
-            return max(
-                0.0,
-                room_target_position
-                + max(0.0, now - room_target_updated_at),
-            )
+        if not (room_transport_known and room_playback_state == "playing"):
+            return max(0.0, room_target_position)
 
-        return max(0.0, room_target_position)
+        # Silo's Watch Together room position is anchored at the server's
+        # anchor_updated_at timestamp, then advances while the room plays.
+        if server_time_offset_known and room_target_updated_at is not None:
+            elapsed = now + server_time_offset - room_target_updated_at
+            return max(0.0, room_target_position + max(0.0, elapsed))
 
+        # Safe startup fallback until the first ping/pong establishes the
+        # server/client clock offset.
+        return max(
+            0.0,
+            room_target_position
+            + max(0.0, now - room_target_received_at),
+        )
     def set_transport_guard(seconds=1.0):
         nonlocal transport_guard_until
         transport_guard_until = max(
@@ -3799,13 +3805,11 @@ def _watch_party_monitor(
     def update_authoritative_room_state(room):
         nonlocal room_phase, room_playback_state, room_can_control_transport
         nonlocal room_target_position, room_target_updated_at
-        nonlocal room_transport_known
+        nonlocal room_target_received_at, room_transport_known
 
         room_phase = room.get("phase")
         room_playback_state = room.get("playback_state")
-        room_can_control_transport = bool(
-            room.get("self_can_control_transport")
-        )
+        room_can_control_transport = bool(room.get("self_can_control_transport"))
 
         try:
             room_target_position = max(
@@ -3815,16 +3819,13 @@ def _watch_party_monitor(
         except (TypeError, ValueError):
             room_target_position = 0.0
 
-        # Anchor the snapshot to the local receive time. The server's anchor
-        # timestamp uses the server clock and may not yet have a calibrated
-        # client offset during startup.
-        room_target_updated_at = time.time()
+        room_target_updated_at = parse_server_timestamp(room.get("anchor_updated_at"))
+        room_target_received_at = time.time()
 
         room_transport_known = (
             room_phase == "playing"
             and room_playback_state in ("playing", "paused", "waiting")
         )
-
     def handle_local_transport_event(action, player):
         """Correct a local Kodi play/pause change back to the room state.
 
@@ -3867,7 +3868,7 @@ def _watch_party_monitor(
     def enforce_guest_transport(player):
         """Undo unauthorized local pause/seek/play changes immediately."""
 
-        nonlocal last_transport_enforcement
+        nonlocal last_transport_enforcement, transport_sync_hold_until
 
         if (
             not session_id
@@ -3917,7 +3918,16 @@ def _watch_party_monitor(
             )
             last_transport_enforcement = now
 
-        set_transport_guard(2.0 if needs_seek else 1.0)
+        if needs_seek:
+            # Network seeks complete asynchronously in Kodi. Hold the
+            # reconciler long enough for this correction to settle.
+            set_transport_guard(5.0)
+            transport_sync_hold_until = max(
+                transport_sync_hold_until,
+                time.time() + 5.0,
+            )
+        else:
+            set_transport_guard(1.0)
         _watch_party_apply_transport_state(
             player,
             target_position,
@@ -3997,39 +4007,29 @@ def _watch_party_monitor(
                 _kodi_set_watch_party_play_state(self, False)
 
         def onPlayBackSeek(self, time_value, seek_offset):
+            # Kodi also fires this callback for our own corrective seek.
+            # Never call seekTime() from inside it; that creates a recursive
+            # correction loop and the UI repeatedly shows "-00:00 seconds".
             if not self._transport_locked() or time.time() < transport_guard_until:
                 return
 
-            target = authoritative_position()
             try:
                 local_seek = max(0.0, float(time_value))
             except (TypeError, ValueError):
-                local_seek = target
+                local_seek = player_position(self)
 
-            # Pull Kodi straight back to the room position after a native
-            # skip or timeline seek. Pause during the correction so the player
-            # cannot advance while the authoritative position is restored.
-            if abs(local_seek - target) > 0.75:
-                set_transport_guard(2.0)
-                _watch_party_apply_transport_state(
-                    self,
-                    target,
-                    room_playback_state in ("paused", "waiting"),
+            target = authoritative_position()
+            if abs(local_seek - target) > 1.0:
+                log(
+                    "Watch Party local seek detected outside the transport guard: "
+                    "kodi=%.3f target=%.3f; polling reconciler will correct it."
+                    % (local_seek, target),
+                    xbmc.LOGDEBUG,
                 )
 
         def onPlayBackSeekChapter(self, chapter):
-            if not self._transport_locked() or time.time() < transport_guard_until:
-                return
-
-            # Chapter/previous/next seek actions are also local seeks and are
-            # not permitted for Watch Party guests.
-            set_transport_guard(2.0)
-            _watch_party_apply_transport_state(
-                self,
-                authoritative_position(),
-                room_playback_state in ("paused", "waiting"),
-            )
-
+            # Chapter/previous/next are handled by the polling reconciler.
+            return
         def onPlayBackStarted(self):
             if not self._transport_locked():
                 return
@@ -4142,7 +4142,7 @@ def _watch_party_monitor(
             # from a background plugin thread. Leaving the lobby is therefore
             # handled by the explicit Leave Watch Party item, while the socket
             # remains connected through idle lobby time.
-            if now - last_ping >= 15:
+            if last_ping == 0.0 or now - last_ping >= 15:
                 send({
                     "type": "ping",
                     "client_sent_at": datetime.datetime.now(
@@ -4443,7 +4443,10 @@ def _watch_party_monitor(
                     # enforcement loop cannot mistake our correction for a
                     # prohibited local action.
                     room_target_position = position
-                    room_target_updated_at = time.time()
+                    room_target_updated_at = parse_server_timestamp(
+                        command.get("issued_at")
+                    )
+                    room_target_received_at = time.time()
                     room_playback_state = command_playback_state
                     room_transport_known = (
                         room_phase == "playing"
@@ -4531,6 +4534,7 @@ def _watch_party_monitor(
                             + server_sent
                             - received
                         ) / 2.0
+                        server_time_offset_known = True
 
                 elif message_type == "room_closed":
                     # The host has ended the Watch Party itself, rather than
@@ -4926,10 +4930,7 @@ def _watch_party_apply_transport_state(player, position, paused):
     needs_seek = abs(current - position) > 0.75
 
     if needs_seek:
-        try:
-            currently_paused = int(player.getPlaySpeed()) == 0
-        except Exception:
-            currently_paused = bool(xbmc.getCondVisibility("Player.Paused"))
+        currently_paused = player_paused(player)
 
         # Only pause during the seek when the authoritative target is
         # actually paused. For a playing room, seeking while already playing
