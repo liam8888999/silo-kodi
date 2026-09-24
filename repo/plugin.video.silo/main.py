@@ -3563,7 +3563,6 @@ def _watch_party_monitor(
             session_id
             and attached
             and room_transport_known
-            and time.time() >= transport_guard_until
         ):
             return False
 
@@ -3583,6 +3582,7 @@ def _watch_party_monitor(
             or not attached
             or not room_transport_known
             or now < transport_guard_until
+            or room_playback_state == "waiting"
         ):
             return
 
@@ -3645,7 +3645,6 @@ def _watch_party_monitor(
                 and attached
                 and room_transport_known
                 and room_phase == "playing"
-                and time.time() >= transport_guard_until
             )
 
         def onPlayBackPaused(self):
@@ -3978,7 +3977,7 @@ def _watch_party_monitor(
                         position = 0.0
 
                     execute_at = command.get("execute_at")
-                    if execute_at:
+                    if action != "seek" and execute_at:
                         target = parse_server_timestamp(execute_at)
                         if target is not None:
                             delay = max(
@@ -3987,6 +3986,27 @@ def _watch_party_monitor(
                             )
                             if delay > 0:
                                 xbmc.sleep(int(delay * 1000))
+
+                    # A seek command can arrive behind the
+                    # snapshot for a newer seek. The room's waiting anchor is
+                    # the latest authoritative target, so never apply an older
+                    # command after that newer target is already known.
+                    if (
+                        action == "seek"
+                        and room_playback_state == "waiting"
+                        and abs(position - room_target_position) > 0.75
+                    ):
+                        log(
+                            "Ignoring stale Watch Party seek command %s at %.3fs; "
+                            "current waiting target is %.3fs."
+                            % (
+                                command_id,
+                                position,
+                                room_target_position,
+                            ),
+                            xbmc.LOGDEBUG,
+                        )
+                        continue
 
                     command_playback_state = (
                         command.get("playback_state") or "playing"
