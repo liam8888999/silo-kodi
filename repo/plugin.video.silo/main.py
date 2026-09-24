@@ -2737,8 +2737,26 @@ def list_watch_party_lobby():
     xbmcplugin.endOfDirectory(HANDLE)
 
 
+def _watch_party_connection_active():
+    """Return whether this Kodi session still has an active Watch Party connection."""
+    window = _watch_party_window()
+
+    room_id = window.getProperty("Silo.WatchParty.RoomID")
+    room_token = window.getProperty("Silo.WatchParty.RoomToken")
+    finished = window.getProperty("Silo.WatchParty.Finished").lower() == "true"
+    leaving = window.getProperty("Silo.WatchParty.LeaveRequested").lower() == "true"
+
+    return bool(room_id and room_token and not finished and not leaving)
+
+
 def _watch_party_join(client):
-    """Join an existing Watch Party as a participant and open its lobby."""
+    """Open the existing Watch Party or join a new one by room code."""
+    if _watch_party_connection_active():
+        # The background monitor remains alive when the user navigates away
+        # from the lobby. Reuse that connection instead of creating another
+        # monitor or asking for the room code again.
+        list_watch_party_lobby()
+        return
     code = xbmcgui.Dialog().input(
         "Watch Party code",
         type=xbmcgui.INPUT_ALPHANUM,
@@ -4403,7 +4421,13 @@ def list_your_stuff(client):
         True,
     )
 
-    party_item = xbmcgui.ListItem(label="Join Watch Party")
+    party_item = xbmcgui.ListItem(
+        label=(
+            "Open Watch Party"
+            if _watch_party_connection_active()
+            else "Join Watch Party"
+        )
+    )
     party_item.setArt({"icon": "DefaultFolder.png"})
     xbmcplugin.addDirectoryItem(
         HANDLE,
