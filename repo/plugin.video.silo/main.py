@@ -2941,11 +2941,12 @@ def _watch_party_leave():
 class _SiloWebSocket:
     """Minimal RFC 6455 WebSocket client for Silo's room protocol."""
 
-    def __init__(self, url, protocols, timeout=15, origin=None):
+    def __init__(self, url, protocols=None, timeout=15, origin=None, headers=None):
         self.url = url
         self.protocols = list(protocols or [])
         self.timeout = float(timeout or 15)
         self.origin = str(origin or "").strip()
+        self.headers = dict(headers or {})
         self.sock = None
         self._buffer = b""
 
@@ -3021,23 +3022,28 @@ class _SiloWebSocket:
             path += "?" + parsed.query
 
         key = base64.b64encode(os.urandom(16)).decode("ascii")
-        request = (
-            "GET %s HTTP/1.1\r\n"
-            "Host: %s\r\n"
-            "Origin: %s\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Key: %s\r\n"
-            "Sec-WebSocket-Version: 13\r\n"
-            "Sec-WebSocket-Protocol: %s\r\n"
-            "\r\n"
-        ) % (
-            path,
-            host_header,
-            self.origin,
-            key,
-            ", ".join(self.protocols),
-        )
+        request_lines = [
+            "GET %s HTTP/1.1" % path,
+            "Host: %s" % host_header,
+            "Origin: %s" % self.origin,
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            "Sec-WebSocket-Key: %s" % key,
+            "Sec-WebSocket-Version: 13",
+        ]
+
+        if self.protocols:
+            request_lines.append(
+                "Sec-WebSocket-Protocol: %s"
+                % ", ".join(self.protocols)
+            )
+
+        for name, value in self.headers.items():
+            if value is None:
+                continue
+            request_lines.append("%s: %s" % (name, value))
+
+        request = ("\r\n".join(request_lines) + "\r\n\r\n")
 
         try:
             self.sock.sendall(request.encode("ascii"))
