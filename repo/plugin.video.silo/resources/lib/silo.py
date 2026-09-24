@@ -1738,6 +1738,7 @@ class SiloClient:
             "playback_plan": plan,
             "file_id": str(file_id),
             "playback_attempt_id": body.get("playback_attempt_id"),
+            "client_features": body.get("client_features") or [],
             # Preserve the requested quality so a seek_reanchor can reproduce
             # the attempt's intent while the server keeps its current frozen route.
             "quality_preference": str(quality_preference or "original"),
