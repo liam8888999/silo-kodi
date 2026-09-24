@@ -3833,6 +3833,9 @@ def _watch_party_monitor(
                         # Stop only the local Kodi player; remain connected so a
                         # later host selection/start can begin playback again.
                         was_room_playing = False
+                        close_watch_party_playback_session(
+                            "Host stopped Watch Party playback"
+                        )
                         session_id = None
                         attached = False
                         last_command_id = None
