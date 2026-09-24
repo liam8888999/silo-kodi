@@ -3687,7 +3687,7 @@ def _watch_party_monitor(
                 _watch_party_apply_transport_state(
                     self,
                     target,
-                    room_playback_state == "paused",
+                    room_playback_state in ("paused", "waiting"),
                 )
 
         def onPlayBackStarted(self):
@@ -4318,9 +4318,10 @@ def _kodi_set_watch_party_play_state(player, should_play):
 def _watch_party_apply_transport_state(player, position, paused):
     """Force Kodi onto one authoritative Watch Party transport state.
 
-    Every corrective position sync is performed while Kodi is paused. This
-    prevents the player from advancing during the seek and then briefly
-    running ahead of the authoritative Watch Party position.
+    Seek corrections preserve the room's authoritative transport whenever
+    possible. A playing room is allowed to seek while Kodi keeps playing;
+    paused/waiting rooms pause before the seek and remain paused afterwards.
+    This avoids repeatedly pausing a guest when the server is still playing.
     """
     if not player.isPlaying():
         return False
@@ -4338,7 +4339,11 @@ def _watch_party_apply_transport_state(player, position, paused):
         except Exception:
             currently_paused = bool(xbmc.getCondVisibility("Player.Paused"))
 
-        if not currently_paused:
+        # Only pause during the seek when the authoritative target is
+        # actually paused. For a playing room, seeking while already playing
+        # lets Kodi land on the target without creating an artificial pause
+        # that the server immediately has to undo.
+        if paused and not currently_paused:
             if not _kodi_set_watch_party_play_state(player, False):
                 log(
                     "Unable to pause Kodi before Watch Party resynchronisation.",
