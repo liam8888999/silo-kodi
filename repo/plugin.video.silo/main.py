@@ -3392,8 +3392,10 @@ def _watch_party_monitor(
         base = str(client.base).rstrip("/")
         parsed = urlparse(base)
         ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+        # Silo's playback-control socket is the v1 API route even when
+        # playback itself is using the v2 API.
         api_prefix = parsed.path.rstrip("/")
-        control_url = "%s://%s%s/playback/ws/%s" % (
+        control_url = "%s://%s%s/api/v1/playback/sessions/%s/control/ws" % (
             ws_scheme,
             parsed.netloc,
             api_prefix,
@@ -3401,7 +3403,7 @@ def _watch_party_monitor(
         )
         control = _SiloWebSocket(
             control_url,
-            timeout=15,
+            timeout=5,
             origin=_watch_party_http_origin(client),
             headers=client._headers(),
         ).connect()
@@ -4057,7 +4059,6 @@ def _watch_party_monitor(
             # dead stream cannot leave its Silo playback session alive.
             if (
                 session_id
-                and attached
                 and watch_party_player_was_playing
                 and not player.isPlaying()
                 and not disconnect_requested.is_set()
@@ -4691,7 +4692,6 @@ def _watch_party_monitor(
 
             if (
                 session_id
-                and attached
                 and player.isPlaying()
             ):
                 if (
@@ -4720,8 +4720,10 @@ def _watch_party_monitor(
                     actual_paused = player_paused(player)
                     current_position = player_position(player)
 
-                    # Mirror normal playback: direct sequenced progress lets
-                    # Watch Party detect server-side playback termination.
+                    # Report the real Kodi position to Silo independently
+                    # of Watch Party room attachment. Room attachment controls
+                    # Watch Party reconciliation, not the underlying playback
+                    # session's progress persistence.
                     playback_sequence += 1
                     try:
                         client.report_progress(
