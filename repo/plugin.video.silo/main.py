@@ -3392,9 +3392,11 @@ def _watch_party_monitor(
         base = str(client.base).rstrip("/")
         parsed = urlparse(base)
         ws_scheme = "wss" if parsed.scheme == "https" else "ws"
-        control_url = "%s://%s/playback/ws/%s" % (
+        api_prefix = parsed.path.rstrip("/")
+        control_url = "%s://%s%s/playback/ws/%s" % (
             ws_scheme,
             parsed.netloc,
+            api_prefix,
             active_session_id,
         )
         control = _SiloWebSocket(
