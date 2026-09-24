@@ -3575,9 +3575,6 @@ def _watch_party_monitor(
         nonlocal watch_party_input_lock_enabled
 
         enabled = bool(enabled)
-        if enabled == watch_party_input_lock_enabled:
-            return True
-
         try:
             keymap_dir = os.path.dirname(watch_party_keymap_path)
 
@@ -4088,29 +4085,10 @@ def _watch_party_monitor(
             elif not session_id:
                 watch_party_player_was_playing = False
 
-            # The room WebSocket carries Watch Party transport. The playback
-            # control WebSocket separately carries authoritative server Stop/
-            # Terminate commands for this exact playback session.
-            if session_id:
-                try:
-                    if now >= watch_party_control_reconnect_after:
-                        connect_watch_party_control_socket(session_id)
-                    if watch_party_control_socket is not None:
-                        while True:
-                            control_message = watch_party_control_socket.recv()
-                            if control_message is None:
-                                break
-                            if handle_watch_party_control_message(control_message):
-                                break
-                except Exception as exc:
-                    close_watch_party_control_socket()
-                    watch_party_control_reconnect_after = now + 1.0
-                    log(
-                        "Watch Party playback control socket failed: %s"
-                        % exc,
-                        xbmc.LOGWARNING,
-                    )
-
+            # Playback lifecycle is deliberately handled through the same
+            # progress/stop mechanism as normal Silo playback. The server
+            # terminates the playback session, and the next progress report
+            # returns 404/410; that is the authoritative termination signal.
             if (
                 _watch_party_window().getProperty(
                     "Silo.WatchParty.LeaveRequested"
@@ -4233,8 +4211,8 @@ def _watch_party_monitor(
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
 
-                    if phase == "playing":
-                        was_room_playing = True
+                    if phase in ("playing", "paused", "waiting"):
+                        was_room_playing = phase == "playing"
                         set_watch_party_input_lock(True)
                         _watch_party_refresh_lobby()
                         if not player.isPlaying():
@@ -4700,12 +4678,10 @@ def _watch_party_monitor(
             # the newest host state before the next guest report.
             reconcile_guest_transport(player, now)
 
-            if (
-                session_id
-                and player.isPlaying()
-            ):
+            if session_id and xbmc.getCondVisibility("Player.HasMedia"):
                 if (
-                    now - last_transport_offset_log >= 5.0
+                    player.isPlaying()
+                    and now - last_transport_offset_log >= 5.0
                     and room_transport_known
                 ):
                     local_position = player_position(player)
