@@ -1752,6 +1752,31 @@ class SiloClient:
             "client_playback_context": body.get("client_playback_context") or {},
         }
 
+    # Mint the v2 owner-bound control-socket credential used by the web player.
+    def playback_control_socket_ticket(self, session_id):
+        if not session_id:
+            raise SiloError("Playback session ID is required.")
+
+        data = self._json(
+            "POST",
+            "/api/v2/playback/sessions/%s/control/ws-ticket" % session_id,
+            body={
+                "installation_id": self._installation_id(),
+            },
+            timeout=10,
+            log_not_found=False,
+        ) or {}
+
+        ticket = str(data.get("ticket") or "")
+        protocol = str(data.get("protocol") or "")
+        if (
+            not ticket
+            or protocol != "silo.playback-control.v2"
+        ):
+            raise SiloError("Silo returned an invalid playback control credential.")
+
+        return data
+
     # Send the current Kodi playback position to Silo.
     def report_progress(self, session_id, sequence, position, paused):
         self._send(
