@@ -3306,9 +3306,68 @@ def _watch_party_monitor(
                 except Exception:
                     pass
 
+    def close_watch_party_playback_session(reason):
+        """Stop Kodi media and explicitly terminate its Silo playback session."""
+        nonlocal session_id, attached
+
+        active_session_id = session_id
+        active_player = player
+
+        if active_session_id:
+            try:
+                last_position = player_position(active_player)
+            except Exception:
+                last_position = 0.0
+
+            # Stop Kodi first so the stream consumer closes as well. Then tell
+            # Silo explicitly that this Watch Party playback attempt is over.
+            try:
+                if active_player.isPlaying():
+                    log(
+                        "Stopping local Watch Party playback: %s" % reason,
+                        xbmc.LOGINFO,
+                    )
+                    active_player.stop()
+            except Exception as exc:
+                log(
+                    "Unable to stop local Watch Party playback: %s"
+                    % exc,
+                    xbmc.LOGWARNING,
+                )
+
+            try:
+                client.stop_playback(
+                    active_session_id,
+                    1,
+                    last_position,
+                )
+                log(
+                    "Stopped Silo Watch Party playback session %s"
+                    % active_session_id,
+                    xbmc.LOGDEBUG,
+                )
+            except SiloError as exc:
+                log(
+                    "Unable to stop Silo Watch Party playback session %s: %s"
+                    % (active_session_id, exc),
+                    xbmc.LOGWARNING,
+                )
+            except Exception as exc:
+                log(
+                    "Unexpected error stopping Silo Watch Party playback session %s: %s"
+                    % (active_session_id, exc),
+                    xbmc.LOGWARNING,
+                )
+
+        session_id = None
+        attached = False
+
     def request_watch_party_disconnect(reason):
         nonlocal switching_media_until
-        if switching_media_until > time.time():
+        if (
+            switching_media_until > time.time()
+            and reason == "Kodi playback stopped"
+        ):
             return
 
         if disconnect_requested.is_set():
@@ -3319,6 +3378,7 @@ def _watch_party_monitor(
             xbmc.LOGINFO,
         )
         disconnect_requested.set()
+        close_watch_party_playback_session(reason)
         update_ui(
             status="Disconnected from Watch Party.",
             lobby=False,
@@ -3936,25 +3996,12 @@ def _watch_party_monitor(
 
                 elif message_type == "room_closed":
                     # The host has ended the Watch Party itself, rather than
-                    # merely stopping playback. Stop any local media and fully
-                    # leave the room; there is no room left to reconnect to.
-                    clear_watch_party_state()
+                    # merely stopping playback. Permanently close both the
+                    # Watch Party connection and the Silo playback session.
                     disconnect_requested.set()
                     remote_stop_until = time.time() + 5.0
-
-                    if player.isPlaying():
-                        log(
-                            "Watch Party ended remotely; stopping local Kodi player.",
-                            xbmc.LOGINFO,
-                        )
-                        try:
-                            player.stop()
-                        except Exception as exc:
-                            log(
-                                "Unable to stop Kodi playback after Watch Party ended: %s"
-                                % exc,
-                                xbmc.LOGWARNING,
-                            )
+                    close_watch_party_playback_session("Watch Party ended remotely")
+                    clear_watch_party_state()
 
                     xbmcgui.Dialog().notification(
                         "Watch Party",
@@ -3970,6 +4017,11 @@ def _watch_party_monitor(
                     break
 
                 elif message_type == "connection_replaced":
+                    disconnect_requested.set()
+                    remote_stop_until = time.time() + 5.0
+                    close_watch_party_playback_session(
+                        "Watch Party connection replaced"
+                    )
                     clear_watch_party_state()
                     xbmcgui.Dialog().notification(
                         "Watch Party",
@@ -4045,6 +4097,12 @@ def _watch_party_monitor(
             xbmc.sleep(25)
 
     finally:
+        if not disconnect_requested.is_set():
+            disconnect_requested.set()
+            close_watch_party_playback_session(
+                "Watch Party monitor closed unexpectedly"
+            )
+
         update_ui(
             finished=True,
             lobby=False,
