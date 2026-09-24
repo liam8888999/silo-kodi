@@ -3347,6 +3347,8 @@ def _watch_party_monitor(
     disconnect_requested = threading.Event()
     switching_media_until = 0.0
     watch_party_input_lock_enabled = False
+    watch_party_playback_info = None
+    watch_party_token_refresh_expiry = None
 
     # Kodi keymaps run before xbmc.Player callbacks. Those callbacks can undo
     # a seek or speed change after it happens, but they cannot make the original
@@ -3482,6 +3484,7 @@ def _watch_party_monitor(
     def close_watch_party_playback_session(reason):
         """Stop Kodi media and explicitly terminate its Silo playback session."""
         nonlocal session_id, attached, playback_sequence
+        nonlocal watch_party_playback_info, watch_party_token_refresh_expiry
 
         active_session_id = session_id
         active_player = player
@@ -3539,6 +3542,8 @@ def _watch_party_monitor(
 
         session_id = None
         attached = False
+        watch_party_playback_info = None
+        watch_party_token_refresh_expiry = None
 
     def request_watch_party_disconnect(reason):
         nonlocal switching_media_until
@@ -4050,13 +4055,15 @@ def _watch_party_monitor(
                         ):
                             current_selection_revision = selection_revision
                             switching_media_until = time.time() + 5.0
-                            session_id = _start_watch_party_guest_playback(
+                            watch_party_playback_info = _start_watch_party_guest_playback(
                                 client,
                                 selected_content_id,
                                 selected_file_id,
                                 selected_library_id,
                                 player=player,
                             )
+                            session_id = watch_party_playback_info.get("session_id")
+                            watch_party_token_refresh_expiry = client.access_token_expiry()
                             playback_sequence = 0
 
                             # Kodi starts the stream asynchronously. Keep it
@@ -4332,6 +4339,134 @@ def _watch_party_monitor(
                         5000,
                     )
                     break
+
+            # Kodi's VideoPlayer keeps the Authorization header that was
+            # attached when the stream URL was opened. Refreshing the Silo API
+            # token alone therefore is not enough: before the access token
+            # expires, reopen the same Silo playback session at the current
+            # authoritative room position so Kodi receives a fresh header.
+            #
+            # This is deliberately independent of Watch Party transport
+            # commands. Server-issued seeks, including rapid consecutive seeks,
+            # are never throttled or discarded by token renewal.
+            if (
+                session_id
+                and watch_party_playback_info
+                and player.isPlaying()
+            ):
+                token_expiry = client.access_token_expiry()
+                if token_expiry is not None:
+                    refresh_deadline = token_expiry - 180.0
+                    if (
+                        time.time() >= refresh_deadline
+                        and token_expiry != watch_party_token_refresh_expiry
+                    ):
+                        current_room_position = authoritative_position()
+                        current_room_paused = room_playback_state in ("paused", "waiting")
+                        log(
+                            "Watch Party access token is nearing expiry; "
+                            "refreshing playback stream at %.3fs."
+                            % current_room_position,
+                            xbmc.LOGINFO,
+                        )
+
+                        if client.refresh():
+                            refreshed_expiry = client.access_token_expiry()
+                            try:
+                                refreshed_info = client.refresh_playback_stream_auth(
+                                    watch_party_playback_info,
+                                    current_room_position,
+                                )
+                            except SiloError as exc:
+                                log(
+                                    "Watch Party playback token refreshed, but "
+                                    "the stream could not be reauthenticated: %s"
+                                    % exc,
+                                    xbmc.LOGWARNING,
+                                )
+                            except Exception as exc:
+                                log(
+                                    "Unexpected Watch Party stream "
+                                    "reauthentication error: %s"
+                                    % exc,
+                                    xbmc.LOGWARNING,
+                                )
+                            else:
+                                new_url = refreshed_info.get("url")
+                                if new_url:
+                                    try:
+                                        set_transport_guard(5.0)
+                                        list_item = xbmcgui.ListItem(path=new_url)
+                                        list_item.setProperty("OverrideInfotag", "true")
+                                        player.play(new_url, list_item)
+
+                                        attached_to_new_stream = False
+                                        expected_url = str(new_url).split("?", 1)[0]
+                                        for _ in range(80):
+                                            if player.isPlaying():
+                                                try:
+                                                    playing_url = str(player.getPlayingFile() or "")
+                                                except Exception:
+                                                    playing_url = ""
+
+                                                if (
+                                                    playing_url == str(new_url)
+                                                    or playing_url.split("?", 1)[0] == expected_url
+                                                ):
+                                                    attached_to_new_stream = True
+                                                    break
+
+                                            if monitor.abortRequested():
+                                                break
+                                            xbmc.sleep(100)
+
+                                        if attached_to_new_stream:
+                                            timeline = (
+                                                refreshed_info.get("playback_plan") or {}
+                                            ).get("timeline") or {}
+                                            try:
+                                                start_offset = float(
+                                                    timeline.get("player_start_seconds")
+                                                )
+                                            except (TypeError, ValueError):
+                                                start_offset = current_room_position
+
+                                            if abs(start_offset - current_room_position) > 0.25:
+                                                player.seekTime(current_room_position)
+                                                xbmc.sleep(75)
+
+                                            _watch_party_apply_transport_state(
+                                                player,
+                                                current_room_position,
+                                                current_room_paused,
+                                            )
+                                            watch_party_playback_info = refreshed_info
+                                            watch_party_token_refresh_expiry = refreshed_expiry
+                                            log(
+                                                "Watch Party playback stream "
+                                                "reauthenticated successfully.",
+                                                xbmc.LOGINFO,
+                                            )
+                                        else:
+                                            log(
+                                                "Kodi did not attach the "
+                                                "reauthenticated Watch Party stream.",
+                                                xbmc.LOGWARNING,
+                                            )
+                                    except Exception as exc:
+                                        log(
+                                            "Unable to adopt the "
+                                            "reauthenticated Watch Party stream: %s"
+                                            % exc,
+                                            xbmc.LOGWARNING,
+                                        )
+                        else:
+                            log(
+                                "Unable to refresh the Silo access token before "
+                                "Watch Party playback expiry.",
+                                xbmc.LOGWARNING,
+                            )
+                            watch_party_token_refresh_expiry = None
 
             # Kodi play/pause is always locked while Watch Party playback
             # is active. Polling is retained as a fallback for remotes/skins
@@ -4694,7 +4829,7 @@ def _start_watch_party_guest_playback(
         % content_id,
         xbmc.LOGDEBUG,
     )
-    return info.get("session_id")
+    return info
 
 
 def list_your_stuff(client):
