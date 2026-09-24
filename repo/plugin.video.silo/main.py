@@ -3331,8 +3331,8 @@ def _watch_party_monitor(
     room_can_control_transport = False
     room_target_position = 0.0
     room_target_updated_at = time.time()
-    room_target_server_updated_at = None
     room_transport_known = False
+    transport_sync_hold_until = 0.0
     transport_guard_until = 0.0
     remote_stop_until = 0.0
     was_room_playing = False
@@ -3627,18 +3627,10 @@ def _watch_party_monitor(
             room_transport_known
             and room_playback_state == "playing"
         ):
-            if room_target_server_updated_at is not None:
-                server_now = now + server_time_offset
-                elapsed = max(
-                    0.0,
-                    server_now - room_target_server_updated_at,
-                )
-            else:
-                elapsed = max(0.0, now - room_target_updated_at)
-
             return max(
                 0.0,
-                room_target_position + elapsed,
+                room_target_position
+                + max(0.0, now - room_target_updated_at),
             )
 
         return max(0.0, room_target_position)
@@ -3653,7 +3645,7 @@ def _watch_party_monitor(
     def update_authoritative_room_state(room):
         nonlocal room_phase, room_playback_state, room_can_control_transport
         nonlocal room_target_position, room_target_updated_at
-        nonlocal room_target_server_updated_at, room_transport_known
+        nonlocal room_transport_known
 
         room_phase = room.get("phase")
         room_playback_state = room.get("playback_state")
@@ -3669,18 +3661,10 @@ def _watch_party_monitor(
         except (TypeError, ValueError):
             room_target_position = 0.0
 
-        # Keep the server's actual anchor timestamp. Treating an old snapshot
-        # as if its position were current at receive time makes Kodi use a stale
-        # room position until the next snapshot arrives.
-        room_target_server_updated_at = parse_server_timestamp(
-            room.get("anchor_updated_at")
-        )
-        if room_target_server_updated_at is None:
-            room_target_updated_at = time.time()
-        else:
-            room_target_updated_at = (
-                room_target_server_updated_at - server_time_offset
-            )
+        # Anchor the snapshot to the local receive time. The server's anchor
+        # timestamp uses the server clock and may not yet have a calibrated
+        # client offset during startup.
+        room_target_updated_at = time.time()
 
         room_transport_known = (
             room_phase == "playing"
@@ -3719,6 +3703,7 @@ def _watch_party_monitor(
             or not attached
             or not room_transport_known
             or now < transport_guard_until
+            or now < transport_sync_hold_until
             or room_playback_state == "waiting"
         ):
             return
@@ -4079,6 +4064,7 @@ def _watch_party_monitor(
                             # being synchronised so the guest cannot run ahead
                             # of the room while the seek is applied.
                             set_transport_guard(3.0)
+                            transport_sync_hold_until = time.time() + 5.0
                             if _wait_for_watch_party_player(player, timeout=15.0):
                                 _kodi_set_watch_party_play_state(player, False)
 
@@ -4244,6 +4230,12 @@ def _watch_party_monitor(
                         command_playback_state,
                     )
 
+                    if applied:
+                        transport_sync_hold_until = max(
+                            transport_sync_hold_until,
+                            time.time() + 3.0,
+                        )
+
                     if not applied:
                         log(
                             "Watch Party command %s was not applied yet."
@@ -4351,6 +4343,7 @@ def _watch_party_monitor(
                 and room_transport_known
                 and player.isPlaying()
                 and time.time() >= transport_guard_until
+                and time.time() >= transport_sync_hold_until
             ):
                 if player_paused(player) != (room_playback_state in ("paused", "waiting")):
                     enforce_guest_transport(player)
@@ -4394,7 +4387,10 @@ def _watch_party_monitor(
                     )
                     last_transport_offset_log = now
 
-                if now - last_state_report >= 1.0:
+                if (
+                    now >= transport_sync_hold_until
+                    and now - last_state_report >= 1.5
+                ):
                     actual_paused = player_paused(player)
                     current_position = player_position(player)
 
