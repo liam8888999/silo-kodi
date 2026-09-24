@@ -3349,6 +3349,7 @@ def _watch_party_monitor(
     watch_party_input_lock_enabled = False
     watch_party_playback_info = None
     watch_party_token_refresh_expiry = None
+    watch_party_token_retry_after = 0.0
 
     # Kodi keymaps run before xbmc.Player callbacks. Those callbacks can undo
     # a seek or speed change after it happens, but they cannot make the original
@@ -3485,6 +3486,7 @@ def _watch_party_monitor(
         """Stop Kodi media and explicitly terminate its Silo playback session."""
         nonlocal session_id, attached, playback_sequence
         nonlocal watch_party_playback_info, watch_party_token_refresh_expiry
+        nonlocal watch_party_token_retry_after
 
         active_session_id = session_id
         active_player = player
@@ -3544,6 +3546,7 @@ def _watch_party_monitor(
         attached = False
         watch_party_playback_info = None
         watch_party_token_refresh_expiry = None
+        watch_party_token_retry_after = 0.0
 
     def request_watch_party_disconnect(reason):
         nonlocal switching_media_until
@@ -4143,6 +4146,7 @@ def _watch_party_monitor(
                             try:
                                 player.stop()
                             except Exception as exc:
+                                watch_party_token_retry_after = time.time() + 30.0
                                 log(
                                     "Unable to stop Kodi playback after remote Watch Party stop: %s"
                                     % exc,
@@ -4360,6 +4364,7 @@ def _watch_party_monitor(
                     if (
                         time.time() >= refresh_deadline
                         and token_expiry != watch_party_token_refresh_expiry
+                        and time.time() >= watch_party_token_retry_after
                     ):
                         current_room_position = authoritative_position()
                         current_room_paused = room_playback_state in ("paused", "waiting")
@@ -4372,12 +4377,14 @@ def _watch_party_monitor(
 
                         if client.refresh():
                             refreshed_expiry = client.access_token_expiry()
+                            watch_party_token_retry_after = 0.0
                             try:
                                 refreshed_info = client.refresh_playback_stream_auth(
                                     watch_party_playback_info,
                                     current_room_position,
                                 )
                             except SiloError as exc:
+                                watch_party_token_retry_after = time.time() + 30.0
                                 log(
                                     "Watch Party playback token refreshed, but "
                                     "the stream could not be reauthenticated: %s"
@@ -4395,6 +4402,7 @@ def _watch_party_monitor(
                                 new_url = refreshed_info.get("url")
                                 if new_url:
                                     try:
+                                        switching_media_until = time.time() + 5.0
                                         set_transport_guard(5.0)
                                         list_item = xbmcgui.ListItem(path=new_url)
                                         list_item.setProperty("OverrideInfotag", "true")
@@ -4448,12 +4456,14 @@ def _watch_party_monitor(
                                                 xbmc.LOGINFO,
                                             )
                                         else:
+                                            watch_party_token_retry_after = time.time() + 30.0
                                             log(
                                                 "Kodi did not attach the "
                                                 "reauthenticated Watch Party stream.",
                                                 xbmc.LOGWARNING,
                                             )
                                     except Exception as exc:
+                                        watch_party_token_retry_after = time.time() + 30.0
                                         log(
                                             "Unable to adopt the "
                                             "reauthenticated Watch Party stream: %s"
@@ -4461,6 +4471,7 @@ def _watch_party_monitor(
                                             xbmc.LOGWARNING,
                                         )
                         else:
+                            watch_party_token_retry_after = time.time() + 30.0
                             log(
                                 "Unable to refresh the Silo access token before "
                                 "Watch Party playback expiry.",
