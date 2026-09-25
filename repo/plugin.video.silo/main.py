@@ -4079,7 +4079,7 @@ def _watch_party_monitor(
             # so playback is never interrupted.
             if (
                 room_phase == "lobby"
-                and now - last_lobby_ui_refresh >= 2.5
+                and now - last_lobby_ui_refresh >= 5.0
             ):
                 _watch_party_refresh_lobby()
                 last_lobby_ui_refresh = now
