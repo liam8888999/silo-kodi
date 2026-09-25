@@ -3418,6 +3418,7 @@ def _watch_party_monitor(
     transport_guard_until = 0.0
     remote_stop_until = 0.0
     remote_transport_until = 0.0
+    remote_transport_pending = False
     was_room_playing = False
     last_transport_enforcement = 0.0
     last_transport_offset_log = 0.0
@@ -4129,6 +4130,7 @@ def _watch_party_monitor(
             if (
                 time.time() < remote_stop_until
                 or time.time() < remote_transport_until
+                or remote_transport_pending
             ):
                 return
 
@@ -4199,6 +4201,8 @@ def _watch_party_monitor(
                 and not player.isPlaying()
                 and not xbmc.getCondVisibility("Player.HasMedia")
                 and not disconnect_requested.is_set()
+                and not remote_transport_pending
+                and room_playback_state != "waiting"
                 and now >= switching_media_until
                 and now >= remote_stop_until
                 and now >= remote_transport_until
@@ -4348,6 +4352,7 @@ def _watch_party_monitor(
                     selection_revision = room.get("selection_revision")
                     if room.get("playback_state") != "waiting":
                         waiting_command_id = None
+                        remote_transport_pending = False
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
@@ -4382,6 +4387,7 @@ def _watch_party_monitor(
                             playback_sequence = 0
                             last_ready_report = 0.0
                             waiting_command_id = None
+                            remote_transport_pending = False
                             last_reported_paused = None
                             next_progress_report_at = time.time()
                             watch_party_control_reconnect_after = 0.0
@@ -4456,6 +4462,7 @@ def _watch_party_monitor(
                         current_selection_revision = selection_revision
                         remote_stop_until = time.time() + 3.0
                         remote_transport_until = time.time() + 3.0
+                        remote_transport_pending = False
 
                         update_ui(
                             status=(
@@ -4578,6 +4585,7 @@ def _watch_party_monitor(
                         remote_transport_until,
                         time.time() + (5.0 if action == "seek" else 2.0),
                     )
+                    remote_transport_pending = action == "seek"
                     set_transport_guard(
                         2.0 if action == "seek" else 0.75
                     )
@@ -4619,6 +4627,8 @@ def _watch_party_monitor(
                         abs(actual_position - target_position) <= 1.0
                         and actual_paused == target_paused
                     ):
+                        if command_playback_state == "waiting":
+                            remote_transport_pending = False
                         send({
                             "type": "ready",
                             "session_id": session_id,
@@ -4934,7 +4944,7 @@ def _watch_party_monitor(
             # server snapshot confirms this member as ready.
             if (
                 session_id
-                and player.isPlaying()
+                and xbmc.getCondVisibility("Player.HasMedia")
                 and room_playback_state == "waiting"
                 and waiting_command_id
                 and not self_member_ready
@@ -4944,7 +4954,7 @@ def _watch_party_monitor(
                 actual_paused = player_paused(player)
                 ready = (
                     abs(current_position - room_target_position) <= 1.0
-                    and actual_paused == (room_playback_state in ("paused", "waiting"))
+                    and actual_paused
                 )
                 send({
                     "type": "state_report",
@@ -4954,6 +4964,9 @@ def _watch_party_monitor(
                     "is_paused": actual_paused,
                     "is_ready": bool(ready),
                 })
+                if ready:
+                    self_member_ready = True
+                    remote_transport_pending = False
                 last_ready_report = now
                 last_state_report = now
 
