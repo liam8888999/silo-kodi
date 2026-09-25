@@ -7112,6 +7112,45 @@ def play(
                 file_id=file_id,
             )
 
+            # Episodes normally have their own artwork. When they do not have
+            # a logo/banner, inherit the parent series logo so Kodi's player
+            # can show the same visual title used by the movie playback path.
+            playback_logo = detail.get("logo_url") or detail.get("logo")
+            media_type = (
+                detail.get("type")
+                or detail.get("media_type")
+                or ""
+            ).lower()
+
+            if not playback_logo and media_type == "episode":
+                series_id = detail.get("series_id")
+                if series_id:
+                    try:
+                        series_detail = client.item_detail(
+                            series_id,
+                            library_id,
+                        )
+                        playback_logo = (
+                            series_detail.get("logo_url")
+                            or series_detail.get("logo")
+                        )
+                        if playback_logo:
+                            resolved_item.setProperty(
+                                "Silo.SeriesLogo",
+                                client.abs_url(str(playback_logo)),
+                            )
+                            log(
+                                "Inherited series logo for episode %s from %s"
+                                % (content_id, series_id),
+                                xbmc.LOGDEBUG,
+                            )
+                    except SiloError as exc:
+                        log(
+                            "Unable to retrieve parent series artwork for episode %s: %s"
+                            % (content_id, exc),
+                            xbmc.LOGDEBUG,
+                        )
+
             # Apply the same Silo artwork to the actual playback ListItem.
             # The directory item already has artwork, but Kodi can create/use
             # this separate resolved item for playback, so copy all available
@@ -7127,7 +7166,7 @@ def play(
                     or detail.get("thumbnail")
                 ),
                 backdrop=detail.get("backdrop_url") or detail.get("backdrop"),
-                logo=detail.get("logo_url") or detail.get("logo"),
+                logo=playback_logo,
                 still=detail.get("still_url") or detail.get("still"),
             )
         except Exception as exc:
