@@ -2692,25 +2692,16 @@ def _watch_party_reset_lobby():
 
 
 def _watch_party_refresh_lobby():
-    """Re-run the Watch Party lobby directory in the current container."""
+    """Refresh the live Watch Party lobby directory."""
     try:
         window = _watch_party_window()
-
         if window.getProperty("Silo.WatchParty.LobbyVisible").lower() != "true":
             return
 
-        lobby_url = build_url(action="watch_party_lobby")
-        log(
-            "Refreshing Watch Party lobby directory: %s" % lobby_url,
-            xbmc.LOGDEBUG,
-        )
-
-        # Explicitly update the current container with the lobby plugin URL.
-        # This should invoke the plugin router again and rebuild the directory
-        # from the latest Watch Party window properties.
-        xbmc.executebuiltin(
-            "Container.Update(%s,true)" % lobby_url
-        )
+        # The lobby directory is deliberately non-cacheable. A normal Kodi
+        # container refresh can therefore invoke the plugin again and rebuild
+        # the visible items from the latest Watch Party window properties.
+        xbmc.executebuiltin("Container.Refresh")
     except Exception as exc:
         log(
             "Unable to refresh Watch Party lobby directory: %s" % exc,
@@ -2799,8 +2790,7 @@ def list_watch_party_lobby():
 
     else:
         # There is one explicit Leave action for every connected room state.
-        # In the lobby it occupies the position normally used by Kodi's '..'
-        # item because the parent-folder entry is temporarily hidden.
+        # Kodi's normal '..' parent entry remains available independently.
         leave_item = xbmcgui.ListItem(label="Leave Watch Party")
         leave_item.setArt({"icon": "DefaultFolder.png"})
         leave_item.setInfo(
@@ -2924,7 +2914,17 @@ def list_watch_party_lobby():
                     False,
                 )
 
-    xbmcplugin.endOfDirectory(HANDLE)
+    # The Watch Party lobby is live state, not a cacheable media directory.
+    # Disable Kodi's directory cache so Container.Refresh rebuilds it from the
+    # current server/member state.
+    xbmcplugin.endOfDirectory(
+        HANDLE,
+        succeeded=True,
+        updateListing=False,
+        cacheToDisc=False,
+    )
+
+
 def _watch_party_connection_active():
     """Return whether this Kodi session still has an active Watch Party connection."""
     window = _watch_party_window()
