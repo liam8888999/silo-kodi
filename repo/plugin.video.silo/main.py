@@ -2907,7 +2907,7 @@ def _watch_party_update_window_state(ui_state):
 
 
 def list_watch_party_lobby():
-    """Display the current Watch Party state as a normal Kodi directory."""
+    """Display the current Watch Party state and participants."""
     window = _watch_party_window()
     status = window.getProperty("Silo.WatchParty.Status") or "Connecting to Watch Party..."
     room_code = window.getProperty("Silo.WatchParty.Code") or ""
@@ -2915,6 +2915,9 @@ def list_watch_party_lobby():
     finished = window.getProperty("Silo.WatchParty.Finished").lower() == "true"
     ended = window.getProperty("Silo.WatchParty.Ended").lower() == "true"
 
+    # Only the actual room lobby replaces Kodi's parent-folder item with the
+    # explicit Leave Watch Party action. Playback-state views keep normal
+    # navigation so this temporary setting cannot affect other directories.
     if lobby and room_code and not finished:
         _watch_party_hide_parent_folder()
     else:
@@ -2964,13 +2967,24 @@ def list_watch_party_lobby():
         )
         info_item = xbmcgui.ListItem(label=message)
         info_item.setArt({"icon": "DefaultInfo.png"})
+        info_item.setInfo(
+            "video",
+            {
+                "title": "Watch Party",
+                "plot": message,
+            },
+        )
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="watch_party_join"),
             info_item,
             True,
         )
-    elif lobby:
+
+    else:
+        # There is one explicit Leave action for every connected room state.
+        # In the lobby it occupies the position normally used by Kodi's '..'
+        # item because the parent-folder entry is temporarily hidden.
         leave_item = xbmcgui.ListItem(label="Leave Watch Party")
         leave_item.setArt({"icon": "DefaultFolder.png"})
         leave_item.setInfo(
@@ -2980,8 +2994,6 @@ def list_watch_party_lobby():
                 "plot": "Leave the room and return to Silo.",
             },
         )
-        # The normal Kodi parent-folder entry is hidden for the lobby, so
-        # Leave Watch Party occupies that first navigation slot instead.
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="watch_party_leave"),
@@ -2989,9 +3001,15 @@ def list_watch_party_lobby():
             False,
         )
 
-        status_item = xbmcgui.ListItem(label=status)
-        status_item.setArt({"icon": "DefaultInfo.png"})
-        status_item.setInfo(
+        state_label = status
+        if room_code:
+            state_label = "%s — Room %s" % (status, room_code)
+
+        state_item = xbmcgui.ListItem(label=state_label)
+        state_item.setArt({
+            "icon": "DefaultVideo.png" if not lobby else "DefaultInfo.png"
+        })
+        state_item.setInfo(
             "video",
             {
                 "title": "Watch Party",
@@ -3001,130 +3019,96 @@ def list_watch_party_lobby():
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="watch_party_lobby"),
-            status_item,
-            False,
-        )
-    try:
-        members = json.loads(
-            window.getProperty("Silo.WatchParty.Members") or "[]"
-        )
-    except (TypeError, ValueError):
-        members = []
-
-    if members and not finished:
-        if lobby:
-            ready_count = sum(
-                1
-                for member in members
-                if member.get("lobby_ready")
-            )
-            ready_label = "lobby ready"
-        else:
-            ready_count = sum(
-                1
-                for member in members
-                if member.get("is_ready")
-            )
-            ready_label = "ready"
-
-        header = xbmcgui.ListItem(
-            label="Participants — %d/%d %s"
-            % (ready_count, len(members), ready_label)
-        )
-        header.setArt({"icon": "DefaultInfo.png"})
-        header.setInfo(
-            "video",
-            {
-                "title": "Watch Party Participants",
-                "plot": "%d of %d participants are %s."
-                % (ready_count, len(members), ready_label),
-            },
-        )
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="watch_party_lobby"),
-            header,
+            state_item,
             False,
         )
 
-        for member in members:
-            name = str(member.get("display_name") or "Participant")
-            if member.get("is_self"):
-                name += " (You)"
-            if member.get("is_host"):
-                name += " (Host)"
+        try:
+            members = json.loads(
+                window.getProperty("Silo.WatchParty.Members") or "[]"
+            )
+        except (TypeError, ValueError):
+            members = []
 
-            if not member.get("connected"):
-                state = "Disconnected"
-            elif lobby:
-                state = "Lobby ready" if member.get("lobby_ready") else "Not ready"
-            elif member.get("is_buffering"):
-                state = "Buffering"
-            elif member.get("is_syncing"):
-                state = "Syncing"
-            elif member.get("is_ready"):
-                state = "Ready"
+        if members:
+            if lobby:
+                ready_count = sum(
+                    1
+                    for member in members
+                    if member.get("lobby_ready")
+                )
+                ready_label = "lobby ready"
             else:
-                state = "Not ready"
+                ready_count = sum(
+                    1
+                    for member in members
+                    if member.get("is_ready")
+                )
+                ready_label = "ready"
 
-            member_item = xbmcgui.ListItem(
-                label="%s — %s" % (name, state)
+            header = xbmcgui.ListItem(
+                label="Participants — %d/%d %s"
+                % (ready_count, len(members), ready_label)
             )
-            member_item.setArt({"icon": "DefaultInfo.png"})
-            member_item.setInfo(
+            header.setArt({"icon": "DefaultInfo.png"})
+            header.setInfo(
                 "video",
                 {
-                    "title": name,
-                    "plot": "Watch Party status: %s." % state,
+                    "title": "Watch Party Participants",
+                    "plot": "%d of %d participants are %s."
+                    % (ready_count, len(members), ready_label),
                 },
             )
             xbmcplugin.addDirectoryItem(
                 HANDLE,
                 build_url(action="watch_party_lobby"),
-                member_item,
+                header,
                 False,
             )
 
-    else:
-        state_label = status
-        if room_code:
-            state_label = "%s — Room %s" % (status, room_code)
+            for member in members:
+                name = str(member.get("display_name") or "Participant")
+                if member.get("is_self"):
+                    name += " (You)"
+                if member.get("is_host"):
+                    name += " (Host)"
 
-        info_item = xbmcgui.ListItem(label=state_label)
-        info_item.setArt({"icon": "DefaultVideo.png"})
-        info_item.setInfo(
-            "video",
-            {
-                "title": "Watch Party",
-                "plot": status,
-            },
-        )
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="watch_party_lobby"),
-            info_item,
-            False,
-        )
+                if not member.get("connected"):
+                    member_state = "Disconnected"
+                elif lobby:
+                    member_state = (
+                        "Lobby ready"
+                        if member.get("lobby_ready")
+                        else "Not ready"
+                    )
+                elif member.get("is_buffering"):
+                    member_state = "Buffering"
+                elif member.get("is_syncing"):
+                    member_state = "Syncing"
+                elif member.get("is_ready"):
+                    member_state = "Ready"
+                else:
+                    member_state = "Not ready"
 
-        leave_item = xbmcgui.ListItem(label="Leave Watch Party")
-        leave_item.setArt({"icon": "DefaultFolder.png"})
-        leave_item.setInfo(
-            "video",
-            {
-                "title": "Leave Watch Party",
-                "plot": "Close the Watch Party connection.",
-            },
-        )
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="watch_party_leave"),
-            leave_item,
-            False,
-        )
+                member_item = xbmcgui.ListItem(
+                    label="%s — %s" % (name, member_state)
+                )
+                member_item.setArt({"icon": "DefaultInfo.png"})
+                member_item.setInfo(
+                    "video",
+                    {
+                        "title": name,
+                        "plot": "Watch Party status: %s." % member_state,
+                    },
+                )
+                xbmcplugin.addDirectoryItem(
+                    HANDLE,
+                    build_url(action="watch_party_lobby"),
+                    member_item,
+                    False,
+                )
 
     xbmcplugin.endOfDirectory(HANDLE)
-
-
 def _watch_party_connection_active():
     """Return whether this Kodi session still has an active Watch Party connection."""
     window = _watch_party_window()
