@@ -12,6 +12,10 @@
     <setting id="direct_play_only" type="bool" label="Only allow direct play" default="false" />
   </category>
 
+  <category label="Advanced">
+    <setting id="use_kodi_resume_cache" type="bool" label="Use Kodi cached resume positions (Not recommended)" default="false" />
+  </category>
+
   <category label="Connection">
     <setting id="server" type="text" label="Server address" default="" enable="false" />
     <setting id="username" type="text" label="Username" default="" enable="false" />
