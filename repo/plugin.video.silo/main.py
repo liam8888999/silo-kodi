@@ -2661,6 +2661,7 @@ def _watch_party_clear_properties(window=None):
         "Silo.WatchParty.Ended",
         "Silo.WatchParty.LeaveRequested",
         "Silo.WatchParty.Members",
+        "Silo.WatchParty.LobbyVisible",
     ):
         try:
             window.clearProperty(property_name)
@@ -2687,20 +2688,30 @@ def _watch_party_reset_lobby():
     window.setProperty("Silo.WatchParty.Finished", "false")
     window.setProperty("Silo.WatchParty.Ended", "false")
     window.setProperty("Silo.WatchParty.Members", "[]")
+    window.setProperty("Silo.WatchParty.LobbyVisible", "true")
 
 
 def _watch_party_refresh_lobby():
-    """Refresh the visible Kodi Watch Party lobby without re-running the join prompt."""
+    """Refresh the currently visible Watch Party lobby directory."""
     try:
-        # Only refresh when Kodi is actually displaying the dedicated lobby.
-        # Refreshing the join action would execute _watch_party_join() again
-        # and show the room-code dialog a second time.
-        folder_path = xbmc.getInfoLabel("Container.FolderPath") or ""
-        if "action=watch_party_lobby" not in folder_path:
+        window = _watch_party_window()
+
+        # Container.FolderPath does not reliably retain the plugin query string
+        # for every Kodi skin/version. The router maintains this explicit
+        # visibility flag instead, so a background refresh cannot accidentally
+        # refresh another Silo directory after the user navigates away.
+        if window.getProperty("Silo.WatchParty.LobbyVisible").lower() != "true":
             return
-        xbmc.executebuiltin("Container.Refresh")
-    except Exception:
-        pass
+
+        # Force Kodi to rebuild the current plugin directory. The background
+        # monitor can call this safely while the plugin invocation itself has
+        # already completed.
+        xbmc.executebuiltin("Container.Refresh(true)")
+    except Exception as exc:
+        log(
+            "Unable to refresh Watch Party lobby directory: %s" % exc,
+            xbmc.LOGDEBUG,
+        )
 
 
 def _watch_party_update_window_state(ui_state):
@@ -8022,6 +8033,14 @@ def router(client):
     )
 
     action = params.get("action")
+
+    # Track whether the dedicated Watch Party lobby is the currently rendered
+    # plugin directory. Normal navigation, including Kodi's '..', clears it.
+    window = _watch_party_window()
+    window.setProperty(
+        "Silo.WatchParty.LobbyVisible",
+        "true" if action == "watch_party_lobby" else "false",
+    )
 
     if not action:
         list_root(client, params.get("page"))
