@@ -2235,46 +2235,6 @@ def build_person_list_item(client, person):
     return item
 
 
-def list_person_results(client, query):
-    """Display people matching the current Silo search term."""
-    people = client.search_people(query, limit=50) or []
-
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        "People: %s" % query,
-    )
-    xbmcplugin.setContent(HANDLE, "files")
-
-    batch = []
-    for person in people:
-        person_id = person.get("id")
-        if person_id is None:
-            continue
-
-        item = build_person_list_item(client, person)
-        batch.append((
-            build_url(
-                action="person",
-                person_id=str(person_id),
-                person_name=person.get("name") or "",
-            ),
-            item,
-            True,
-        ))
-
-    if batch:
-        xbmcplugin.addDirectoryItems(
-            HANDLE,
-            batch,
-            totalItems=len(batch),
-        )
-
-    if not batch:
-        notify("No people found for: %s" % query)
-
-    xbmcplugin.endOfDirectory(HANDLE)
-
-
 def list_person_media(client, person_id, person_name=""):
     """Display all Silo media associated with one person."""
     items = []
@@ -2599,18 +2559,6 @@ def list_search_results(client, query, page=1):
     # People are shown before media so a matching actor/director
     # can be selected directly from the normal Search directory.
     if page_number == 1 and people:
-        people_header = xbmcgui.ListItem(label="People")
-        people_header.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="people",
-                query=query,
-            ),
-            people_header,
-            True,
-        )
-
         for person in people:
             person_id = person.get("id")
             if person_id is None:
@@ -2795,7 +2743,7 @@ def list_search_results(client, query, page=1):
             True,
         )
 
-    if not items:
+    if not items and not people:
         notify("No results found for: %s" % query)
 
     xbmcplugin.endOfDirectory(HANDLE)
@@ -8360,10 +8308,6 @@ def router(client):
             client,
             params.get("page"),
         )
-        return
-
-    if action == "people":
-        list_person_results(client, params.get("query") or "")
         return
 
     if action == "person":
