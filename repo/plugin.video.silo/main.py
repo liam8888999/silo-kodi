@@ -2725,9 +2725,6 @@ def list_watch_party_lobby():
     finished = window.getProperty("Silo.WatchParty.Finished").lower() == "true"
     ended = window.getProperty("Silo.WatchParty.Ended").lower() == "true"
 
-    if lobby and room_code and not finished:
-    else:
-
     xbmcplugin.setPluginCategory(HANDLE, "Watch Party")
     xbmcplugin.setContent(HANDLE, "files")
 
