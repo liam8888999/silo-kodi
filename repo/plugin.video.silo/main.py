@@ -2271,10 +2271,16 @@ def list_person_media(client, person_id, person_name="", cursor=None):
     )
     xbmcplugin.setContent(HANDLE, "videos")
 
-    # Person pages use the catalog cards directly. Fetching full detail
-    # documents for every credit before rendering can turn a large filmography
-    # into a very slow directory load; playback/detail flows fetch full detail
-    # when the individual item is opened.
+    # Use the same extended metadata pipeline as normal Search. This
+    # preserves cast, crew, ratings, runtime, artwork, stream details,
+    # identifiers and all other detail-only fields before Kodi renders the
+    # person results.
+    detail_map = fetch_detail_metadata(
+        client,
+        items,
+        None,
+    )
+
     try:
         in_progress_map = client.in_progress_map()
     except SiloError as exc:
@@ -2336,7 +2342,7 @@ def list_person_media(client, person_id, person_name="", cursor=None):
             build_catalog_list_item(
                 client,
                 catalog_item,
-                detail=None,
+                detail=detail_map.get(str(content_id)),
                 progress=display_progress,
                 series_rollup=series_watch_map.get(str(content_id)),
                 season_rollup=(
