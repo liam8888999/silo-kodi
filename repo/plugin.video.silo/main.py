@@ -2825,8 +2825,10 @@ def list_watch_party_lobby():
         )
 
         state_label = status
+        if not lobby:
+            state_label = "%s (RESUME)" % state_label
         if room_code:
-            state_label = "%s — Room %s" % (status, room_code)
+            state_label = "%s — Room %s" % (state_label, room_code)
 
         state_item = xbmcgui.ListItem(label=state_label)
         state_item.setArt({
