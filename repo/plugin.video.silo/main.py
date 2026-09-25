@@ -2613,195 +2613,6 @@ def _watch_party_window():
     return xbmcgui.Window(10000)
 
 
-def _watch_party_set_parent_folder_items_enabled(enabled):
-    """Read and change Kodi's global parent-folder display setting."""
-    try:
-        response = xbmc.executeJSONRPC(
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "method": "Settings.GetSettings",
-                    "params": {"level": "standard"},
-                    "id": 1,
-                },
-                separators=(",", ":"),
-            )
-        )
-        data = json.loads(response or "{}")
-        settings = (data.get("result") or {}).get("settings") or []
-
-        setting = None
-        for candidate in settings:
-            if not isinstance(candidate, dict):
-                continue
-
-            setting_id = str(candidate.get("id") or "").lower()
-            label = str(candidate.get("label") or "").lower()
-
-            if (
-                "showparentfolder" in setting_id
-                or ("parent" in setting_id and "folder" in setting_id)
-                or "show parent folder" in label
-            ):
-                setting = candidate
-                break
-
-        if not setting:
-            log(
-                "Watch Party could not locate Kodi's parent-folder setting.",
-                xbmc.LOGDEBUG,
-            )
-            return None, None
-
-        setting_id = str(setting.get("id") or "")
-        current_value = bool(setting.get("value"))
-
-        if current_value == bool(enabled):
-            return setting_id, current_value
-
-        result = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "method": "Settings.SetSettingValue",
-                        "params": {
-                            "setting": setting_id,
-                            "value": bool(enabled),
-                        },
-                        "id": 1,
-                    },
-                    separators=(",", ":"),
-                )
-            )
-            or "{}"
-        )
-
-        if result.get("result") is True:
-            log(
-                "Watch Party parent-folder setting changed to %s."
-                % ("enabled" if enabled else "hidden"),
-                xbmc.LOGDEBUG,
-            )
-            return setting_id, bool(enabled)
-
-        log(
-            "Watch Party could not change Kodi's parent-folder setting.",
-            xbmc.LOGDEBUG,
-        )
-    except Exception as exc:
-        log(
-            "Unable to manage Kodi's parent-folder setting: %s" % exc,
-            xbmc.LOGDEBUG,
-        )
-
-    return None, None
-
-
-def _watch_party_hide_parent_folder():
-    """Hide Kodi's automatic '..' item while the Watch Party lobby is open."""
-    window = _watch_party_window()
-
-    if (
-        window.getProperty("Silo.WatchParty.ParentFolderManaged").lower()
-        == "true"
-    ):
-        return
-
-    setting_id, current_value = _watch_party_set_parent_folder_items_enabled(False)
-    if not setting_id:
-        return
-
-    if current_value:
-        window.setProperty(
-            "Silo.WatchParty.ParentFolderOriginal",
-            "true",
-        )
-        window.setProperty(
-            "Silo.WatchParty.ParentFolderManaged",
-            "true",
-        )
-
-
-def _watch_party_restore_parent_folder():
-    """Restore Kodi's parent-folder setting after leaving the Watch Party lobby."""
-    window = _watch_party_window()
-
-    if (
-        window.getProperty("Silo.WatchParty.ParentFolderManaged").lower()
-        != "true"
-    ):
-        return
-
-    original = (
-        window.getProperty("Silo.WatchParty.ParentFolderOriginal").lower()
-        == "true"
-    )
-
-    try:
-        response = xbmc.executeJSONRPC(
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "method": "Settings.GetSettings",
-                    "params": {"level": "standard"},
-                    "id": 1,
-                },
-                separators=(",", ":"),
-            )
-        )
-        data = json.loads(response or "{}")
-        settings = (data.get("result") or {}).get("settings") or []
-        setting_id = None
-        current_value = None
-
-        for candidate in settings:
-            if not isinstance(candidate, dict):
-                continue
-
-            candidate_id = str(candidate.get("id") or "")
-            lower_id = candidate_id.lower()
-            label = str(candidate.get("label") or "").lower()
-
-            if (
-                "showparentfolder" in lower_id
-                or ("parent" in lower_id and "folder" in lower_id)
-                or "show parent folder" in label
-            ):
-                setting_id = candidate_id
-                current_value = bool(candidate.get("value"))
-                break
-
-        if setting_id and current_value is False:
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "method": "Settings.SetSettingValue",
-                        "params": {
-                            "setting": setting_id,
-                            "value": original,
-                        },
-                        "id": 1,
-                    },
-                    separators=(",", ":"),
-                )
-            )
-            log(
-                "Watch Party restored Kodi parent-folder setting to %s."
-                % ("enabled" if original else "hidden"),
-                xbmc.LOGDEBUG,
-            )
-    except Exception as exc:
-        log(
-            "Unable to restore Kodi's parent-folder setting: %s" % exc,
-            xbmc.LOGDEBUG,
-        )
-    finally:
-        window.clearProperty("Silo.WatchParty.ParentFolderOriginal")
-        window.clearProperty("Silo.WatchParty.ParentFolderManaged")
-
-
 def _watch_party_set_members(members):
     """Store the server Watch Party member readiness snapshot."""
     window = _watch_party_window()
@@ -2862,7 +2673,6 @@ def _watch_party_clear_properties(window=None):
 
 def _watch_party_reset_lobby():
     """Reset the Watch Party folder to its disconnected/joinable state."""
-    _watch_party_restore_parent_folder()
     window = _watch_party_window()
 
     # Clear room credentials and stale finished/playing state together so a
@@ -2915,13 +2725,8 @@ def list_watch_party_lobby():
     finished = window.getProperty("Silo.WatchParty.Finished").lower() == "true"
     ended = window.getProperty("Silo.WatchParty.Ended").lower() == "true"
 
-    # Only the actual room lobby replaces Kodi's parent-folder item with the
-    # explicit Leave Watch Party action. Playback-state views keep normal
-    # navigation so this temporary setting cannot affect other directories.
     if lobby and room_code and not finished:
-        _watch_party_hide_parent_folder()
     else:
-        _watch_party_restore_parent_folder()
 
     xbmcplugin.setPluginCategory(HANDLE, "Watch Party")
     xbmcplugin.setContent(HANDLE, "files")
@@ -3211,7 +3016,6 @@ def _watch_party_join(client):
 
 def _watch_party_leave():
     """Leave the Watch Party, stop its local playback, and leave the lobby."""
-    _watch_party_restore_parent_folder()
     window = _watch_party_window()
 
     if not window.getProperty("Silo.WatchParty.RoomID"):
@@ -4250,22 +4054,12 @@ def _watch_party_monitor(
         ):
             now = time.time()
 
-            # The parent-folder setting is global in Kodi. Keep it hidden only
-            # while the actual Watch Party lobby is the visible container.
-            # Once Kodi enters fullscreen playback or another directory, restore
-            # the user's normal '..' navigation automatically.
-            visible_lobby = (
-                "action=watch_party_lobby"
-                in (xbmc.getInfoLabel("Container.FolderPath") or "")
-            )
             if (
                 visible_lobby
                 and room_phase == "lobby"
                 and not disconnect_requested.is_set()
             ):
-                _watch_party_hide_parent_folder()
             else:
-                _watch_party_restore_parent_folder()
 
             if (
                 _watch_party_window().getProperty(
@@ -5528,7 +5322,6 @@ def list_root(client, page=None):
     # Watch Party is the only directory that temporarily suppresses Kodi's
     # automatic parent-folder item. Ensure ordinary addon navigation always
     # starts with the user's normal back-navigation setting.
-    _watch_party_restore_parent_folder()
 
     # If server and username were entered in Kodi Settings, authenticate
     # automatically. Kodi never stores the password, so ask for it here.
@@ -8347,7 +8140,6 @@ def router(client):
     # The Watch Party lobby temporarily hides Kodi's automatic parent-folder
     # entry. Any other add-on navigation restores the user's original setting.
     if action != "watch_party_lobby":
-        _watch_party_restore_parent_folder()
 
     if not action:
         list_root(client, params.get("page"))
