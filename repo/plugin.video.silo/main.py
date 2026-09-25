@@ -4384,15 +4384,25 @@ def _watch_party_monitor(
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
 
+                    # Every room snapshot can change the visible lobby:
+                    # participants can join/leave, become lobby-ready, or the
+                    # room can transition between waiting/playing/lobby.
+                    # Refresh immediately so the directory reflects the
+                    # server state without requiring the user to navigate away.
+                    _watch_party_refresh_lobby()
+
                     if phase == "playing":
                         was_room_playing = True
                         set_watch_party_input_lock(True)
-                        _watch_party_refresh_lobby()
-                        if not player.isPlaying():
-                            update_ui(
-                                status="Host is starting playback...",
-                                lobby=False,
-                            )
+
+                        # The room is already playing as soon as Silo reports
+                        # phase=playing. Kodi may still be opening/buffering the
+                        # local stream, so never describe this as "starting"
+                        # merely because player.isPlaying() is not true yet.
+                        update_ui(
+                            status="Playing with the Watch Party host.",
+                            lobby=False,
+                        )
 
 
                         if (
@@ -4448,6 +4458,55 @@ def _watch_party_monitor(
                                 status="Playing with the Watch Party host.",
                                 lobby=False,
                             )
+
+                    elif phase == "lobby":
+                        was_room_playing = False
+                        set_watch_party_input_lock(False)
+
+                        ready_count = sum(
+                            1
+                            for member in members
+                            if isinstance(member, dict)
+                            and bool(member.get("lobby_ready"))
+                        )
+                        participant_count = len(
+                            [member for member in members if isinstance(member, dict)]
+                        )
+
+                        if participant_count:
+                            lobby_status = (
+                                "Watch Party %s — %d/%d participants ready. "
+                                "Waiting for the host to start playback."
+                                % (
+                                    _watch_party_window().getProperty(
+                                        "Silo.WatchParty.Code"
+                                    ) or "lobby",
+                                    ready_count,
+                                    participant_count,
+                                )
+                            )
+                        else:
+                            lobby_status = (
+                                "Watch Party %s — waiting for participants."
+                                % (
+                                    _watch_party_window().getProperty(
+                                        "Silo.WatchParty.Code"
+                                    ) or "lobby"
+                                )
+                            )
+
+                        update_ui(
+                            status=lobby_status,
+                            lobby=True,
+                        )
+
+                    elif phase == "paused":
+                        was_room_playing = True
+                        set_watch_party_input_lock(True)
+                        update_ui(
+                            status="Playback paused with the Watch Party host.",
+                            lobby=False,
+                        )
 
                     elif was_room_playing:
                         # The host stopped room playback. Silo moves the room
