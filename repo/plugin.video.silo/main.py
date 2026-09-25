@@ -2624,6 +2624,7 @@ def _watch_party_clear_properties(window=None):
         "Silo.WatchParty.Finished",
         "Silo.WatchParty.Ended",
         "Silo.WatchParty.LeaveRequested",
+        "Silo.WatchParty.Members",
     ):
         try:
             window.clearProperty(property_name)
@@ -2649,6 +2650,7 @@ def _watch_party_reset_lobby():
     window.setProperty("Silo.WatchParty.Lobby", "true")
     window.setProperty("Silo.WatchParty.Finished", "false")
     window.setProperty("Silo.WatchParty.Ended", "false")
+    window.setProperty("Silo.WatchParty.Members", "[]")
 
 
 def _watch_party_refresh_lobby():
@@ -2676,6 +2678,29 @@ def _watch_party_update_window_state(ui_state):
     window.setProperty("Silo.WatchParty.Ended", "true" if ended else "false")
 
     return status, lobby, finished, ended
+
+
+def _watch_party_set_members(members):
+    """Store the server Watch Party member readiness snapshot."""
+    window = _watch_party_window()
+    normalized = []
+    for member in members or []:
+        if not isinstance(member, dict):
+            continue
+        normalized.append({
+            "display_name": str(member.get("display_name") or "Participant"),
+            "is_host": bool(member.get("is_host")),
+            "is_self": bool(member.get("is_self")),
+            "connected": bool(member.get("connected")),
+            "is_ready": bool(member.get("is_ready")),
+            "is_buffering": bool(member.get("is_buffering")),
+            "is_syncing": bool(member.get("is_syncing")),
+            "lobby_ready": bool(member.get("lobby_ready")),
+        })
+    try:
+        window.setProperty("Silo.WatchParty.Members", json.dumps(normalized, separators=(",", ":")))
+    except Exception:
+        window.setProperty("Silo.WatchParty.Members", "[]")
 
 
 def list_watch_party_lobby():
@@ -2800,6 +2825,50 @@ def list_watch_party_lobby():
             False,
         )
 
+    try:
+        members = json.loads(window.getProperty("Silo.WatchParty.Members") or "[]")
+    except (TypeError, ValueError):
+        members = []
+
+    if members:
+        ready_count = sum(1 for member in members if member.get("is_ready"))
+        header = xbmcgui.ListItem(label="Participants — %d/%d ready" % (ready_count, len(members)))
+        header.setArt({"icon": "DefaultInfo.png"})
+        header.setInfo("video", {
+            "title": "Watch Party Participants",
+            "plot": "%d of %d participants are ready." % (ready_count, len(members)),
+        })
+        xbmcplugin.addDirectoryItem(
+            HANDLE, build_url(action="watch_party_lobby"), header, False
+        )
+
+        for member in members:
+            name = str(member.get("display_name") or "Participant")
+            if member.get("is_host"):
+                name += " (Host)"
+
+            if not member.get("connected"):
+                state = "Disconnected"
+            elif lobby:
+                state = "Lobby ready" if member.get("lobby_ready") else "Not ready"
+            elif member.get("is_buffering"):
+                state = "Buffering"
+            elif member.get("is_syncing"):
+                state = "Syncing"
+            elif member.get("is_ready"):
+                state = "Ready"
+            else:
+                state = "Not ready"
+
+            member_item = xbmcgui.ListItem(label="%s — %s" % (name, state))
+            member_item.setArt({"icon": "DefaultInfo.png"})
+            member_item.setInfo("video", {
+                "title": name,
+                "plot": "Watch Party status: %s." % state,
+            })
+            xbmcplugin.addDirectoryItem(
+                HANDLE, build_url(action="watch_party_lobby"), member_item, False
+            )
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -3327,6 +3396,7 @@ def _watch_party_monitor(
     last_ping = 0.0
     last_state_report = 0.0
     playback_sequence = 0
+    last_ready_report = 0.0
     last_reported_paused = None
     next_progress_report_at = time.time()
     server_time_offset = 0.0
@@ -3342,6 +3412,8 @@ def _watch_party_monitor(
     room_target_received_at = time.time()
     server_time_offset_known = False
     room_transport_known = False
+    self_member_ready = False
+    waiting_command_id = None
     transport_sync_hold_until = 0.0
     transport_guard_until = 0.0
     remote_stop_until = 0.0
@@ -4245,8 +4317,18 @@ def _watch_party_monitor(
                 if message_type == "snapshot":
                     room = message.get("room") or {}
                     update_authoritative_room_state(room)
+                    members = room.get("members") or []
+                    _watch_party_set_members(members)
+                    self_member_ready = any(
+                        isinstance(member, dict)
+                        and bool(member.get("is_self"))
+                        and bool(member.get("is_ready"))
+                        for member in members
+                    )
                     phase = room.get("phase")
                     selection_revision = room.get("selection_revision")
+                    if room.get("playback_state") != "waiting":
+                        waiting_command_id = None
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
@@ -4279,6 +4361,8 @@ def _watch_party_monitor(
                             watch_party_token_refresh_expiry = None
                             watch_party_player_was_playing = False
                             playback_sequence = 0
+                            last_ready_report = 0.0
+                            waiting_command_id = None
                             last_reported_paused = None
                             next_progress_report_at = time.time()
                             watch_party_control_reconnect_after = 0.0
@@ -4448,6 +4532,13 @@ def _watch_party_monitor(
                     )
                     room_target_received_at = time.time()
                     room_playback_state = command_playback_state
+                    waiting_command_id = (
+                        command_id
+                        if command_playback_state == "waiting"
+                        else None
+                    )
+                    last_ready_report = 0.0
+                    self_member_ready = False
                     room_transport_known = (
                         room_phase == "playing"
                         and command_playback_state in (
@@ -4807,9 +4898,36 @@ def _watch_party_monitor(
                             xbmc.LOGWARNING,
                         )
 
-            # Room synchronization reporting remains separate from persistent
-            # Silo progress and continues at the faster 1.5-second cadence.
+            # The new Watch Party server uses is_ready to track whether each
+            # member has actually reached the current transport target. While
+            # waiting for a seek, periodically acknowledge readiness until the
+            # server snapshot confirms this member as ready.
             if (
+                session_id
+                and player.isPlaying()
+                and room_playback_state == "waiting"
+                and waiting_command_id
+                and not self_member_ready
+                and now - last_ready_report >= 0.5
+            ):
+                current_position = player_position(player)
+                actual_paused = player_paused(player)
+                ready = (
+                    abs(current_position - room_target_position) <= 1.0
+                    and actual_paused == (room_playback_state in ("paused", "waiting"))
+                )
+                send({
+                    "type": "state_report",
+                    "session_id": session_id,
+                    "command_id": waiting_command_id,
+                    "position_seconds": current_position,
+                    "is_paused": actual_paused,
+                    "is_ready": bool(ready),
+                })
+                last_ready_report = now
+                last_state_report = now
+
+            elif (
                 session_id
                 and player.isPlaying()
                 and now - last_state_report >= 1.5
