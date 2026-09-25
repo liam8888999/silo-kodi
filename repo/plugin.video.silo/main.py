@@ -3184,10 +3184,13 @@ class _SiloWebSocket:
             self.close()
             raise SiloError("Invalid Watch Party WebSocket handshake response.")
 
-        if headers.get("sec-websocket-protocol", "").strip() != "silo.room.v2":
+        selected_protocol = headers.get("sec-websocket-protocol", "").strip()
+        expected_protocol = self.protocols[0] if self.protocols else ""
+        if expected_protocol and selected_protocol != expected_protocol:
             self.close()
             raise SiloError(
-                "Silo did not select the expected Watch Party socket protocol."
+                "Silo did not select the expected WebSocket protocol: %s"
+                % selected_protocol
             )
 
         # Keep the room monitor responsive enough to immediately undo
@@ -4124,23 +4127,17 @@ def _watch_party_monitor(
                     pass
 
         def onPlayBackStopped(self):
-            # Kodi can emit onPlayBackStopped transiently while applying a
-            # server-controlled pause/seek/play operation. Never treat one of
-            # those transport transitions as a Watch Party disconnect.
-            if (
-                time.time() < remote_stop_until
-                or time.time() < remote_transport_until
-                or remote_transport_pending
-            ):
-                return
-
-            # A host stopping room playback also causes Kodi to stop its local
-            # player. That is a room event, not a request to leave the party.
-
-            # Kodi also fires this for host-driven media replacement; the
-            # replacement window prevents those transitions being mistaken for
-            # a deliberate local Stop.
-            request_watch_party_disconnect("Kodi playback stopped")
+            # Do not disconnect the Watch Party from Kodi's playback callback.
+            # A server-issued seek can make Kodi briefly report playback stopped
+            # before the corresponding room transport command reaches this
+            # thread. The room state and Silo playback-session lifecycle are the
+            # authoritative sources for deciding whether the party ended.
+            log(
+                "Watch Party Kodi playback stopped callback received; "
+                "keeping Watch Party session alive.",
+                xbmc.LOGDEBUG,
+            )
+            return
 
     player = _WatchPartyPlayer()
 
@@ -4352,6 +4349,7 @@ def _watch_party_monitor(
                     selection_revision = room.get("selection_revision")
                     if room.get("playback_state") != "waiting":
                         waiting_command_id = None
+                        self_member_ready = False
                         remote_transport_pending = False
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
@@ -4569,6 +4567,7 @@ def _watch_party_monitor(
                         else None
                     )
                     last_ready_report = 0.0
+                    self_member_ready = False
                     self_member_ready = False
                     room_transport_known = (
                         room_phase == "playing"
@@ -4944,11 +4943,14 @@ def _watch_party_monitor(
             # server snapshot confirms this member as ready.
             if (
                 session_id
-                and xbmc.getCondVisibility("Player.HasMedia")
                 and room_playback_state == "waiting"
                 and waiting_command_id
                 and not self_member_ready
                 and now - last_ready_report >= 0.5
+                and (
+                    xbmc.getCondVisibility("Player.HasMedia")
+                    or player.isPlaying()
+                )
             ):
                 current_position = player_position(player)
                 actual_paused = player_paused(player)
@@ -4965,6 +4967,27 @@ def _watch_party_monitor(
                     "is_ready": bool(ready),
                 })
                 if ready:
+                    log(
+                        "Watch Party member ready: position=%.3f target=%.3f "
+                        "command=%s"
+                        % (
+                            current_position,
+                            target_position,
+                            waiting_command_id,
+                        ),
+                        xbmc.LOGINFO,
+                    )
+                    # Send the explicit ready frame as well. The server accepts
+                    # either ready or state_report(is_ready=true); the duplicate
+                    # is intentional so an isolated lost state tick cannot leave
+                    # the member waiting.
+                    send({
+                        "type": "ready",
+                        "session_id": session_id,
+                        "command_id": waiting_command_id,
+                        "position_seconds": current_position,
+                        "is_paused": actual_paused,
+                    })
                     self_member_ready = True
                     remote_transport_pending = False
                 last_ready_report = now
