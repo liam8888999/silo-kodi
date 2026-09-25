@@ -2724,6 +2724,11 @@ def _watch_party_update_window_state(ui_state):
 def list_watch_party_lobby():
     """Display the current Watch Party state and participants."""
     window = _watch_party_window()
+
+    # This function itself is what renders the visible lobby, including when
+    # Kodi reached it through the watch_party_join action. Mark it visible here
+    # so the background monitor can refresh the same directory periodically.
+    window.setProperty("Silo.WatchParty.LobbyVisible", "true")
     status = window.getProperty("Silo.WatchParty.Status") or "Connecting to Watch Party..."
     room_code = window.getProperty("Silo.WatchParty.Code") or ""
     lobby = window.getProperty("Silo.WatchParty.Lobby").lower() == "true"
