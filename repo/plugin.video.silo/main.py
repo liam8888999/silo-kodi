@@ -4162,22 +4162,28 @@ def _watch_party_monitor(
                     pass
 
         def onPlayBackStopped(self):
-            # Stopped is emitted for explicit Stop as well as transient seek,
-            # stream-reopen, and demuxer transitions. Never use this callback
-            # to tear down the Watch Party itself. Give the player a grace
-            # period so the room monitor cannot mistake a seek for termination.
-            nonlocal playback_stop_grace_until, remote_transport_until
-            playback_stop_grace_until = max(
-                playback_stop_grace_until,
-                time.time() + 5.0,
-            )
-            remote_transport_until = max(
-                remote_transport_until,
-                time.time() + 5.0,
-            )
+            # Kodi can emit onPlayBackStopped transiently while applying a
+            # server-controlled pause/seek/play operation. The earlier Watch
+            # Party transport implementation explicitly absorbed these events
+            # while the remote operation was pending.
+            if (
+                time.time() < remote_stop_until
+                or time.time() < remote_transport_until
+                or remote_transport_pending
+                or time.time() < playback_stop_grace_until
+            ):
+                log(
+                    "Ignoring transient Watch Party Kodi stop during remote "
+                    "transport.",
+                    xbmc.LOGDEBUG,
+                )
+                return
+
+            # A host stopping room playback is handled by the room snapshot,
+            # not by this local callback. A genuine player teardown outside a
+            # remote transport window is dealt with by the monitor below.
             log(
-                "Watch Party Kodi playback stopped callback received; "
-                "keeping Watch Party session alive.",
+                "Watch Party Kodi playback stopped callback received.",
                 xbmc.LOGDEBUG,
             )
             return
@@ -4228,10 +4234,32 @@ def _watch_party_monitor(
                     break
 
 
-            # Kodi player disappearance is deliberately not a Watch Party
-            # disconnect signal. Seek/reopen/demuxer transitions can clear
-            # Player.HasMedia for several frames. The server remains authoritative
-            # for room closure and playback-session termination.
+            # Mirror the earlier working Watch Party lifecycle: only a true
+            # player teardown outside every known remote transport/replacement
+            # window ends the local playback session. A seek that transiently
+            # removes Player.HasMedia must remain protected by remote_transport_pending
+            # and the transport grace windows.
+            if (
+                session_id
+                and watch_party_player_was_playing
+                and not player.isPlaying()
+                and not xbmc.getCondVisibility("Player.HasMedia")
+                and not disconnect_requested.is_set()
+                and not remote_transport_pending
+                and room_playback_state != "waiting"
+                and now >= switching_media_until
+                and now >= remote_stop_until
+                and now >= remote_transport_until
+                and now >= playback_stop_grace_until
+            ):
+                log(
+                    "Watch Party Kodi playback genuinely ended; finalizing "
+                    "the Silo playback session.",
+                    xbmc.LOGWARNING,
+                )
+                request_watch_party_disconnect("Kodi playback ended unexpectedly")
+                break
+
             if session_id and player.isPlaying():
                 watch_party_player_was_playing = True
             elif not session_id:
@@ -4377,6 +4405,7 @@ def _watch_party_monitor(
                         waiting_command_id = None
                         self_member_ready = False
                         remote_transport_pending = False
+                        playback_stop_grace_until = 0.0
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
@@ -4468,7 +4497,10 @@ def _watch_party_monitor(
                                 current_position = player_position(player)
 
                                 if abs(current_position - sync_position) > 0.25:
-                                    playback_stop_grace_until = time.time() + 5.0
+                                    playback_stop_grace_until = max(
+                                        playback_stop_grace_until,
+                                        time.time() + 5.0,
+                                    )
                                     remote_transport_until = max(
                                         remote_transport_until,
                                         time.time() + 5.0,
@@ -4657,7 +4689,14 @@ def _watch_party_monitor(
                         remote_transport_until,
                         time.time() + (5.0 if action == "seek" else 2.0),
                     )
-                    remote_transport_pending = action == "seek"
+                    if action == "seek":
+                        remote_transport_pending = True
+                        playback_stop_grace_until = max(
+                            playback_stop_grace_until,
+                            time.time() + 5.0,
+                        )
+                    else:
+                        remote_transport_pending = False
                     set_transport_guard(
                         2.0 if action == "seek" else 0.75
                     )
@@ -4700,6 +4739,9 @@ def _watch_party_monitor(
                         and actual_paused == target_paused
                     ):
                         if command_playback_state == "waiting":
+                            # The server can now accept readiness. Until this
+                            # point the Kodi seek remains explicitly protected
+                            # from playback-stop lifecycle handling.
                             remote_transport_pending = False
                         send({
                             "type": "ready",
