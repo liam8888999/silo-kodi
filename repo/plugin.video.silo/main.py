@@ -3226,26 +3226,42 @@ def _watch_party_join(client):
 
 
 def _watch_party_leave():
-    """Request that the background Watch Party monitor close its connection."""
+    """Leave the Watch Party, stop its local playback, and leave the lobby."""
     _watch_party_restore_parent_folder()
     window = _watch_party_window()
 
     if not window.getProperty("Silo.WatchParty.RoomID"):
         _watch_party_clear_properties(window)
-        xbmcplugin.endOfDirectory(HANDLE)
+        xbmc.executebuiltin("Container.Back")
         return
 
-    # Update the visible directory immediately. The background monitor will
-    # close the socket, but it must not leave Kodi showing the old room lobby
-    # while that shutdown is happening.
+    # LeaveRequested must remain set until the background monitor handles it.
+    # Do not call _watch_party_reset_lobby() here because that clears the flag
+    # before the monitor can close the room connection and playback session.
     window.setProperty("Silo.WatchParty.LeaveRequested", "true")
-    window.setProperty("Silo.WatchParty.Status", "Left Watch Party.")
+    window.setProperty("Silo.WatchParty.Status", "Leaving Watch Party...")
     window.setProperty("Silo.WatchParty.Lobby", "false")
     window.setProperty("Silo.WatchParty.Finished", "true")
     window.setProperty("Silo.WatchParty.Ended", "false")
 
-    _watch_party_reset_lobby()
-    _watch_party_refresh_lobby()
+    # Explicitly stop the Kodi player as part of leaving. The Watch Party
+    # player's onPlayBackStopped callback will see the leave request and
+    # perform the normal room/session shutdown as well. The monitor also polls
+    # LeaveRequested, so this remains safe when nothing is currently playing.
+    try:
+        player = xbmc.Player()
+        if player.isPlaying():
+            log(
+                "Stopping Kodi playback because the user left the Watch Party.",
+                xbmc.LOGINFO,
+            )
+            player.stop()
+    except Exception as exc:
+        log(
+            "Unable to stop Kodi playback while leaving Watch Party: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
 
     xbmcgui.Dialog().notification(
         "Watch Party",
@@ -3254,9 +3270,9 @@ def _watch_party_leave():
         2000,
     )
 
-    # Render the finished lobby state in the same plugin invocation so the
-    # Leave button disappears immediately.
-    list_watch_party_lobby()
+    # Navigate back out of the dedicated Watch Party lobby rather than
+    # rendering a disconnected state inside it.
+    xbmc.executebuiltin("Container.Back")
 
 
 
