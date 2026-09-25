@@ -2235,21 +2235,21 @@ def build_person_list_item(client, person):
     return item
 
 
-def list_person_media(client, person_id, person_name=""):
-    """Display all Silo media associated with one person."""
-    items = []
-    cursor = None
+def list_person_media(client, person_id, person_name="", cursor=None):
+    """Display one paged set of Silo media associated with one person."""
+    if not str(person_id or "").strip():
+        notify("Invalid person.")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    page_size = min(get_directory_page_size(), 100)
 
     try:
-        while True:
-            page_items, cursor = client.person_catalog_page(
-                person_id,
-                cursor=cursor,
-                limit=200,
-            )
-            items.extend(page_items)
-            if not cursor:
-                break
+        items, next_cursor = client.person_catalog_page(
+            person_id,
+            cursor=cursor,
+            limit=page_size,
+        )
     except SiloError as exc:
         log(
             "Silo person media lookup failed for %s: %s"
@@ -2260,17 +2260,29 @@ def list_person_media(client, person_id, person_name=""):
         xbmcplugin.endOfDirectory(HANDLE)
         return
 
+    log(
+        "Silo person media id=%s returned %d item(s), has_more=%s"
+        % (person_id, len(items), bool(next_cursor)),
+    )
+
     xbmcplugin.setPluginCategory(
         HANDLE,
         person_name or "Person",
     )
     xbmcplugin.setContent(HANDLE, "videos")
 
-    detail_map = fetch_detail_metadata(client, items, None)
-
+    # Person pages use the catalog cards directly. Fetching full detail
+    # documents for every credit before rendering can turn a large filmography
+    # into a very slow directory load; playback/detail flows fetch full detail
+    # when the individual item is opened.
     try:
         in_progress_map = client.in_progress_map()
-    except SiloError:
+    except SiloError as exc:
+        log(
+            "Unable to retrieve in-progress Silo records for person results: %s"
+            % exc,
+            xbmc.LOGWARNING,
+        )
         in_progress_map = {}
 
     series_watch_map, season_watch_map = fetch_series_watch_data(
@@ -2303,6 +2315,7 @@ def list_person_media(client, person_id, person_name=""):
     )
 
     batch = []
+
     for catalog_item in ordered:
         content_id = get_content_id(catalog_item)
         if not content_id:
@@ -2323,7 +2336,7 @@ def list_person_media(client, person_id, person_name=""):
             build_catalog_list_item(
                 client,
                 catalog_item,
-                detail=detail_map.get(str(content_id)),
+                detail=None,
                 progress=display_progress,
                 series_rollup=series_watch_map.get(str(content_id)),
                 season_rollup=(
@@ -2340,17 +2353,20 @@ def list_person_media(client, person_id, person_name=""):
 
         if media_type in PLAYABLE:
             item.setProperty("IsPlayable", "true")
-            url = build_url(
-                action="play",
-                content_id=(
-                    catalog_item.get("play_content_id")
-                    or content_id
+            batch.append((
+                build_url(
+                    action="play",
+                    content_id=(
+                        catalog_item.get("play_content_id")
+                        or content_id
+                    ),
+                    resume_available=int(
+                        has_usable_resume(display_progress)
+                    ),
                 ),
-                resume_available=int(
-                    has_usable_resume(display_progress)
-                ),
-            )
-            batch.append((url, item, False))
+                item,
+                False,
+            ))
         elif media_type == "series":
             batch.append((
                 build_url(action="seasons", series_id=content_id),
@@ -2374,14 +2390,28 @@ def list_person_media(client, person_id, person_name=""):
         xbmcplugin.addDirectoryItems(
             HANDLE,
             batch,
-            totalItems=len(batch),
+            totalItems=len(batch) + (1 if next_cursor else 0),
+        )
+
+    if next_cursor:
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="person",
+                person_id=str(person_id),
+                person_name=person_name or "",
+                cursor=next_cursor,
+            ),
+            next_item,
+            True,
         )
 
     if not batch:
         notify("No Silo media found for this person.")
 
     xbmcplugin.endOfDirectory(HANDLE)
-
 
 def search_silo(client):
     """Prompt for a search term and display Silo's library-wide results."""
@@ -8315,6 +8345,7 @@ def router(client):
             client,
             params.get("person_id") or "",
             params.get("person_name") or "",
+            params.get("cursor"),
         )
         return
 
