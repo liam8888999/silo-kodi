@@ -2692,27 +2692,30 @@ def _watch_party_reset_lobby():
 
 
 def _watch_party_refresh_lobby():
-    """Refresh the currently visible Watch Party lobby directory."""
+    """Re-run the Watch Party lobby directory in the current container."""
     try:
         window = _watch_party_window()
 
-        # Container.FolderPath does not reliably retain the plugin query string
-        # for every Kodi skin/version. The router maintains this explicit
-        # visibility flag instead, so a background refresh cannot accidentally
-        # refresh another Silo directory after the user navigates away.
         if window.getProperty("Silo.WatchParty.LobbyVisible").lower() != "true":
             return
 
-        # Force Kodi to rebuild the current plugin directory. The background
-        # monitor can call this safely while the plugin invocation itself has
-        # already completed.
-        xbmc.executebuiltin("Container.Refresh(true)")
+        lobby_url = build_url(action="watch_party_lobby")
+        log(
+            "Refreshing Watch Party lobby directory: %s" % lobby_url,
+            xbmc.LOGDEBUG,
+        )
+
+        # Explicitly update the current container with the lobby plugin URL.
+        # This should invoke the plugin router again and rebuild the directory
+        # from the latest Watch Party window properties.
+        xbmc.executebuiltin(
+            "Container.Update(%s,true)" % lobby_url
+        )
     except Exception as exc:
         log(
             "Unable to refresh Watch Party lobby directory: %s" % exc,
             xbmc.LOGDEBUG,
         )
-
 
 def _watch_party_update_window_state(ui_state):
     """Mirror monitor state into Kodi global window properties."""
