@@ -2841,7 +2841,13 @@ def list_watch_party_lobby():
         )
         xbmcplugin.addDirectoryItem(
             HANDLE,
-            build_url(action="watch_party_lobby"),
+            build_url(
+                action=(
+                    "watch_party_show_player"
+                    if not lobby
+                    else "watch_party_lobby"
+                )
+            ),
             state_item,
             False,
         )
@@ -3040,6 +3046,25 @@ def _watch_party_join(client):
     # are limited to an already-open lobby container, so they never re-open
     # the room-code prompt.
     list_watch_party_lobby()
+
+
+def _watch_party_show_player():
+    """Bring the active Watch Party video player to the foreground."""
+    try:
+        player = xbmc.Player()
+        if player.isPlaying():
+            xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+        else:
+            log(
+                "Watch Party player foreground requested, but Kodi is not "
+                "currently playing video.",
+                xbmc.LOGDEBUG,
+            )
+    except Exception as exc:
+        log(
+            "Unable to bring Watch Party player to the foreground: %s" % exc,
+            xbmc.LOGWARNING,
+        )
 
 
 def _watch_party_leave():
@@ -8120,6 +8145,10 @@ def router(client):
 
     if action == "watch_party_lobby":
         list_watch_party_lobby()
+        return
+
+    if action == "watch_party_show_player":
+        _watch_party_show_player()
         return
 
     if action == "watch_party_leave":
