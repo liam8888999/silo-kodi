@@ -2198,6 +2198,231 @@ def add_catalog_item(client, item, library_id):
 
 
 
+def display_title_for_person(person):
+    """Build a concise label for a Silo people-search result."""
+    name = str(person.get("name") or "Unknown")
+    return "[Person] %s" % name
+
+
+def build_person_list_item(client, person):
+    """Build a Kodi directory item for a Silo person search result."""
+    name = str(person.get("name") or "Unknown")
+    item = xbmcgui.ListItem(label=display_title_for_person(person))
+
+    photo = person.get("photo_url") or person.get("photo")
+    if photo:
+        item.setArt({
+            "thumb": client.abs_url(str(photo)),
+            "icon": client.abs_url(str(photo)),
+        })
+
+    tag = item.getVideoInfoTag()
+    try:
+        tag.setTitle(name)
+        tag.setMediaType("actor")
+    except Exception:
+        pass
+
+    if person.get("bio"):
+        item.setProperty("Silo.Person.Bio", str(person["bio"]))
+    if person.get("birth_date"):
+        item.setProperty("Silo.Person.BirthDate", str(person["birth_date"]))
+    if person.get("birthplace"):
+        item.setProperty("Silo.Person.Birthplace", str(person["birthplace"]))
+    if person.get("tmdb_id"):
+        item.setProperty("Silo.Person.TmdbId", str(person["tmdb_id"]))
+
+    return item
+
+
+def list_person_results(client, query):
+    """Display people matching the current Silo search term."""
+    people = client.search_people(query, limit=50) or []
+
+    xbmcplugin.setPluginCategory(
+        HANDLE,
+        "People: %s" % query,
+    )
+    xbmcplugin.setContent(HANDLE, "files")
+
+    batch = []
+    for person in people:
+        person_id = person.get("id")
+        if person_id is None:
+            continue
+
+        item = build_person_list_item(client, person)
+        batch.append((
+            build_url(
+                action="person",
+                person_id=str(person_id),
+                person_name=person.get("name") or "",
+            ),
+            item,
+            True,
+        ))
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(batch),
+        )
+
+    if not batch:
+        notify("No people found for: %s" % query)
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_person_media(client, person_id, person_name=""):
+    """Display all Silo media associated with one person."""
+    items = []
+    cursor = None
+
+    try:
+        while True:
+            page_items, cursor = client.person_catalog_page(
+                person_id,
+                cursor=cursor,
+                limit=200,
+            )
+            items.extend(page_items)
+            if not cursor:
+                break
+    except SiloError as exc:
+        log(
+            "Silo person media lookup failed for %s: %s"
+            % (person_id, exc),
+            xbmc.LOGERROR,
+        )
+        notify("Unable to load person credits: %s" % str(exc)[:180])
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    xbmcplugin.setPluginCategory(
+        HANDLE,
+        person_name or "Person",
+    )
+    xbmcplugin.setContent(HANDLE, "videos")
+
+    detail_map = fetch_detail_metadata(client, items, None)
+
+    try:
+        in_progress_map = client.in_progress_map()
+    except SiloError:
+        in_progress_map = {}
+
+    series_watch_map, season_watch_map = fetch_series_watch_data(
+        client,
+        items,
+    )
+
+    grouped = {
+        "movie": [],
+        "series": [],
+        "episode": [],
+        "season": [],
+    }
+    other = []
+
+    for catalog_item in items:
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+        grouped.get(media_type, other).append(catalog_item)
+
+    ordered = (
+        grouped["movie"]
+        + grouped["series"]
+        + grouped["season"]
+        + grouped["episode"]
+        + other
+    )
+
+    batch = []
+    for catalog_item in ordered:
+        content_id = get_content_id(catalog_item)
+        if not content_id:
+            continue
+
+        media_type = (
+            catalog_item.get("type")
+            or catalog_item.get("media_type")
+            or ""
+        ).lower()
+
+        display_progress = (
+            in_progress_map.get(str(content_id))
+            or catalog_progress(catalog_item)
+        )
+
+        item, media_type, content_id, title, display_progress = (
+            build_catalog_list_item(
+                client,
+                catalog_item,
+                detail=detail_map.get(str(content_id)),
+                progress=display_progress,
+                series_rollup=series_watch_map.get(str(content_id)),
+                season_rollup=(
+                    season_watch_map.get(str(content_id))
+                    or season_watch_map.get(
+                        "%s:%s" % (
+                            catalog_item.get("series_id"),
+                            catalog_item.get("season_number"),
+                        )
+                    )
+                ),
+            )
+        )
+
+        if media_type in PLAYABLE:
+            item.setProperty("IsPlayable", "true")
+            url = build_url(
+                action="play",
+                content_id=(
+                    catalog_item.get("play_content_id")
+                    or content_id
+                ),
+                resume_available=int(
+                    has_usable_resume(display_progress)
+                ),
+            )
+            batch.append((url, item, False))
+        elif media_type == "series":
+            batch.append((
+                build_url(action="seasons", series_id=content_id),
+                item,
+                True,
+            ))
+        elif media_type == "season":
+            batch.append((
+                build_url(
+                    action="season",
+                    series_id=catalog_item.get("series_id") or "",
+                    season_number=catalog_item.get("season_number"),
+                ),
+                item,
+                True,
+            ))
+        else:
+            continue
+
+    if batch:
+        xbmcplugin.addDirectoryItems(
+            HANDLE,
+            batch,
+            totalItems=len(batch),
+        )
+
+    if not batch:
+        notify("No Silo media found for this person.")
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
 def search_silo(client):
     """Prompt for a search term and display Silo's library-wide results."""
     query = xbmcgui.Dialog().input(
@@ -2209,6 +2434,8 @@ def search_silo(client):
         xbmcplugin.endOfDirectory(HANDLE)
         return
 
+    # Search people and media together so cast/crew names are first-class
+    # results in the same Silo search interface.
     list_search_results(client, query, 1)
 
 
@@ -2344,6 +2571,20 @@ def list_search_results(client, query, page=1):
     items = data.get("items") or []
     has_more = bool(data.get("has_more"))
 
+    try:
+        people = client.search_people(query, limit=50) or []
+    except SiloError as exc:
+        log(
+            "Silo people search failed for %r: %s" % (query, exc),
+            xbmc.LOGWARNING,
+        )
+        people = []
+
+    log(
+        "Silo search query=%r returned %d person result(s)"
+        % (query, len(people))
+    )
+
     log(
         "Silo search query=%r returned %d item(s), has_more=%s"
         % (query, len(items), has_more)
@@ -2354,6 +2595,37 @@ def list_search_results(client, query, page=1):
         "Search: %s" % query,
     )
     xbmcplugin.setContent(HANDLE, "videos")
+
+    # People are shown before media so a matching actor/director
+    # can be selected directly from the normal Search directory.
+    if page_number == 1 and people:
+        people_header = xbmcgui.ListItem(label="People")
+        people_header.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="people",
+                query=query,
+            ),
+            people_header,
+            True,
+        )
+
+        for person in people:
+            person_id = person.get("id")
+            if person_id is None:
+                continue
+            person_item = build_person_list_item(client, person)
+            xbmcplugin.addDirectoryItem(
+                HANDLE,
+                build_url(
+                    action="person",
+                    person_id=str(person_id),
+                    person_name=person.get("name") or "",
+                ),
+                person_item,
+                True,
+            )
 
     if page_number > 1:
         previous_item = xbmcgui.ListItem(label="Previous Page")
@@ -8087,6 +8359,18 @@ def router(client):
         list_root(
             client,
             params.get("page"),
+        )
+        return
+
+    if action == "people":
+        list_person_results(client, params.get("query") or "")
+        return
+
+    if action == "person":
+        list_person_media(
+            client,
+            params.get("person_id") or "",
+            params.get("person_name") or "",
         )
         return
 
