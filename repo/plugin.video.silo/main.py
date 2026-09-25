@@ -3457,6 +3457,8 @@ def _watch_party_monitor(
     last_ping = 0.0
     last_state_report = 0.0
     playback_sequence = 0
+    last_reported_paused = None
+    next_progress_report_at = time.time()
     server_time_offset = 0.0
     last_ready_report = 0.0
     last_lobby_ready_report = 0.0
@@ -4228,6 +4230,8 @@ def _watch_party_monitor(
                                 player=player,
                             )
                             playback_sequence = 0
+                            last_reported_paused = None
+                            next_progress_report_at = time.time()
 
                             # Kodi starts the stream asynchronously. Keep it
                             # paused while the initial Watch Party position is
@@ -4606,39 +4610,21 @@ def _watch_party_monitor(
             # the newest host state before the next guest report.
             reconcile_guest_transport(player, now)
 
-            if (
-                session_id
-                and attached
-                and player.isPlaying()
-            ):
-                if (
-                    now - last_transport_offset_log >= 5.0
-                    and room_transport_known
-                ):
-                    local_position = player_position(player)
-                    server_position = authoritative_position(now)
-                    log(
-                        "Watch Party guest transport offset: "
-                        "kodi=%.3fs server=%.3fs delta=%+.3fs%s"
-                        % (
-                            local_position,
-                            server_position,
-                            local_position - server_position,
-                            " paused" if player_paused(player) else "",
-                        ),
-                        xbmc.LOGDEBUG,
-                    )
-                    last_transport_offset_log = now
+            # Persistent Silo progress is independent from Watch
+            # Party room attachment and transport synchronization. This keeps
+            # resume tracking alive while the room socket is reattaching and
+            # allows a server-terminated playback session to be detected from
+            # its authoritative progress response.
+            if session_id and player.isPlaying():
+                actual_paused = player_paused(player)
+                current_position = player_position(player)
 
-                if (
-                    now >= transport_sync_hold_until
-                    and now - last_state_report >= 1.5
-                ):
-                    actual_paused = player_paused(player)
-                    current_position = player_position(player)
+                pause_state_changed = (
+                    last_reported_paused is not None
+                    and bool(actual_paused) != bool(last_reported_paused)
+                )
 
-                    # Mirror normal playback: direct sequenced progress lets
-                    # Watch Party detect server-side playback termination.
+                if now >= next_progress_report_at or pause_state_changed:
                     playback_sequence += 1
                     try:
                         client.report_progress(
@@ -4646,6 +4632,18 @@ def _watch_party_monitor(
                             playback_sequence,
                             current_position,
                             actual_paused,
+                        )
+                        last_reported_paused = bool(actual_paused)
+                        next_progress_report_at = now + 5.0
+                        log(
+                            "Watch Party Silo progress reported: "
+                            "sequence=%d position=%.3f paused=%s"
+                            % (
+                                playback_sequence,
+                                current_position,
+                                bool(actual_paused),
+                            ),
+                            xbmc.LOGDEBUG,
                         )
                     except SiloError as exc:
                         if playback_session_was_terminated(exc):
@@ -4655,6 +4653,7 @@ def _watch_party_monitor(
                                 xbmc.LOGWARNING,
                             )
                             disconnect_requested.set()
+                            remote_stop_until = time.time() + 5.0
                             try:
                                 if player.isPlaying():
                                     player.stop()
@@ -4665,6 +4664,7 @@ def _watch_party_monitor(
                                     % stop_exc,
                                     xbmc.LOGWARNING,
                                 )
+
                             update_ui(
                                 status="Playback was terminated by the server.",
                                 lobby=False,
@@ -4678,145 +4678,29 @@ def _watch_party_monitor(
                                 pass
                             break
 
+                        next_progress_report_at = now + 5.0
                         log(
                             "Unable to report Watch Party playback progress: %s"
                             % exc,
                             xbmc.LOGWARNING,
                         )
 
-            # V2 lobby readiness is independent from playback.
-            if (
-                room_phase == "lobby"
-                and now - last_lobby_ready_report >= 0.5
-            ):
-                send({
-                    "type": "lobby_ready",
-                    "ready": True,
-                })
-                last_lobby_ready_report = now
-
-            # V2 waiting barrier readiness is level-triggered. Once Kodi
-            # is at the target and paused, keep acknowledging until the server
-            # accepts the member as ready.
+            # Room synchronization state is separate from persistent progress.
             if (
                 session_id
+                and attached
                 and player.isPlaying()
-                and room_playback_state == "waiting"
-                and waiting_command_id
-                and not self_member_ready
-                and now - last_ready_report >= 0.5
+                and now - last_state_report >= 1.5
             ):
                 current_position = player_position(player)
                 actual_paused = player_paused(player)
-                is_ready = (
-                    abs(current_position - room_target_position) <= 1.0
-                    and actual_paused
-                )
                 send({
                     "type": "state_report",
                     "session_id": session_id,
-                    "command_id": waiting_command_id,
                     "position_seconds": current_position,
                     "is_paused": actual_paused,
-                    "is_ready": bool(is_ready),
                 })
-                if is_ready:
-                    self_member_ready = True
-                    send({
-                        "type": "ready",
-                        "session_id": session_id,
-                        "command_id": waiting_command_id,
-                        "position_seconds": current_position,
-                        "is_paused": actual_paused,
-                    })
-                last_ready_report = now
-
-            if (
-                session_id
-                and attached
-                and player.isPlaying()
-            ):
-                if (
-                    now - last_transport_offset_log >= 5.0
-                    and room_transport_known
-                ):
-                    local_position = player_position(player)
-                    server_position = authoritative_position(now)
-                    log(
-                        "Watch Party guest transport offset: "
-                        "kodi=%.3fs server=%.3fs delta=%+.3fs%s"
-                        % (
-                            local_position,
-                            server_position,
-                            local_position - server_position,
-                            " paused" if player_paused(player) else "",
-                        ),
-                        xbmc.LOGDEBUG,
-                    )
-                    last_transport_offset_log = now
-
-                if (
-                    now >= transport_sync_hold_until
-                    and now - last_state_report >= 1.5
-                ):
-                    actual_paused = player_paused(player)
-                    current_position = player_position(player)
-
-                    # Mirror normal playback: direct sequenced progress lets
-                    # Watch Party detect server-side playback termination.
-                    playback_sequence += 1
-                    try:
-                        client.report_progress(
-                            session_id,
-                            playback_sequence,
-                            current_position,
-                            actual_paused,
-                        )
-                    except SiloError as exc:
-                        if playback_session_was_terminated(exc):
-                            log(
-                                "Silo Watch Party playback session was terminated "
-                                "by the server; stopping Kodi playback.",
-                                xbmc.LOGWARNING,
-                            )
-                            disconnect_requested.set()
-                            try:
-                                if player.isPlaying():
-                                    player.stop()
-                            except Exception as stop_exc:
-                                log(
-                                    "Unable to stop Kodi Watch Party playback "
-                                    "after server termination: %s"
-                                    % stop_exc,
-                                    xbmc.LOGWARNING,
-                                )
-                            update_ui(
-                                status="Playback was terminated by the server.",
-                                lobby=False,
-                                finished=True,
-                            )
-                            _watch_party_reset_lobby()
-                            _watch_party_refresh_lobby()
-                            try:
-                                socket.close()
-                            except Exception:
-                                pass
-                            break
-
-                        log(
-                            "Unable to report Watch Party playback progress: %s"
-                            % exc,
-                            xbmc.LOGWARNING,
-                        )
-
-                    # Keep the room-level state report too.
-                    send({
-                        "type": "state_report",
-                        "session_id": session_id,
-                        "position_seconds": current_position,
-                        "is_paused": actual_paused,
-                    })
-                    last_state_report = now
+                last_state_report = now
 
             xbmc.sleep(25)
 
