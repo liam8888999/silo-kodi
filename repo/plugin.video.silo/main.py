@@ -2624,7 +2624,6 @@ def _watch_party_clear_properties(window=None):
         "Silo.WatchParty.Finished",
         "Silo.WatchParty.Ended",
         "Silo.WatchParty.LeaveRequested",
-        "Silo.WatchParty.Members",
     ):
         try:
             window.clearProperty(property_name)
@@ -2650,7 +2649,6 @@ def _watch_party_reset_lobby():
     window.setProperty("Silo.WatchParty.Lobby", "true")
     window.setProperty("Silo.WatchParty.Finished", "false")
     window.setProperty("Silo.WatchParty.Ended", "false")
-    window.setProperty("Silo.WatchParty.Members", "[]")
 
 
 def _watch_party_refresh_lobby():
@@ -2678,29 +2676,6 @@ def _watch_party_update_window_state(ui_state):
     window.setProperty("Silo.WatchParty.Ended", "true" if ended else "false")
 
     return status, lobby, finished, ended
-
-
-def _watch_party_set_members(members):
-    """Store the server Watch Party member readiness snapshot."""
-    window = _watch_party_window()
-    normalized = []
-    for member in members or []:
-        if not isinstance(member, dict):
-            continue
-        normalized.append({
-            "display_name": str(member.get("display_name") or "Participant"),
-            "is_host": bool(member.get("is_host")),
-            "is_self": bool(member.get("is_self")),
-            "connected": bool(member.get("connected")),
-            "is_ready": bool(member.get("is_ready")),
-            "is_buffering": bool(member.get("is_buffering")),
-            "is_syncing": bool(member.get("is_syncing")),
-            "lobby_ready": bool(member.get("lobby_ready")),
-        })
-    try:
-        window.setProperty("Silo.WatchParty.Members", json.dumps(normalized, separators=(",", ":")))
-    except Exception:
-        window.setProperty("Silo.WatchParty.Members", "[]")
 
 
 def list_watch_party_lobby():
@@ -2825,50 +2800,6 @@ def list_watch_party_lobby():
             False,
         )
 
-    try:
-        members = json.loads(window.getProperty("Silo.WatchParty.Members") or "[]")
-    except (TypeError, ValueError):
-        members = []
-
-    if members:
-        ready_count = sum(1 for member in members if member.get("is_ready"))
-        header = xbmcgui.ListItem(label="Participants — %d/%d ready" % (ready_count, len(members)))
-        header.setArt({"icon": "DefaultInfo.png"})
-        header.setInfo("video", {
-            "title": "Watch Party Participants",
-            "plot": "%d of %d participants are ready." % (ready_count, len(members)),
-        })
-        xbmcplugin.addDirectoryItem(
-            HANDLE, build_url(action="watch_party_lobby"), header, False
-        )
-
-        for member in members:
-            name = str(member.get("display_name") or "Participant")
-            if member.get("is_host"):
-                name += " (Host)"
-
-            if not member.get("connected"):
-                state = "Disconnected"
-            elif lobby:
-                state = "Lobby ready" if member.get("lobby_ready") else "Not ready"
-            elif member.get("is_buffering"):
-                state = "Buffering"
-            elif member.get("is_syncing"):
-                state = "Syncing"
-            elif member.get("is_ready"):
-                state = "Ready"
-            else:
-                state = "Not ready"
-
-            member_item = xbmcgui.ListItem(label="%s — %s" % (name, state))
-            member_item.setArt({"icon": "DefaultInfo.png"})
-            member_item.setInfo("video", {
-                "title": name,
-                "plot": "Watch Party status: %s." % state,
-            })
-            xbmcplugin.addDirectoryItem(
-                HANDLE, build_url(action="watch_party_lobby"), member_item, False
-            )
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -3184,13 +3115,10 @@ class _SiloWebSocket:
             self.close()
             raise SiloError("Invalid Watch Party WebSocket handshake response.")
 
-        selected_protocol = headers.get("sec-websocket-protocol", "").strip()
-        expected_protocol = self.protocols[0] if self.protocols else ""
-        if expected_protocol and selected_protocol != expected_protocol:
+        if headers.get("sec-websocket-protocol", "").strip() != "silo.room.v2":
             self.close()
             raise SiloError(
-                "Silo did not select the expected WebSocket protocol: %s"
-                % selected_protocol
+                "Silo did not select the expected Watch Party socket protocol."
             )
 
         # Keep the room monitor responsive enough to immediately undo
@@ -3387,9 +3315,7 @@ def _watch_party_monitor(
             % exc
         )
 
-    # The v2 server exposes lobby readiness independently of playback. Send
-    # the signal as soon as the room socket is connected, rather than waiting
-    # for Kodi to have media loaded.
+    # V2 exposes lobby readiness independently from playback.
     try:
         socket.send({
             "type": "lobby_ready",
@@ -3419,7 +3345,9 @@ def _watch_party_monitor(
     playback_sequence = 0
     last_ready_report = 0.0
     last_lobby_ready_report = 0.0
+    self_member_ready = False
     self_lobby_ready = False
+    waiting_command_id = None
     last_reported_paused = None
     next_progress_report_at = time.time()
     server_time_offset = 0.0
@@ -3435,14 +3363,9 @@ def _watch_party_monitor(
     room_target_received_at = time.time()
     server_time_offset_known = False
     room_transport_known = False
-    self_member_ready = False
-    waiting_command_id = None
     transport_sync_hold_until = 0.0
     transport_guard_until = 0.0
     remote_stop_until = 0.0
-    remote_transport_until = 0.0
-    remote_transport_pending = False
-    playback_stop_grace_until = 0.0
     was_room_playing = False
     last_transport_enforcement = 0.0
     last_transport_offset_log = 0.0
@@ -3967,7 +3890,6 @@ def _watch_party_monitor(
         """Undo unauthorized local pause/seek/play changes immediately."""
 
         nonlocal last_transport_enforcement, transport_sync_hold_until
-        nonlocal remote_transport_until
 
         if (
             not session_id
@@ -4018,13 +3940,8 @@ def _watch_party_monitor(
             last_transport_enforcement = now
 
         if needs_seek:
-            # Network seeks complete asynchronously in Kodi. Treat the whole
-            # correction window as remote so Kodi's stop/seek callbacks cannot
-            # tear down the Watch Party.
-            remote_transport_until = max(
-                remote_transport_until,
-                time.time() + 5.0,
-            )
+            # Network seeks complete asynchronously in Kodi. Hold the
+            # reconciler long enough for this correction to settle.
             set_transport_guard(5.0)
             transport_sync_hold_until = max(
                 transport_sync_hold_until,
@@ -4111,20 +4028,6 @@ def _watch_party_monitor(
                 _kodi_set_watch_party_play_state(self, False)
 
         def onPlayBackSeek(self, time_value, seek_offset):
-            # Kodi may transiently report no media / stopped while a seek is
-            # being committed. That is a playback transition, not a Watch Party
-            # disconnect. Always give the player lifecycle a short grace window
-            # and let the normal reconciler restore the authoritative target.
-            nonlocal playback_stop_grace_until, remote_transport_until
-            playback_stop_grace_until = max(
-                playback_stop_grace_until,
-                time.time() + 5.0,
-            )
-            remote_transport_until = max(
-                remote_transport_until,
-                time.time() + 5.0,
-            )
-
             # Kodi also fires this callback for our own corrective seek.
             # Never call seekTime() from inside it; that creates a recursive
             # correction loop and the UI repeatedly shows "-00:00 seconds".
@@ -4162,31 +4065,16 @@ def _watch_party_monitor(
                     pass
 
         def onPlayBackStopped(self):
-            # Kodi can emit onPlayBackStopped transiently while applying a
-            # server-controlled pause/seek/play operation. The earlier Watch
-            # Party transport implementation explicitly absorbed these events
-            # while the remote operation was pending.
-            if (
-                time.time() < remote_stop_until
-                or time.time() < remote_transport_until
-                or remote_transport_pending
-                or time.time() < playback_stop_grace_until
-            ):
-                log(
-                    "Ignoring transient Watch Party Kodi stop during remote "
-                    "transport.",
-                    xbmc.LOGDEBUG,
-                )
+            # A host stopping room playback also causes Kodi to stop its local
+            # player. That is a remote room event, not a request to leave the
+            # Watch Party, so only a genuine local Stop disconnects the guest.
+            if time.time() < remote_stop_until:
                 return
 
-            # A host stopping room playback is handled by the room snapshot,
-            # not by this local callback. A genuine player teardown outside a
-            # remote transport window is dealt with by the monitor below.
-            log(
-                "Watch Party Kodi playback stopped callback received.",
-                xbmc.LOGDEBUG,
-            )
-            return
+            # Kodi also fires this for host-driven media replacement; the
+            # replacement window prevents those transitions being mistaken for
+            # a deliberate local Stop.
+            request_watch_party_disconnect("Kodi playback stopped")
 
     player = _WatchPartyPlayer()
 
@@ -4234,27 +4122,20 @@ def _watch_party_monitor(
                     break
 
 
-            # Mirror the earlier working Watch Party lifecycle: only a true
-            # player teardown outside every known remote transport/replacement
-            # window ends the local playback session. A seek that transiently
-            # removes Player.HasMedia must remain protected by remote_transport_pending
-            # and the transport grace windows.
+            # Kodi does not reliably invoke onPlayBackError/onPlayBackEnded for
+            # every HTTP/demuxer failure. Detect the transition ourselves so a
+            # dead stream cannot leave its Silo playback session alive.
             if (
                 session_id
                 and watch_party_player_was_playing
                 and not player.isPlaying()
-                and not xbmc.getCondVisibility("Player.HasMedia")
                 and not disconnect_requested.is_set()
-                and not remote_transport_pending
-                and room_playback_state != "waiting"
                 and now >= switching_media_until
                 and now >= remote_stop_until
-                and now >= remote_transport_until
-                and now >= playback_stop_grace_until
             ):
                 log(
-                    "Watch Party Kodi playback genuinely ended; finalizing "
-                    "the Silo playback session.",
+                    "Watch Party Kodi playback ended without a playback callback; "
+                    "finalizing the Silo playback session.",
                     xbmc.LOGWARNING,
                 )
                 request_watch_party_disconnect("Kodi playback ended unexpectedly")
@@ -4386,7 +4267,6 @@ def _watch_party_monitor(
                     room = message.get("room") or {}
                     update_authoritative_room_state(room)
                     members = room.get("members") or []
-                    _watch_party_set_members(members)
                     self_member_ready = any(
                         isinstance(member, dict)
                         and bool(member.get("is_self"))
@@ -4404,8 +4284,6 @@ def _watch_party_monitor(
                     if room.get("playback_state") != "waiting":
                         waiting_command_id = None
                         self_member_ready = False
-                        remote_transport_pending = False
-                        playback_stop_grace_until = 0.0
                     selected_content_id = room.get("selected_content_id")
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
@@ -4440,28 +4318,10 @@ def _watch_party_monitor(
                             playback_sequence = 0
                             last_ready_report = 0.0
                             waiting_command_id = None
-                            remote_transport_pending = False
+                            self_member_ready = False
                             last_reported_paused = None
                             next_progress_report_at = time.time()
                             watch_party_control_reconnect_after = 0.0
-                            self_member_ready = False
-
-                            # Attach the playback session immediately after Kodi
-                            # creates it. The server uses that attachment to
-                            # deliver the current waiting transport command.
-                            attached = False
-                            if session_id and send({
-                                "type": "attach_session",
-                                "session_id": session_id,
-                            }):
-                                attached = True
-                                log(
-                                    "Attached Watch Party playback session %s "
-                                    "during initial synchronisation."
-                                    % session_id,
-                                    xbmc.LOGDEBUG,
-                                )
-
                             try:
                                 connect_watch_party_control_socket(session_id)
                             except Exception as exc:
@@ -4472,39 +4332,20 @@ def _watch_party_monitor(
                                     xbmc.LOGWARNING,
                                 )
 
+
                             # Kodi starts the stream asynchronously. Keep it
                             # paused while the initial Watch Party position is
-                            # being synchronised. When the room is waiting,
-                            # the server's transport_command/ready barrier is
-                            # what releases playback.
-                            remote_transport_until = max(
-                                remote_transport_until,
-                                time.time() + 5.0,
-                            )
-                            set_transport_guard(5.0)
+                            # being synchronised so the guest cannot run ahead
+                            # of the room while the seek is applied.
+                            set_transport_guard(3.0)
                             transport_sync_hold_until = time.time() + 5.0
-
                             if _wait_for_watch_party_player(player, timeout=15.0):
-                                if not _kodi_set_watch_party_play_state(player, False):
-                                    log(
-                                        "Watch Party initial sync could not pause "
-                                        "Kodi playback; readiness will remain blocked."
-                                        ,
-                                        xbmc.LOGWARNING,
-                                    )
+                                _kodi_set_watch_party_play_state(player, False)
 
                                 sync_position = authoritative_position()
                                 current_position = player_position(player)
 
                                 if abs(current_position - sync_position) > 0.25:
-                                    playback_stop_grace_until = max(
-                                        playback_stop_grace_until,
-                                        time.time() + 5.0,
-                                    )
-                                    remote_transport_until = max(
-                                        remote_transport_until,
-                                        time.time() + 5.0,
-                                    )
                                     try:
                                         player.seekTime(sync_position)
                                         xbmc.sleep(75)
@@ -4516,36 +4357,18 @@ def _watch_party_monitor(
                                             xbmc.LOGWARNING,
                                         )
 
-                                # Waiting rooms remain paused until the server
-                                # accepts the guest's readiness for its current
-                                # command. A room that is already playing or
-                                # paused can adopt that snapshot state directly.
-                                if room_playback_state != "waiting":
+                                # Resume only after the authoritative starting
+                                # position has been applied.
+                                if room_playback_state == "playing":
                                     set_transport_guard(0.75)
-                                    _watch_party_apply_transport_state(
-                                        player,
-                                        sync_position,
-                                        room_playback_state == "paused",
-                                    )
-                            else:
-                                log(
-                                    "Kodi did not become playable during the "
-                                    "initial Watch Party sync window; waiting "
-                                    "for the normal command/readiness loop."
-                                    ,
-                                    xbmc.LOGWARNING,
-                                )
+                                    _kodi_set_watch_party_play_state(player, True)
 
+                            attached = False
                             last_command_id = None
                             last_state_report = 0.0
                             set_transport_guard(0.75)
                             update_ui(
-                                status=(
-                                    "Buffering and synchronising with the "
-                                    "Watch Party host."
-                                    if room_playback_state == "waiting"
-                                    else "Playing with the Watch Party host."
-                                ),
+                                status="Playing with the Watch Party host.",
                                 lobby=False,
                             )
 
@@ -4565,8 +4388,6 @@ def _watch_party_monitor(
                         last_command_id = None
                         current_selection_revision = selection_revision
                         remote_stop_until = time.time() + 3.0
-                        remote_transport_until = time.time() + 3.0
-                        remote_transport_pending = False
 
                         update_ui(
                             status=(
@@ -4682,21 +4503,8 @@ def _watch_party_monitor(
                             "waiting",
                         )
                     )
-                    # This operation originated on the server. Kodi may emit
-                    # pause/seek/stop callbacks while it settles; those callbacks
-                    # must never disconnect the Watch Party.
-                    remote_transport_until = max(
-                        remote_transport_until,
-                        time.time() + (5.0 if action == "seek" else 2.0),
-                    )
-                    if action == "seek":
-                        remote_transport_pending = True
-                        playback_stop_grace_until = max(
-                            playback_stop_grace_until,
-                            time.time() + 5.0,
-                        )
-                    else:
-                        remote_transport_pending = False
+                    # Ignore local transport callbacks while Kodi settles
+                    # this server-scheduled command.
                     set_transport_guard(
                         2.0 if action == "seek" else 0.75
                     )
@@ -4739,10 +4547,7 @@ def _watch_party_monitor(
                         and actual_paused == target_paused
                     ):
                         if command_playback_state == "waiting":
-                            # The server can now accept readiness. Until this
-                            # point the Kodi seek remains explicitly protected
-                            # from playback-stop lifecycle handling.
-                            remote_transport_pending = False
+                            self_member_ready = True
                         send({
                             "type": "ready",
                             "session_id": session_id,
@@ -4786,7 +4591,6 @@ def _watch_party_monitor(
                     # Watch Party connection and the Silo playback session.
                     disconnect_requested.set()
                     remote_stop_until = time.time() + 5.0
-                    remote_transport_until = time.time() + 5.0
                     close_watch_party_playback_session("Watch Party ended remotely")
                     clear_watch_party_state()
 
@@ -5052,46 +4856,34 @@ def _watch_party_monitor(
                             xbmc.LOGWARNING,
                         )
 
-            # Lobby readiness is separate from playback readiness. Report it
-            # immediately after socket connection and retry every 500 ms until
-            # the v2 room snapshot confirms this member as lobby-ready.
+            # Lobby readiness is independent from playback. Retry until Silo's
+            # snapshot confirms the member as lobby-ready.
             if (
                 room_phase == "lobby"
                 and not self_lobby_ready
                 and now - last_lobby_ready_report >= 0.5
             ):
-                if send({
+                send({
                     "type": "lobby_ready",
                     "ready": True,
-                }):
-                    last_lobby_ready_report = now
-                    log(
-                        "Watch Party lobby readiness reported to Silo.",
-                        xbmc.LOGDEBUG,
-                    )
+                })
+                last_lobby_ready_report = now
 
-            # The new Watch Party server uses is_ready to track whether each
-            # member has actually reached the current transport target. While
-            # waiting for a seek, periodically acknowledge readiness until the
-            # server snapshot confirms this member as ready.
+            # During a waiting barrier, report actual player readiness every
+            # 500 ms until the server confirms this member.
             if (
                 session_id
+                and player.isPlaying()
                 and room_playback_state == "waiting"
                 and waiting_command_id
                 and not self_member_ready
                 and now - last_ready_report >= 0.5
-                and (
-                    xbmc.getCondVisibility("Player.HasMedia")
-                    or player.isPlaying()
-                )
-                and not xbmc.getCondVisibility("Player.Caching")
             ):
                 current_position = player_position(player)
                 actual_paused = player_paused(player)
                 ready = (
                     abs(current_position - room_target_position) <= 1.0
                     and actual_paused
-                    and not xbmc.getCondVisibility("Player.Caching")
                 )
                 send({
                     "type": "state_report",
@@ -5102,20 +4894,7 @@ def _watch_party_monitor(
                     "is_ready": bool(ready),
                 })
                 if ready:
-                    log(
-                        "Watch Party member ready: position=%.3f target=%.3f "
-                        "command=%s"
-                        % (
-                            current_position,
-                            room_target_position,
-                            waiting_command_id,
-                        ),
-                        xbmc.LOGINFO,
-                    )
-                    # Send the explicit ready frame as well. The server accepts
-                    # either ready or state_report(is_ready=true); the duplicate
-                    # is intentional so an isolated lost state tick cannot leave
-                    # the member waiting.
+                    self_member_ready = True
                     send({
                         "type": "ready",
                         "session_id": session_id,
@@ -5123,12 +4902,12 @@ def _watch_party_monitor(
                         "position_seconds": current_position,
                         "is_paused": actual_paused,
                     })
-                    self_member_ready = True
-                    remote_transport_pending = False
                 last_ready_report = now
                 last_state_report = now
 
-            elif (
+            # Room synchronization reporting remains separate from persistent
+            # Silo progress and continues at the faster 1.5-second cadence.
+            if (
                 session_id
                 and player.isPlaying()
                 and now - last_state_report >= 1.5
