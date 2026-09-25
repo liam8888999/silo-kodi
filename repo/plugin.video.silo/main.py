@@ -4250,6 +4250,23 @@ def _watch_party_monitor(
         ):
             now = time.time()
 
+            # The parent-folder setting is global in Kodi. Keep it hidden only
+            # while the actual Watch Party lobby is the visible container.
+            # Once Kodi enters fullscreen playback or another directory, restore
+            # the user's normal '..' navigation automatically.
+            visible_lobby = (
+                "action=watch_party_lobby"
+                in (xbmc.getInfoLabel("Container.FolderPath") or "")
+            )
+            if (
+                visible_lobby
+                and room_phase == "lobby"
+                and not disconnect_requested.is_set()
+            ):
+                _watch_party_hide_parent_folder()
+            else:
+                _watch_party_restore_parent_folder()
+
             if (
                 _watch_party_window().getProperty(
                     "Silo.WatchParty.LeaveRequested"
@@ -5501,7 +5518,11 @@ def list_collection(client, collection_id, title=None, cursor=None):
 
 
 def list_root(client, page=None):
-    """Display the initial screen or the logged-in Silo libraries.
+    """Display the initial screen or the logged-in Silo libraries."""
+    # Watch Party is the only directory that temporarily suppresses Kodi's
+    # automatic parent-folder item. Ensure ordinary addon navigation always
+    # starts with the user's normal back-navigation setting.
+    _watch_party_restore_parent_folder()
 
     Authentication works from either place:
         * The Login button performs a complete fresh login.
