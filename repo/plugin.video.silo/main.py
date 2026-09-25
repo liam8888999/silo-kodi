@@ -3417,6 +3417,7 @@ def _watch_party_monitor(
     transport_sync_hold_until = 0.0
     transport_guard_until = 0.0
     remote_stop_until = 0.0
+    remote_transport_until = 0.0
     was_room_playing = False
     last_transport_enforcement = 0.0
     last_transport_offset_log = 0.0
@@ -3941,6 +3942,7 @@ def _watch_party_monitor(
         """Undo unauthorized local pause/seek/play changes immediately."""
 
         nonlocal last_transport_enforcement, transport_sync_hold_until
+        nonlocal remote_transport_until
 
         if (
             not session_id
@@ -3991,8 +3993,13 @@ def _watch_party_monitor(
             last_transport_enforcement = now
 
         if needs_seek:
-            # Network seeks complete asynchronously in Kodi. Hold the
-            # reconciler long enough for this correction to settle.
+            # Network seeks complete asynchronously in Kodi. Treat the whole
+            # correction window as remote so Kodi's stop/seek callbacks cannot
+            # tear down the Watch Party.
+            remote_transport_until = max(
+                remote_transport_until,
+                time.time() + 5.0,
+            )
             set_transport_guard(5.0)
             transport_sync_hold_until = max(
                 transport_sync_hold_until,
@@ -4116,11 +4123,17 @@ def _watch_party_monitor(
                     pass
 
         def onPlayBackStopped(self):
-            # A host stopping room playback also causes Kodi to stop its local
-            # player. That is a remote room event, not a request to leave the
-            # Watch Party, so only a genuine local Stop disconnects the guest.
-            if time.time() < remote_stop_until:
+            # Kodi can emit onPlayBackStopped transiently while applying a
+            # server-controlled pause/seek/play operation. Never treat one of
+            # those transport transitions as a Watch Party disconnect.
+            if (
+                time.time() < remote_stop_until
+                or time.time() < remote_transport_until
+            ):
                 return
+
+            # A host stopping room playback also causes Kodi to stop its local
+            # player. That is a room event, not a request to leave the party.
 
             # Kodi also fires this for host-driven media replacement; the
             # replacement window prevents those transitions being mistaken for
@@ -4176,17 +4189,23 @@ def _watch_party_monitor(
             # Kodi does not reliably invoke onPlayBackError/onPlayBackEnded for
             # every HTTP/demuxer failure. Detect the transition ourselves so a
             # dead stream cannot leave its Silo playback session alive.
+            # Mirror normal Silo playback lifecycle handling: a transient
+            # isPlaying()==false with Player.HasMedia still present is allowed
+            # during pause/seek/stream transitions. Only a true media teardown
+            # ends the Watch Party session.
             if (
                 session_id
                 and watch_party_player_was_playing
                 and not player.isPlaying()
+                and not xbmc.getCondVisibility("Player.HasMedia")
                 and not disconnect_requested.is_set()
                 and now >= switching_media_until
                 and now >= remote_stop_until
+                and now >= remote_transport_until
             ):
                 log(
-                    "Watch Party Kodi playback ended without a playback callback; "
-                    "finalizing the Silo playback session.",
+                    "Watch Party Kodi playback ended and the media is no longer "
+                    "present; finalizing the Silo playback session.",
                     xbmc.LOGWARNING,
                 )
                 request_watch_party_disconnect("Kodi playback ended unexpectedly")
@@ -4381,6 +4400,10 @@ def _watch_party_monitor(
                             # paused while the initial Watch Party position is
                             # being synchronised so the guest cannot run ahead
                             # of the room while the seek is applied.
+                            remote_transport_until = max(
+                                remote_transport_until,
+                                time.time() + 5.0,
+                            )
                             set_transport_guard(3.0)
                             transport_sync_hold_until = time.time() + 5.0
                             if _wait_for_watch_party_player(player, timeout=15.0):
@@ -4432,6 +4455,7 @@ def _watch_party_monitor(
                         last_command_id = None
                         current_selection_revision = selection_revision
                         remote_stop_until = time.time() + 3.0
+                        remote_transport_until = time.time() + 3.0
 
                         update_ui(
                             status=(
@@ -4547,8 +4571,13 @@ def _watch_party_monitor(
                             "waiting",
                         )
                     )
-                    # Ignore local transport callbacks while Kodi settles
-                    # this server-scheduled command.
+                    # This operation originated on the server. Kodi may emit
+                    # pause/seek/stop callbacks while it settles; those callbacks
+                    # must never disconnect the Watch Party.
+                    remote_transport_until = max(
+                        remote_transport_until,
+                        time.time() + (5.0 if action == "seek" else 2.0),
+                    )
                     set_transport_guard(
                         2.0 if action == "seek" else 0.75
                     )
@@ -4633,6 +4662,7 @@ def _watch_party_monitor(
                     # Watch Party connection and the Silo playback session.
                     disconnect_requested.set()
                     remote_stop_until = time.time() + 5.0
+                    remote_transport_until = time.time() + 5.0
                     close_watch_party_playback_session("Watch Party ended remotely")
                     clear_watch_party_state()
 
