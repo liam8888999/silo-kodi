@@ -8011,10 +8011,6 @@ def router(client):
 
     action = params.get("action")
 
-    # The Watch Party lobby temporarily hides Kodi's automatic parent-folder
-    # entry. Any other add-on navigation restores the user's original setting.
-    if action != "watch_party_lobby":
-
     if not action:
         list_root(client, params.get("page"))
         return
