@@ -4054,13 +4054,6 @@ def _watch_party_monitor(
             now = time.time()
 
             if (
-                visible_lobby
-                and room_phase == "lobby"
-                and not disconnect_requested.is_set()
-            ):
-            else:
-
-            if (
                 _watch_party_window().getProperty(
                     "Silo.WatchParty.LeaveRequested"
                 ).lower()
