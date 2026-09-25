@@ -2708,6 +2708,18 @@ def _watch_party_refresh_lobby():
             xbmc.LOGDEBUG,
         )
 
+def _watch_party_lobby_display_key():
+    """Return the state that can actually change the visible lobby directory."""
+    window = _watch_party_window()
+    return (
+        window.getProperty("Silo.WatchParty.Status"),
+        window.getProperty("Silo.WatchParty.Lobby"),
+        window.getProperty("Silo.WatchParty.Finished"),
+        window.getProperty("Silo.WatchParty.Ended"),
+        window.getProperty("Silo.WatchParty.Code"),
+        window.getProperty("Silo.WatchParty.Members"),
+    )
+
 def _watch_party_update_window_state(ui_state):
     """Mirror monitor state into Kodi global window properties."""
     status, lobby, finished, ended = ui_state.snapshot()
@@ -3481,6 +3493,7 @@ def _watch_party_monitor(
     server_time_offset = 0.0
     last_ready_report = 0.0
     last_lobby_ready_report = 0.0
+    last_lobby_display_key = None
     self_member_ready = False
     waiting_command_id = None
 
@@ -4207,13 +4220,6 @@ def _watch_party_monitor(
                     selected_file_id = room.get("selected_file_id")
                     selected_library_id = room.get("selected_library_id")
 
-                    # Every room snapshot can change the visible lobby:
-                    # participants can join/leave, become lobby-ready, or the
-                    # room can transition between waiting/playing/lobby.
-                    # Refresh immediately so the directory reflects the
-                    # server state without requiring the user to navigate away.
-                    _watch_party_refresh_lobby()
-
                     if phase == "playing":
                         was_room_playing = True
                         set_watch_party_input_lock(True)
@@ -4384,8 +4390,7 @@ def _watch_party_monitor(
                                     xbmc.LOGWARNING,
                                 )
 
-                            _watch_party_refresh_lobby()
-
+                    
                     elif phase == "paused":
                         was_room_playing = True
                         set_watch_party_input_lock(True)
@@ -4393,6 +4398,15 @@ def _watch_party_monitor(
                             status="Playback paused with the Watch Party host.",
                             lobby=False,
                         )
+
+                    # Server snapshots can arrive frequently for transport
+                    # state even when nothing visible in the lobby has changed.
+                    # Rebuild the Kodi directory only when its visible state
+                    # actually changes.
+                    lobby_display_key = _watch_party_lobby_display_key()
+                    if lobby_display_key != last_lobby_display_key:
+                        _watch_party_refresh_lobby()
+                        last_lobby_display_key = lobby_display_key
 
                 elif message_type == "transport_command":
                     command = message.get("command") or {}
