@@ -5518,16 +5518,17 @@ def list_collection(client, collection_id, title=None, cursor=None):
 
 
 def list_root(client, page=None):
-    """Display the initial screen or the logged-in Silo libraries."""
-    # Watch Party is the only directory that temporarily suppresses Kodi's
-    # automatic parent-folder item. Ensure ordinary addon navigation always
-    # starts with the user's normal back-navigation setting.
-    _watch_party_restore_parent_folder()
+    """Display the initial screen or the logged-in Silo libraries.
 
     Authentication works from either place:
         * The Login button performs a complete fresh login.
         * Server/username/profile entered in Kodi Settings are used automatically.
     """
+
+    # Watch Party is the only directory that temporarily suppresses Kodi's
+    # automatic parent-folder item. Ensure ordinary addon navigation always
+    # starts with the user's normal back-navigation setting.
+    _watch_party_restore_parent_folder()
 
     # If server and username were entered in Kodi Settings, authenticate
     # automatically. Kodi never stores the password, so ask for it here.
