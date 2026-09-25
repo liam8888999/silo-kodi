@@ -4375,6 +4375,7 @@ def _watch_party_monitor(
 
                 if message_type == "snapshot":
                     room = message.get("room") or {}
+                    previous_room_phase = room_phase
                     update_authoritative_room_state(room)
                     members = room.get("members") or []
                     _watch_party_set_members(members)
@@ -4460,8 +4461,35 @@ def _watch_party_monitor(
                             )
 
                     elif phase == "lobby":
-                        was_room_playing = False
-                        set_watch_party_input_lock(False)
+                        # Silo's host "Stop Playback" operation returns the
+                        # still-open room directly from playing -> lobby.
+                        # Detect that transition from the previous snapshot
+                        # instead of relying on a mutable readiness flag.
+                        stopped_from_playback = (
+                            previous_room_phase == "playing"
+                            or was_room_playing
+                        )
+
+                        if stopped_from_playback:
+                            was_room_playing = False
+
+                            # Mark the stop as remote before calling stop(),
+                            # because Kodi may invoke onPlayBackStopped from
+                            # the stop operation itself.
+                            remote_stop_until = time.time() + 5.0
+
+                            close_watch_party_playback_session(
+                                "Host stopped Watch Party playback"
+                            )
+                            set_watch_party_input_lock(False)
+                            session_id = None
+                            attached = False
+                            last_command_id = None
+                            current_selection_revision = selection_revision
+
+                        else:
+                            was_room_playing = False
+                            set_watch_party_input_lock(False)
 
                         ready_count = sum(
                             1
@@ -4474,24 +4502,37 @@ def _watch_party_monitor(
                         )
 
                         if participant_count:
-                            lobby_status = (
-                                "Watch Party %s — %d/%d participants ready. "
-                                "Waiting for the host to start playback."
-                                % (
-                                    _watch_party_window().getProperty(
-                                        "Silo.WatchParty.Code"
-                                    ) or "lobby",
-                                    ready_count,
-                                    participant_count,
+                            if stopped_from_playback:
+                                lobby_status = (
+                                    "Watch Party %s — %d/%d participants ready. "
+                                    "Playback stopped; waiting for the host."
+                                    % (
+                                        _watch_party_window().getProperty(
+                                            "Silo.WatchParty.Code"
+                                        ) or "lobby",
+                                        ready_count,
+                                        participant_count,
+                                    )
                                 )
-                            )
+                            else:
+                                lobby_status = (
+                                    "Watch Party %s — %d/%d participants ready. "
+                                    "Waiting for the host to start playback."
+                                    % (
+                                        _watch_party_window().getProperty(
+                                            "Silo.WatchParty.Code"
+                                        ) or "lobby",
+                                        ready_count,
+                                        participant_count,
+                                    )
+                                )
                         else:
                             lobby_status = (
                                 "Watch Party %s — waiting for participants."
                                 % (
                                     _watch_party_window().getProperty(
                                         "Silo.WatchParty.Code"
-                                    ) or "lobby"
+                                    ) or "lobby",
                                 )
                             )
 
@@ -4500,6 +4541,27 @@ def _watch_party_monitor(
                             lobby=True,
                         )
 
+                        if stopped_from_playback:
+                            # close_watch_party_playback_session() normally
+                            # stops Kodi. Keep one final guarded stop for any
+                            # player that is still alive during callback teardown.
+                            try:
+                                if player.isPlaying():
+                                    log(
+                                        "Host stopped Watch Party playback; "
+                                        "stopping local Kodi player.",
+                                        xbmc.LOGINFO,
+                                    )
+                                    player.stop()
+                            except Exception as exc:
+                                log(
+                                    "Unable to stop Kodi playback after remote "
+                                    "Watch Party stop: %s" % exc,
+                                    xbmc.LOGWARNING,
+                                )
+
+                            _watch_party_refresh_lobby()
+
                     elif phase == "paused":
                         was_room_playing = True
                         set_watch_party_input_lock(True)
@@ -4507,58 +4569,6 @@ def _watch_party_monitor(
                             status="Playback paused with the Watch Party host.",
                             lobby=False,
                         )
-
-                    elif was_room_playing:
-                        # The host stopped room playback. Silo moves the room
-                        # back to its lobby rather than closing the Watch Party.
-                        # Stop only the local Kodi player; remain connected so a
-                        # later host selection/start can begin playback again.
-                        was_room_playing = False
-
-                        # Mark the stop as remote BEFORE stopping Kodi. Kodi can
-                        # fire onPlayBackStopped synchronously/asynchronously
-                        # from player.stop(); the callback must not interpret a
-                        # host-driven stop as a request to leave the room.
-                        remote_stop_until = time.time() + 5.0
-
-                        close_watch_party_playback_session(
-                            "Host stopped Watch Party playback"
-                        )
-                        set_watch_party_input_lock(False)
-                        session_id = None
-                        attached = False
-                        last_command_id = None
-                        current_selection_revision = selection_revision
-
-                        update_ui(
-                            status=(
-                                "Watch Party %s — waiting for the host to "
-                                "start playback again."
-                            )
-                            % (
-                                _watch_party_window().getProperty(
-                                    "Silo.WatchParty.Code"
-                                )
-                                or "lobby",
-                            ),
-                            lobby=True,
-                        )
-
-                        if player.isPlaying():
-                            log(
-                                "Host stopped Watch Party playback; stopping local Kodi player.",
-                                xbmc.LOGINFO,
-                            )
-                            try:
-                                player.stop()
-                            except Exception as exc:
-                                log(
-                                    "Unable to stop Kodi playback after remote Watch Party stop: %s"
-                                    % exc,
-                                    xbmc.LOGWARNING,
-                                )
-
-                        _watch_party_refresh_lobby()
 
                 elif message_type == "transport_command":
                     command = message.get("command") or {}
