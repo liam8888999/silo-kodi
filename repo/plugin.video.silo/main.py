@@ -3481,7 +3481,6 @@ def _watch_party_monitor(
     server_time_offset = 0.0
     last_ready_report = 0.0
     last_lobby_ready_report = 0.0
-    last_lobby_ui_refresh = 0.0
     self_member_ready = False
     waiting_command_id = None
 
@@ -4072,17 +4071,6 @@ def _watch_party_monitor(
             and not stop_event.is_set()
         ):
             now = time.time()
-
-            # Keep the visible lobby text moving even when the server has not
-            # produced a new snapshot in the last interval. The directory is
-            # refreshed only while the Watch Party lobby is actually visible,
-            # so playback is never interrupted.
-            if (
-                room_phase == "lobby"
-                and now - last_lobby_ui_refresh >= 5.0
-            ):
-                _watch_party_refresh_lobby()
-                last_lobby_ui_refresh = now
 
             if (
                 _watch_party_window().getProperty(
