@@ -887,6 +887,57 @@ class SiloClient:
     # Search the profile-visible catalog across all accessible libraries.
     # Silo performs the search server-side, so the addon does not need to
     # download and scan every library itself.
+    def search_people(self, query, limit=20):
+        """Search profile-visible Silo people by name."""
+        query = str(query or "").strip()
+        if not query:
+            return []
+
+        try:
+            limit = max(1, min(int(limit or 20), 100))
+        except (TypeError, ValueError):
+            limit = 20
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog/people",
+            params={
+                "q": query,
+                "limit": limit,
+            },
+        ) or {}
+
+        return data.get("items", [])
+
+    def person_catalog_page(self, person_id, cursor=None, limit=200):
+        """Return one page of profile-visible media credited to a person."""
+        person_id = str(person_id or "").strip()
+        if not person_id:
+            return [], None
+
+        limit = max(1, min(int(limit or 200), 200))
+
+        params = {
+            "person_id": person_id,
+            "limit": limit,
+            "skip_total": "true",
+            "image_size": "medium",
+        }
+
+        if cursor:
+            params["cursor"] = cursor
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params=params,
+        ) or {}
+
+        return (
+            data.get("items", []),
+            self._next(data),
+        )
+
     def search_catalog(self, query, limit=100, offset=0):
         """Return one page of Silo's server-side catalog search results."""
         query = str(query or "").strip()
