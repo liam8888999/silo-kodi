@@ -4514,6 +4514,13 @@ def _watch_party_monitor(
                         # Stop only the local Kodi player; remain connected so a
                         # later host selection/start can begin playback again.
                         was_room_playing = False
+
+                        # Mark the stop as remote BEFORE stopping Kodi. Kodi can
+                        # fire onPlayBackStopped synchronously/asynchronously
+                        # from player.stop(); the callback must not interpret a
+                        # host-driven stop as a request to leave the room.
+                        remote_stop_until = time.time() + 5.0
+
                         close_watch_party_playback_session(
                             "Host stopped Watch Party playback"
                         )
@@ -4522,7 +4529,6 @@ def _watch_party_monitor(
                         attached = False
                         last_command_id = None
                         current_selection_revision = selection_revision
-                        remote_stop_until = time.time() + 3.0
 
                         update_ui(
                             status=(
