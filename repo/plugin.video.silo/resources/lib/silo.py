@@ -918,6 +918,7 @@ class SiloClient:
         limit = max(1, min(int(limit or 200), 200))
 
         params = {
+            "source": "person",
             "person_id": person_id,
             "limit": limit,
             "skip_total": "true",
