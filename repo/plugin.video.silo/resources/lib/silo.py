@@ -940,7 +940,13 @@ class SiloClient:
         )
 
     def search_catalog(self, query, limit=100, offset=0):
-        """Return one page of Silo's server-side catalog search results."""
+        """Return one page of Silo's v2 server-side catalog search results.
+
+        Keep the add-on's existing page/offset interface, but translate the
+        offset into Silo v2's explicit zero-based seek. The v2 catalog already
+        supplies the same profile-scoped search results plus cursor metadata,
+        so no v1 compatibility endpoint is needed.
+        """
         query = str(query or "").strip()
         if not query:
             return {"items": [], "has_more": False, "total": 0}
@@ -955,17 +961,35 @@ class SiloClient:
         except (TypeError, ValueError):
             offset = 0
 
-        return self._json(
+        params = {
+            "source": "query",
+            "q": query,
+            "limit": limit,
+            "skip_total": "true",
+            "image_size": "medium",
+        }
+
+        # Silo v2 uses seek for a direct jump to the requested zero-based
+        # result window. Page 1 naturally starts at position zero, so omit it.
+        if offset:
+            params["seek"] = offset
+
+        data = self._json(
             "GET",
-            "/api/v1/catalog",
-            params={
-                "source": "query",
-                "q": query,
-                "limit": limit,
-                "offset": offset,
-                "include_total": "false",
-            },
+            "/api/v2/catalog",
+            params=params,
         ) or {}
+
+        page = data.get("page") or {}
+
+        return {
+            "items": data.get("items") or [],
+            "has_more": bool(page.get("has_more")),
+            "total": data.get("total", 0),
+            "total_exact": bool(data.get("total_exact", False)),
+            "next_cursor": page.get("next_cursor"),
+            "window_cursor": data.get("window_cursor"),
+        }
 
     # Join an existing Watch Party. Kodi intentionally exposes no
     # room-creation operation: this client is participant-only.
