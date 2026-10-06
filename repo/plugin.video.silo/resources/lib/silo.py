@@ -1059,23 +1059,24 @@ class SiloClient:
     # Return every catalog item in a library while handling pagination internally.
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
-    def catalog_page(self, library_id, cursor=None, limit=200):
-        """Return one Silo catalog page and its continuation cursor.
-
-        Silo's shared catalog limit supports up to 200 items per request.
-        Pagination is exposed to the Kodi UI so large libraries do not force
-        every item and its extended metadata to load before the first page.
-        """
+    def catalog_page(self, library_id, cursor=None, limit=200,
+                     name_prefix=None, sort=None, order=None):
+        """Return one Silo catalog page and its continuation cursor."""
         limit = max(1, min(int(limit or 200), 200))
 
         params = {
             "library_id": library_id,
             "limit": limit,
             "skip_total": "true",
-            # Use practical library artwork sizes while keeping responses small.
             "image_size": "medium",
         }
 
+        if name_prefix:
+            params["name_prefix"] = str(name_prefix)
+        if sort:
+            params["sort"] = str(sort)
+        if order:
+            params["order"] = str(order)
         if cursor:
             params["cursor"] = cursor
 
@@ -1090,8 +1091,54 @@ class SiloClient:
             self._next(data),
         )
 
-    # Return every library item. Kept for callers that explicitly need the
-    # complete collection; normal Kodi library browsing uses catalog_page().
+    def catalog_prefix_items(self, library_id, name_prefix, limit=200):
+        """Return all items for an exact server-side title prefix."""
+        prefix = str(name_prefix or "").strip()
+        if not prefix:
+            return [], 0, True
+
+        limit = max(1, min(int(limit or 200), 200))
+        items = []
+        cursor = None
+        total = 0
+        total_exact = False
+        first_page = True
+
+        while True:
+            params = {
+                "library_id": library_id,
+                "limit": limit,
+                "skip_total": "false" if first_page else "true",
+                "image_size": "medium",
+                "name_prefix": prefix,
+                "sort": "title",
+                "order": "asc",
+            }
+
+            if cursor:
+                params["cursor"] = cursor
+
+            data = self._json(
+                "GET",
+                "/api/v2/catalog",
+                params=params,
+            ) or {}
+
+            if first_page:
+                try:
+                    total = int(data.get("total") or 0)
+                except (TypeError, ValueError):
+                    total = 0
+                total_exact = bool(data.get("total_exact"))
+                first_page = False
+
+            items.extend(data.get("items", []))
+
+            cursor = self._next(data)
+            if not cursor:
+                return items, total, total_exact
+
+
     def catalog(self, library_id, limit=200):
         items = []
         cursor = None
