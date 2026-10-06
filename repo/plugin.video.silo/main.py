@@ -6533,7 +6533,7 @@ def list_library(client, library_id, cursor=None):
         if not count:
             continue
 
-        item = xbmcgui.ListItem(label="%s (%d)" % (group, count))
+        item = xbmcgui.ListItem(label=group)
         item.setArt({"icon": "DefaultFolder.png"})
         item.setProperty("Silo.LibraryID", str(library_id))
         item.setProperty("Silo.LibraryLetter", group)
