@@ -330,6 +330,56 @@ def get_directory_page_size():
 
 
 # Build a Kodi plugin URL containing the action and any required IDs.
+LIBRARY_LETTER_GROUPS = ("0-9",) + tuple(
+    chr(code) for code in range(ord("A"), ord("Z") + 1)
+) + ("#",)
+
+
+def _library_group_title(item):
+    """Return the title used to decide which alphabet group contains an item."""
+    if not isinstance(item, dict):
+        return ""
+
+    return str(
+        item.get("sort_title")
+        or item.get("title")
+        or item.get("name")
+        or ""
+    ).strip()
+
+
+def library_letter_key(item):
+    """Return 0-9, A-Z, or # for a library item.
+
+    Leading punctuation is ignored so titles such as "The ..." stay under T
+    and titles such as "'71" can still land in the numeric group when a digit
+    follows the punctuation.
+    """
+    title = _library_group_title(item)
+
+    match = re.search(r"[0-9A-Za-z]", title)
+    if not match:
+        return "#"
+
+    character = match.group(0).upper()
+
+    if character.isdigit():
+        return "0-9"
+
+    return character
+
+
+def library_letter_counts(items):
+    """Return non-empty alphabet groups and their item counts."""
+    counts = {}
+
+    for item in items:
+        group = library_letter_key(item)
+        counts[group] = counts.get(group, 0) + 1
+
+    return counts
+
+
 def paginate_directory(items, page):
     """Return one 200-item slice and whether another page exists."""
     try:
@@ -345,7 +395,7 @@ def paginate_directory(items, page):
 
 
 def add_previous_page(library_id=None, series_id=None, season_number=None,
-                      action=None, page=1):
+                      action=None, page=1, letter=None):
     """Add a Previous Page folder when the current directory is past page 1."""
     try:
         page_number = int(page or 1)
@@ -366,6 +416,8 @@ def add_previous_page(library_id=None, series_id=None, season_number=None,
         params["series_id"] = series_id
     if season_number is not None:
         params["season_number"] = season_number
+    if letter:
+        params["letter"] = letter
 
     item = xbmcgui.ListItem(label="Previous Page")
     item.setArt({"icon": "DefaultFolder.png"})
@@ -378,8 +430,8 @@ def add_previous_page(library_id=None, series_id=None, season_number=None,
 
 
 def add_next_page(library_id=None, series_id=None, season_number=None,
-                  action=None, page=1):
-    """Add a Next Page folder when another 200-item slice exists."""
+                  action=None, page=1, letter=None):
+    """Add a Next Page folder when another page exists."""
     try:
         page_number = max(1, int(page or 1))
     except (TypeError, ValueError):
@@ -396,6 +448,8 @@ def add_next_page(library_id=None, series_id=None, season_number=None,
         params["series_id"] = series_id
     if season_number is not None:
         params["season_number"] = season_number
+    if letter:
+        params["letter"] = letter
 
     item = xbmcgui.ListItem(label="Next Page")
     item.setArt({"icon": "DefaultFolder.png"})
@@ -6451,69 +6505,130 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
 
 
 def list_library(client, library_id, cursor=None):
-    """Display every item in a Silo library as efficiently as possible.
+    """Display a compact A-Z index for one Silo library.
 
-    The catalog supplies the viewer's watched flag. A small in-progress-only
-    progress request supplies detailed partial positions; the full progress
-    history remains reserved for the fresh playback check when Play is pressed.
-
-    Kodi's addDirectoryItems() is used in batches because Kodi documents it as
-    more efficient for large lists than repeatedly calling addDirectoryItem().
+    Opening a library no longer renders every movie/series in one directory.
+    The catalog is paged internally only far enough to build the alphabet
+    index; extended metadata is not fetched until the user opens a letter.
     """
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
-    # Use the user's configured page size for each Silo catalog request.
-    # Silo supports up to 200 items per page; get_directory_page_size() is
-    # already clamped to that range by the Kodi setting.
-    page_size = get_directory_page_size()
-    items, next_cursor = client.catalog_page(
+    # Build the complete index from lightweight catalog cards. This gives every
+    # letter an accurate count even when the library is larger than one API page.
+    items = client.catalog(
         library_id,
-        cursor=cursor,
-        limit=page_size,
+        limit=200,
     )
 
-    # The normal catalog tells us whether an item is played, but the detailed
-    # partial position is not guaranteed to be present on every catalog row.
-    # Fetch ONLY currently in-progress records so Kodi can display accurate
-    # resume bars without downloading the user's entire progress history.
+    counts = library_letter_counts(items)
+
+    xbmcplugin.setPluginCategory(HANDLE, "Library")
+    xbmcplugin.setContent(HANDLE, "files")
+
+    # Only show groups that contain content. The order is always numeric,
+    # alphabetic, then the catch-all '#' group.
+    for group in LIBRARY_LETTER_GROUPS:
+        count = counts.get(group, 0)
+        if not count:
+            continue
+
+        item = xbmcgui.ListItem(label="%s (%d)" % (group, count))
+        item.setArt({"icon": "DefaultFolder.png"})
+        item.setProperty("Silo.LibraryID", str(library_id))
+        item.setProperty("Silo.LibraryLetter", group)
+        item.setProperty("Silo.LibraryLetterCount", str(count))
+
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="library_letter",
+                library_id=library_id,
+                letter=group,
+                page=1,
+            ),
+            item,
+            True,
+        )
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_library_letter(client, library_id, letter, page=None):
+    """Display one alphabet group from a Silo library.
+
+    The complete catalog is used to identify the selected group because the
+    current /api/v2/catalog contract exposes cursor pagination but no dedicated
+    first-letter filter. Only the selected page receives the expensive detail,
+    progress and watch-state lookups.
+    """
+    if not library_id:
+        raise SiloError("No library ID was supplied.")
+
+    letter = str(letter or "").strip().upper()
+    if letter not in LIBRARY_LETTER_GROUPS:
+        raise SiloError("Invalid library letter: %s" % letter)
+
+    all_items = client.catalog(
+        library_id,
+        limit=200,
+    )
+
+    grouped_items = [
+        item
+        for item in all_items
+        if library_letter_key(item) == letter
+    ]
+
+    grouped_items.sort(
+        key=lambda item: (
+            _library_group_title(item).casefold(),
+            str(get_content_id(item) or ""),
+        )
+    )
+
+    page_items, has_previous, has_next = paginate_directory(
+        grouped_items,
+        page,
+    )
+
+    xbmcplugin.setPluginCategory(HANDLE, letter)
+    xbmcplugin.setContent(HANDLE, "movies")
+
+    add_previous_page(
+        library_id=library_id,
+        action="library_letter",
+        page=page,
+        letter=letter,
+    )
+
     try:
         in_progress_map = client.in_progress_map(
             library_id=library_id
         )
     except SiloError as exc:
-        # A progress-display failure must never stop the library from loading.
         log(
             "Unable to retrieve in-progress Silo records: %s" % exc,
             xbmc.LOGWARNING,
         )
         in_progress_map = {}
 
-    xbmcplugin.setContent(HANDLE, "movies")
-
-    # Fetch cast, crew and full stream details before Kodi receives the list.
-    # Requests run concurrently so the entire library still renders once.
     detail_map = fetch_detail_metadata(
         client,
-        items,
+        page_items,
         library_id,
     )
 
-    # Fetch authoritative series watch totals from Silo so a show can
-    # display partial/watched state even when Kodi has no local TV library data.
     series_watch_map, _season_watch_map = fetch_series_watch_data(
         client,
-        items,
+        page_items,
         library_id=library_id,
     )
 
-    # Build Kodi entries first, then send them in batches. A batch size keeps
-    # memory usage reasonable for very large libraries while still avoiding
-    # thousands of individual Kodi plugin calls.
     batch = []
     batch_size = 500
 
-    for catalog_item in items:
+    for catalog_item in page_items:
         content_id = get_content_id(catalog_item)
         if not content_id:
             log("Skipping catalog item with no content ID", xbmc.LOGWARNING)
@@ -6555,13 +6670,11 @@ def list_library(client, library_id, cursor=None):
             )
             batch.append((url, list_item, True))
 
-        # Flush a batch so extremely large libraries do not require the entire
-        # Kodi list to remain in one Python tuple list at once.
         if len(batch) >= batch_size:
             xbmcplugin.addDirectoryItems(
                 HANDLE,
                 batch,
-                totalItems=len(items),
+                totalItems=len(grouped_items),
             )
             batch = []
 
@@ -6569,18 +6682,16 @@ def list_library(client, library_id, cursor=None):
         xbmcplugin.addDirectoryItems(
             HANDLE,
             batch,
-            totalItems=len(items) + (1 if next_cursor else 0),
+            totalItems=len(grouped_items),
         )
 
-    if next_cursor:
-        next_url = build_url(
-            action="library",
+    if has_next:
+        add_next_page(
             library_id=library_id,
-            cursor=next_cursor,
+            action="library_letter",
+            page=page,
+            letter=letter,
         )
-        next_item = xbmcgui.ListItem(label="Next Page")
-        next_item.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(HANDLE, next_url, next_item, True)
 
     xbmcplugin.endOfDirectory(HANDLE)
 
@@ -8483,6 +8594,15 @@ def router(client):
             client,
             params.get("library_id"),
             params.get("cursor"),
+        )
+        return
+
+    if action == "library_letter":
+        list_library_letter(
+            client,
+            params.get("library_id"),
+            params.get("letter"),
+            params.get("page"),
         )
         return
 
