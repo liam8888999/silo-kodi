@@ -2760,24 +2760,11 @@ def list_search_results(client, query, page=1):
         None,
     )
 
-    # Match normal library browsing: fetch the current in-progress
-    # server records so search results reflect watch activity that was added
-    # on Silo after the search results were generated.
-    try:
-        in_progress_map = client.in_progress_map()
-    except SiloError as exc:
-        log(
-            "Unable to retrieve in-progress Silo records for search results: %s"
-            % exc,
-            xbmc.LOGWARNING,
-        )
-        in_progress_map = {}
-
-    # Fetch the same authoritative season rollups used by library browsing
-    # so TV shows returned by search can also show server-side watch state.
-    series_watch_map, season_watch_map = fetch_series_watch_data(
+    progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
         client,
         items,
+        detail_map,
+        library_id=None,
     )
 
     # Keep all media types in the same result page, but group them into
@@ -2828,7 +2815,7 @@ def list_search_results(client, query, page=1):
 
         display_title = display_title_for_catalog_item(catalog_item)
 
-        display_progress = in_progress_map.get(str(content_id)) or catalog_progress(catalog_item)
+        display_progress = progress_map.get(str(content_id)) or catalog_progress(detail_map.get(str(content_id))) or catalog_progress(catalog_item)
 
         item, media_type, content_id, title, display_progress = build_catalog_list_item(
             client,
@@ -2908,6 +2895,7 @@ def list_search_results(client, query, page=1):
         notify("No results found for: %s" % query)
 
     xbmcplugin.endOfDirectory(HANDLE)
+
 
 
 
