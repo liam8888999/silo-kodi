@@ -2444,6 +2444,7 @@ def list_person_media(client, person_id, person_name="", cursor=None):
 
         display_progress = (
             progress_map.get(str(content_id))
+            or catalog_progress(detail_map.get(str(content_id)))
             or catalog_progress(catalog_item)
         )
 
@@ -2527,6 +2528,7 @@ def list_person_media(client, person_id, person_name="", cursor=None):
         notify("No Silo media found for this person.")
 
     xbmcplugin.endOfDirectory(HANDLE)
+
 
 
 def search_silo(client):
@@ -5465,6 +5467,7 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
 
         display_progress = (
             progress_map.get(str(content_id))
+            or catalog_progress(detail_map.get(str(content_id)))
             or catalog_progress(catalog_item)
         )
 
@@ -5538,6 +5541,7 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
+
 
 
 
@@ -6444,7 +6448,7 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         if not content_id:
             continue
 
-        progress = progress_map.get(str(content_id)) or catalog_progress(catalog_item)
+        progress = progress_map.get(str(content_id)) or catalog_progress(detail_map.get(str(content_id))) or catalog_progress(catalog_item)
         media_type = (catalog_item.get("type") or catalog_item.get("media_type") or "").lower()
         season_rollup = (
             season_watch_map.get(str(content_id))
@@ -6538,6 +6542,7 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
 
 
 
+
 def list_library(client, library_id, cursor=None):
     """Display the compact A-Z index for one Silo library."""
     if not library_id:
@@ -6590,29 +6595,49 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
     if letter not in LIBRARY_LETTER_GROUPS:
         raise SiloError("Invalid library letter: %s" % letter)
 
-    grouped_items = None
+    try:
+        page_number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_number = 1
 
+    grouped_items = None
+    server_prefix_validated = False
+    server_has_more = False
+
+    # Silo's name_prefix is indexed and exactly matches the normal title sort
+    # key.  The add-on's old grouping ignores leading punctuation, so validate
+    # page 1 against the exact count from our alphabet index before trusting it.
     if len(letter) == 1 and letter.isalpha():
         try:
-            prefix_items, server_total, total_exact = client.catalog_prefix_items(
-                library_id,
-                letter,
-                limit=200,
+            expected = int(expected_count)
+        except (TypeError, ValueError):
+            expected = None
+
+        try:
+            prefix_items, server_total, total_exact, server_has_more = (
+                client.catalog_prefix_page(
+                    library_id,
+                    letter,
+                    offset=(page_number - 1) * get_directory_page_size(),
+                    limit=get_directory_page_size(),
+                    include_total=(page_number == 1),
+                )
             )
 
-            try:
-                expected = int(expected_count)
-            except (TypeError, ValueError):
-                expected = None
-
-            # The existing grouping ignores leading punctuation. Only trust
-            # the server prefix when its exact count agrees with our index.
-            if (
-                total_exact
-                and expected is not None
-                and server_total == expected
-            ):
+            if page_number == 1:
+                if (
+                    total_exact
+                    and expected is not None
+                    and server_total == expected
+                ):
+                    grouped_items = prefix_items
+                    server_prefix_validated = True
+            elif expected is not None:
+                # Page 1 was validated when the alphabet folder was entered.
+                # Keep later pages on the same indexed server-side path.
                 grouped_items = prefix_items
+                server_prefix_validated = True
+
         except SiloError as exc:
             log(
                 "Unable to use server-side library prefix %s: %s"
@@ -6631,17 +6656,15 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             if library_letter_key(item) == letter
         ]
 
-    grouped_items.sort(
-        key=lambda item: (
-            _library_group_title(item).casefold(),
-            str(get_content_id(item) or ""),
+    if server_prefix_validated and len(letter) == 1 and letter.isalpha():
+        page_items = grouped_items
+        has_previous = page_number > 1
+        has_next = bool(server_has_more)
+    else:
+        page_items, has_previous, has_next = paginate_directory(
+            grouped_items,
+            page_number,
         )
-    )
-
-    page_items, has_previous, has_next = paginate_directory(
-        grouped_items,
-        page,
-    )
 
     xbmcplugin.setPluginCategory(HANDLE, letter)
     xbmcplugin.setContent(HANDLE, "movies")
@@ -6649,7 +6672,7 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
     add_previous_page(
         library_id=library_id,
         action="library_letter",
-        page=page,
+        page=page_number,
         letter=letter,
     )
 
@@ -6667,7 +6690,6 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
     )
 
     batch = []
-    batch_size = 500
 
     for catalog_item in page_items:
         content_id = get_content_id(catalog_item)
@@ -6715,7 +6737,7 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             )
             batch.append((url, list_item, True))
 
-        if len(batch) >= batch_size:
+        if len(batch) >= 500:
             xbmcplugin.addDirectoryItems(
                 HANDLE,
                 batch,
@@ -6731,11 +6753,19 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
         )
 
     if has_next:
-        add_next_page(
-            library_id=library_id,
-            action="library_letter",
-            page=page,
-            letter=letter,
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(
+                action="library_letter",
+                library_id=library_id,
+                letter=letter,
+                page=page_number + 1,
+                expected_count=expected_count,
+            ),
+            next_item,
+            True,
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
