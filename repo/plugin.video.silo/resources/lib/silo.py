@@ -1141,6 +1141,7 @@ class SiloClient:
             bool(page.get("has_more")),
         )
 
+
     def catalog(self, library_id, limit=200):
         items = []
         cursor = None
