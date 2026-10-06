@@ -499,19 +499,8 @@ def format_position(seconds):
     return "%d:%02d" % (minutes, seconds)
 
 
-def fetch_detail_metadata(client, items, library_id, max_workers=2, per_item_library=False):
-    """Fetch extended metadata concurrently and retry transient failures.
-
-    Catalog data is fast and contains most metadata. The detail endpoint adds
-    cast, crew and full file stream information. Requests run concurrently,
-    while transient timeouts, connection failures and server throttling/errors
-    are retried before an item is considered unavailable.
-
-    When per_item_library is true, every supplied card occurrence is fetched
-    separately using its source library ID. This is required by merged Home
-    sections because the same content ID can exist in multiple libraries and
-    each occurrence can have a different added_at timestamp.
-    """
+def fetch_detail_metadata(client, items, library_id, max_workers=4, per_item_library=False):
+    """Fetch detail metadata concurrently while reusing one HTTP session per worker."""
     requests = []
     seen = set()
 
@@ -528,7 +517,6 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2, per_item_lib
             )
 
         if per_item_library:
-            # Preserve one request for each card occurrence/library pair.
             request_key = "%s|%s|%s" % (
                 str(content_id),
                 str(item_library_id) if item_library_id is not None else "",
@@ -539,98 +527,94 @@ def fetch_detail_metadata(client, items, library_id, max_workers=2, per_item_lib
 
         if request_key in seen:
             continue
+
         seen.add(request_key)
-        requests.append(
-            (content_id, item_library_id, request_key)
-        )
+        requests.append((content_id, item_library_id, request_key))
 
     if not requests:
         return {}
 
-    def fetch_one(request):
-        content_id, request_library_id, request_key = request
-        attempts = 3
+    def fetch_chunk(chunk):
+        # One persistent SiloClient/requests.Session is reused for this worker.
+        worker_client = SiloClient()
+        worker_client.cfg.update(client.cfg)
+        worker_client._caps = client._caps
+        local_details = {}
 
-        for attempt in range(attempts):
-            try:
-                # Use a separate session per worker. requests.Session should not
-                # be shared across concurrent requests.
-                worker_client = SiloClient()
-                worker_client.cfg.update(client.cfg)
+        for content_id, request_library_id, request_key in chunk:
+            attempts = 3
 
-                detail = worker_client.item_detail(
-                    content_id,
-                    request_library_id,
-                )
+            for attempt in range(attempts):
+                try:
+                    detail = worker_client.item_detail(
+                        content_id,
+                        request_library_id,
+                    )
 
-                if detail:
-                    # Silo's v2 item detail embeds CatalogItem, including
-                    # added_at. The merged Recently Added sorter consumes this
-                    # value from the occurrence-specific detail below.
-                    return request_key, detail
+                    if detail:
+                        local_details[request_key] = detail
+                        break
 
-                # An empty document is unusual but should get one retry.
-                if attempt < attempts - 1:
-                    time.sleep(0.25 * (attempt + 1))
-                    continue
+                    if attempt < attempts - 1:
+                        time.sleep(0.25 * (attempt + 1))
+                        continue
 
-                return request_key, None
+                    local_details[request_key] = None
 
-            except SiloError as exc:
-                status = getattr(exc, "status", None)
+                except SiloError as exc:
+                    status = getattr(exc, "status", None)
+                    transient = (
+                        status is None
+                        or status == 408
+                        or status == 429
+                        or status >= 500
+                    )
 
-                # Retry transient HTTP failures and network errors. For 429,
-                # Silo supplies the authoritative Retry-After delay.
-                transient = (
-                    status is None
-                    or status == 408
-                    or status == 429
-                    or status >= 500
-                )
+                    if attempt < attempts - 1 and transient:
+                        retry_after = getattr(exc, "retry_after", None)
 
-                if attempt < attempts - 1 and transient:
-                    retry_after = getattr(exc, "retry_after", None)
+                        try:
+                            delay = float(retry_after)
+                        except (TypeError, ValueError):
+                            delay = 0.0
 
-                    try:
-                        delay = float(retry_after)
-                    except (TypeError, ValueError):
-                        delay = 0.0
+                        if status == 429 and delay <= 0:
+                            delay = 2.0
+                        elif delay <= 0:
+                            delay = 0.5 * (attempt + 1)
 
-                    if status == 429 and delay <= 0:
-                        delay = 2.0
-                    elif delay <= 0:
-                        delay = 0.5 * (attempt + 1)
+                        time.sleep(max(0.25, delay))
+                        continue
 
-                    # Give the server a little breathing room before the next
-                    # attempt, especially after a rate-limit response.
-                    time.sleep(max(0.25, delay))
-                    continue
+                    log(
+                        "Unable to retrieve detail metadata for %s: %s"
+                        % (content_id, exc),
+                        xbmc.LOGWARNING,
+                    )
+                    local_details[request_key] = None
+                    break
 
-                log(
-                    "Unable to retrieve detail metadata for %s: %s"
-                    % (content_id, exc),
-                    xbmc.LOGWARNING,
-                )
-                return request_key, None
-
-        return request_key, None
+        return local_details
 
     worker_count = max(
         1,
-        min(int(max_workers or 2), len(requests)),
+        min(int(max_workers or 4), len(requests)),
     )
+    chunks = [
+        requests[index::worker_count]
+        for index in range(worker_count)
+    ]
 
     details = {}
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = [
-            executor.submit(fetch_one, request)
-            for request in requests
+            executor.submit(fetch_chunk, chunk)
+            for chunk in chunks
+            if chunk
         ]
 
         for future in as_completed(futures):
-            request_key, detail = future.result()
-            if detail:
-                details[request_key] = detail
+            details.update(future.result())
 
     return details
 
@@ -789,10 +773,13 @@ def merge_season_watch_rollup(existing, candidate):
     return candidate if candidate_score > existing_score else existing
 
 
-def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
-    """Fetch Silo's season rollups and aggregate them to each series."""
+def fetch_series_watch_data(client, items, library_id=None, max_workers=4, detail_map=None):
+    """Return series/season rollups, preferring rollups already in item detail."""
+    detail_map = detail_map or {}
     series_ids = []
     seen = set()
+    series_map = {}
+    season_map = {}
 
     for item in items:
         media_type = (
@@ -800,11 +787,55 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
             or item.get("media_type")
             or ""
         ).lower()
+        content_id = get_content_id(item)
+        detail = detail_map.get(str(content_id)) if content_id else None
 
         if media_type == "series":
-            series_id = get_content_id(item)
+            series_id = content_id
+            user_data = detail.get("user_data") if isinstance(detail, dict) else None
+
+            if series_id and isinstance(user_data, dict):
+                rollup = normalize_watch_rollup(
+                    user_data,
+                    detail.get("episode_count") or item.get("episode_count") or 0,
+                )
+                try:
+                    rollup["season_count"] = int(
+                        detail.get("season_count")
+                        or item.get("season_count")
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    rollup["season_count"] = 0
+                series_map[str(series_id)] = rollup
+                continue
+
         elif media_type == "season":
             series_id = item.get("series_id")
+            user_data = detail.get("user_data") if isinstance(detail, dict) else None
+
+            if content_id and isinstance(user_data, dict):
+                season_map[str(content_id)] = {
+                    "content_id": str(content_id),
+                    "series_id": str(
+                        series_id
+                        or (detail or {}).get("series_id")
+                        or ""
+                    ),
+                    "season_number": (
+                        item.get("season_number")
+                        if item.get("season_number") is not None
+                        else (detail or {}).get("season_number")
+                    ),
+                    **normalize_watch_rollup(
+                        user_data,
+                        detail.get("episode_count")
+                        or item.get("episode_count")
+                        or 0,
+                    ),
+                }
+                continue
+
         else:
             continue
 
@@ -817,85 +848,67 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
             series_ids.append(series_id)
 
     if not series_ids:
-        return {}, {}
-
-    if library_id:
-        library_ids = [library_id]
-    else:
-        try:
-            library_ids = [
-                library.get("id")
-                for library in client.libraries()
-                if library.get("id")
-            ]
-        except SiloError as exc:
-            log(
-                "Unable to retrieve libraries for series watch-state lookup: %s"
-                % exc,
-                xbmc.LOGWARNING,
-            )
-            return {}, {}
-
-    if not library_ids:
-        return {}, {}
+        return series_map, season_map
 
     def fetch_one(series_id):
-        season_map = {}
-
-        for candidate_library_id in library_ids:
-            try:
-                seasons = client.seasons(
+        try:
+            seasons = client.seasons(
+                series_id,
+                library_id,
+                suppress_not_found=True,
+            ) or []
+        except SiloError as exc:
+            log(
+                "Unable to retrieve seasons for series %s%s: %s"
+                % (
                     series_id,
-                    candidate_library_id,
-                    suppress_not_found=True,
-                ) or []
-            except SiloError as exc:
-                log(
-                    "Unable to retrieve seasons for series %s in library %s: %s"
-                    % (series_id, candidate_library_id, exc),
-                    xbmc.LOGDEBUG,
-                )
-                continue
+                    " in library %s" % library_id if library_id else "",
+                    exc,
+                ),
+                xbmc.LOGDEBUG,
+            )
+            seasons = []
 
-            for season in seasons:
-                season_content_id = get_content_id(season)
-                season_number = season.get(
-                    "season_number",
-                    season.get("number"),
-                )
-                rollup = normalize_watch_rollup(
-                    season.get("user_data"),
-                    season.get("episode_count") or 0,
-                )
-                candidate = {
-                    "content_id": (
-                        str(season_content_id)
-                        if season_content_id
-                        else ""
-                    ),
-                    "series_id": str(series_id),
-                    "season_number": season_number,
-                    **rollup,
-                }
-                key = (
-                    str(season_content_id)
-                    if season_content_id
-                    else "%s:%s" % (series_id, season_number)
-                )
-                season_map[key] = merge_season_watch_rollup(
-                    season_map.get(key),
-                    candidate,
-                )
+        local_seasons = {}
 
-        watched_count = 0
-        unplayed_count = 0
-        in_progress_count = 0
+        for season in seasons:
+            season_content_id = get_content_id(season)
+            season_number = season.get(
+                "season_number",
+                season.get("number"),
+            )
+            rollup = normalize_watch_rollup(
+                season.get("user_data"),
+                season.get("episode_count") or 0,
+            )
+            candidate = {
+                "content_id": str(season_content_id) if season_content_id else "",
+                "series_id": str(series_id),
+                "season_number": season_number,
+                **rollup,
+            }
+            key = (
+                str(season_content_id)
+                if season_content_id
+                else "%s:%s" % (series_id, season_number)
+            )
+            local_seasons[key] = merge_season_watch_rollup(
+                local_seasons.get(key),
+                candidate,
+            )
 
-        for season in season_map.values():
-            watched_count += season.get("watched_count", 0)
-            unplayed_count += season.get("unplayed_count", 0)
-            in_progress_count += season.get("in_progress_count", 0)
-
+        watched_count = sum(
+            season.get("watched_count", 0)
+            for season in local_seasons.values()
+        )
+        unplayed_count = sum(
+            season.get("unplayed_count", 0)
+            for season in local_seasons.values()
+        )
+        in_progress_count = sum(
+            season.get("in_progress_count", 0)
+            for season in local_seasons.values()
+        )
         total_count = watched_count + unplayed_count
 
         return (
@@ -909,17 +922,15 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
                 "unplayed_count": unplayed_count,
                 "in_progress_count": in_progress_count,
                 "total_count": total_count,
-                "season_count": len(season_map),
+                "season_count": len(local_seasons),
             },
-            season_map,
+            local_seasons,
         )
 
     worker_count = max(
         1,
         min(int(max_workers or 4), len(series_ids)),
     )
-    series_map = {}
-    season_map = {}
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = [
@@ -928,10 +939,10 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
         ]
 
         for future in as_completed(futures):
-            series_key, series_rollup, series_seasons = future.result()
-            series_map[series_key] = series_rollup
+            series_key, rollup, seasons = future.result()
+            series_map[series_key] = rollup
 
-            for key, season in series_seasons.items():
+            for key, season in seasons.items():
                 season_map[key] = merge_season_watch_rollup(
                     season_map.get(key),
                     season,
@@ -939,8 +950,58 @@ def fetch_series_watch_data(client, items, library_id=None, max_workers=4):
 
     return series_map, season_map
 
+def prepare_catalog_watch_state(client, items, detail_map, library_id=None):
+    """Avoid redundant /progress and season calls when detail already has state."""
+    detail_map = detail_map or {}
+    progress_map = {}
+    fallback_needed = False
 
-def set_container_watch_state(list_item, rollup):
+    for item in items:
+        content_id = get_content_id(item)
+        if not content_id:
+            continue
+
+        detail = detail_map.get(str(content_id))
+
+        if isinstance(detail, dict) and isinstance(detail.get("user_data"), dict):
+            continue
+
+        if isinstance(item.get("user_data"), dict):
+            continue
+
+        if (
+            item.get("position_seconds") is not None
+            or item.get("progress_updated_at") not in (None, "")
+        ):
+            continue
+
+        user_state = item.get("user_state")
+        if isinstance(user_state, dict) and bool(user_state.get("played")):
+            continue
+
+        fallback_needed = True
+        break
+
+    if fallback_needed:
+        try:
+            progress_map = client.in_progress_map(
+                library_id=library_id
+            )
+        except SiloError as exc:
+            log(
+                "Unable to retrieve fallback in-progress Silo records: %s"
+                % exc,
+                xbmc.LOGWARNING,
+            )
+
+    series_watch_map, season_watch_map = fetch_series_watch_data(
+        client,
+        items,
+        library_id=library_id,
+        detail_map=detail_map,
+    )
+
+    return progress_map, series_watch_map, season_watch_mapdef set_container_watch_state(list_item, rollup):
     """Apply Silo's aggregate watch state to a series or season folder."""
     if not rollup:
         return
@@ -2335,19 +2396,11 @@ def list_person_media(client, person_id, person_name="", cursor=None):
         None,
     )
 
-    try:
-        in_progress_map = client.in_progress_map()
-    except SiloError as exc:
-        log(
-            "Unable to retrieve in-progress Silo records for person results: %s"
-            % exc,
-            xbmc.LOGWARNING,
-        )
-        in_progress_map = {}
-
-    series_watch_map, season_watch_map = fetch_series_watch_data(
+    progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
         client,
         items,
+        detail_map,
+        library_id=None,
     )
 
     grouped = {
@@ -2388,7 +2441,7 @@ def list_person_media(client, person_id, person_name="", cursor=None):
         ).lower()
 
         display_progress = (
-            in_progress_map.get(str(content_id))
+            progress_map.get(str(content_id))
             or catalog_progress(catalog_item)
         )
 
@@ -2472,6 +2525,7 @@ def list_person_media(client, person_id, person_name="", cursor=None):
         notify("No Silo media found for this person.")
 
     xbmcplugin.endOfDirectory(HANDLE)
+
 
 def search_silo(client):
     """Prompt for a search term and display Silo's library-wide results."""
@@ -2603,32 +2657,47 @@ def list_search_results(client, query, page=1):
     search_page_size = min(get_directory_page_size(), SEARCH_PAGE_SIZE)
     offset = (page_number - 1) * search_page_size
 
-    try:
-        data = client.search_catalog(
+    # Media and people searches are independent. Each client owns a
+    # separate requests.Session so concurrent requests do not share session state.
+    people_client = SiloClient()
+    people_client.cfg.update(client.cfg)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        media_future = executor.submit(
+            client.search_catalog,
             query,
             limit=search_page_size,
             offset=offset,
-        ) or {}
-    except SiloError as exc:
-        log(
-            "Silo search failed for %r: %s" % (query, exc),
-            xbmc.LOGERROR,
         )
-        notify("Search failed: %s" % str(exc)[:180])
-        xbmcplugin.endOfDirectory(HANDLE)
-        return
-
-    items = data.get("items") or []
-    has_more = bool(data.get("has_more"))
-
-    try:
-        people = client.search_people(query, limit=50) or []
-    except SiloError as exc:
-        log(
-            "Silo people search failed for %r: %s" % (query, exc),
-            xbmc.LOGWARNING,
+        people_future = executor.submit(
+            people_client.search_people,
+            query,
+            limit=50,
         )
-        people = []
+
+        try:
+            data = media_future.result() or {}
+        except SiloError as exc:
+            log(
+                "Silo search failed for %r: %s" % (query, exc),
+                xbmc.LOGERROR,
+            )
+            notify("Search failed: %s" % str(exc)[:180])
+            people_future.cancel()
+            xbmcplugin.endOfDirectory(HANDLE)
+            return
+
+        items = data.get("items") or []
+        has_more = bool(data.get("has_more"))
+
+        try:
+            people = people_future.result() or []
+        except SiloError as exc:
+            log(
+                "Silo people search failed for %r: %s" % (query, exc),
+                xbmc.LOGWARNING,
+            )
+            people = []
 
     log(
         "Silo search query=%r returned %d person result(s)"
@@ -2837,6 +2906,7 @@ def list_search_results(client, query, page=1):
         notify("No results found for: %s" % query)
 
     xbmcplugin.endOfDirectory(HANDLE)
+
 
 
 def open_settings(client):
@@ -5383,28 +5453,12 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
         None,
     )
 
-    try:
-        in_progress_map = client.in_progress_map()
-    except SiloError as exc:
-        log(
-            "Unable to retrieve in-progress Silo records for %s: %s"
-            % (source, exc),
-            xbmc.LOGWARNING,
-        )
-        in_progress_map = {}
-
-    try:
-        series_watch_map, season_watch_map = fetch_series_watch_data(
-            client,
-            items,
-        )
-    except SiloError as exc:
-        log(
-            "Unable to retrieve %s series watch-state rollups: %s"
-            % (source, exc),
-            xbmc.LOGWARNING,
-        )
-        series_watch_map, season_watch_map = {}, {}
+    progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
+        client,
+        items,
+        detail_map,
+        library_id=None,
+    )
 
     batch = []
 
@@ -5420,7 +5474,7 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
         ).lower()
 
         display_progress = (
-            in_progress_map.get(str(content_id))
+            progress_map.get(str(content_id))
             or catalog_progress(catalog_item)
         )
 
@@ -5494,6 +5548,7 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
         )
 
     xbmcplugin.endOfDirectory(HANDLE)
+
 
 
 def list_collections(client):
@@ -6385,24 +6440,12 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         items = deduped
 
 
-    try:
-        in_progress_map = client.in_progress_map()
-    except SiloError as exc:
-        log("Unable to retrieve in-progress Silo records for Home section: %s" % exc, xbmc.LOGWARNING)
-        in_progress_map = {}
-
-    try:
-        series_watch_map, season_watch_map = fetch_series_watch_data(
-            client,
-            items,
-        )
-    except Exception as exc:
-        log(
-            "Unable to retrieve Home series watch-state rollups: %s"
-            % exc,
-            xbmc.LOGWARNING,
-        )
-        series_watch_map, season_watch_map = {}, {}
+    progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
+        client,
+        items,
+        detail_map,
+        library_id=None,
+    )
 
     batch = []
 
@@ -6411,7 +6454,7 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         if not content_id:
             continue
 
-        progress = in_progress_map.get(str(content_id)) or catalog_progress(catalog_item)
+        progress = progress_map.get(str(content_id)) or catalog_progress(catalog_item)
         media_type = (catalog_item.get("type") or catalog_item.get("media_type") or "").lower()
         season_rollup = (
             season_watch_map.get(str(content_id))
@@ -6504,18 +6547,14 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_library(client, library_id, cursor=None):
-    """Display a compact A-Z index for one Silo library.
 
-    Opening a library no longer renders every movie/series in one directory.
-    The catalog is paged internally only far enough to build the alphabet
-    index; extended metadata is not fetched until the user opens a letter.
-    """
+def list_library(client, library_id, cursor=None):
+    """Display the compact A-Z index for one Silo library."""
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
-    # Build the complete index from lightweight catalog cards. This gives every
-    # letter an accurate count even when the library is larger than one API page.
+    # Keep one lightweight full-catalog traversal so the existing
+    # punctuation-tolerant 0-9/A-Z/# counts remain exact.
     items = client.catalog(
         library_id,
         limit=200,
@@ -6526,8 +6565,6 @@ def list_library(client, library_id, cursor=None):
     xbmcplugin.setPluginCategory(HANDLE, "Library")
     xbmcplugin.setContent(HANDLE, "files")
 
-    # Only show groups that contain content. The order is always numeric,
-    # alphabetic, then the catch-all '#' group.
     for group in LIBRARY_LETTER_GROUPS:
         count = counts.get(group, 0)
         if not count:
@@ -6546,6 +6583,7 @@ def list_library(client, library_id, cursor=None):
                 library_id=library_id,
                 letter=group,
                 page=1,
+                expected_count=count,
             ),
             item,
             True,
@@ -6553,15 +6591,8 @@ def list_library(client, library_id, cursor=None):
 
     xbmcplugin.endOfDirectory(HANDLE)
 
-
-def list_library_letter(client, library_id, letter, page=None):
-    """Display one alphabet group from a Silo library.
-
-    The complete catalog is used to identify the selected group because the
-    current /api/v2/catalog contract exposes cursor pagination but no dedicated
-    first-letter filter. Only the selected page receives the expensive detail,
-    progress and watch-state lookups.
-    """
+def list_library_letter(client, library_id, letter, page=None, expected_count=None):
+    """Display one alphabet group using Silo's indexed prefix query when safe."""
     if not library_id:
         raise SiloError("No library ID was supplied.")
 
@@ -6569,16 +6600,46 @@ def list_library_letter(client, library_id, letter, page=None):
     if letter not in LIBRARY_LETTER_GROUPS:
         raise SiloError("Invalid library letter: %s" % letter)
 
-    all_items = client.catalog(
-        library_id,
-        limit=200,
-    )
+    grouped_items = None
 
-    grouped_items = [
-        item
-        for item in all_items
-        if library_letter_key(item) == letter
-    ]
+    if len(letter) == 1 and letter.isalpha():
+        try:
+            prefix_items, server_total, total_exact = client.catalog_prefix_items(
+                library_id,
+                letter,
+                limit=200,
+            )
+
+            try:
+                expected = int(expected_count)
+            except (TypeError, ValueError):
+                expected = None
+
+            # The existing grouping ignores leading punctuation. Only trust
+            # the server prefix when its exact count agrees with our index.
+            if (
+                total_exact
+                and expected is not None
+                and server_total == expected
+            ):
+                grouped_items = prefix_items
+        except SiloError as exc:
+            log(
+                "Unable to use server-side library prefix %s: %s"
+                % (letter, exc),
+                xbmc.LOGDEBUG,
+            )
+
+    if grouped_items is None:
+        all_items = client.catalog(
+            library_id,
+            limit=200,
+        )
+        grouped_items = [
+            item
+            for item in all_items
+            if library_letter_key(item) == letter
+        ]
 
     grouped_items.sort(
         key=lambda item: (
@@ -6602,26 +6663,16 @@ def list_library_letter(client, library_id, letter, page=None):
         letter=letter,
     )
 
-    try:
-        in_progress_map = client.in_progress_map(
-            library_id=library_id
-        )
-    except SiloError as exc:
-        log(
-            "Unable to retrieve in-progress Silo records: %s" % exc,
-            xbmc.LOGWARNING,
-        )
-        in_progress_map = {}
-
     detail_map = fetch_detail_metadata(
         client,
         page_items,
         library_id,
     )
 
-    series_watch_map, _season_watch_map = fetch_series_watch_data(
+    progress_map, series_watch_map, _season_watch_map = prepare_catalog_watch_state(
         client,
         page_items,
+        detail_map,
         library_id=library_id,
     )
 
@@ -6641,13 +6692,17 @@ def list_library_letter(client, library_id, letter, page=None):
             or ""
         ).lower()
 
-        server_progress = in_progress_map.get(str(content_id))
-        display_progress = server_progress or catalog_progress(catalog_item)
+        detail = detail_map.get(str(content_id))
+        display_progress = (
+            progress_map.get(str(content_id))
+            or catalog_progress(detail)
+            or catalog_progress(catalog_item)
+        )
 
         list_item, media_type, content_id, title, display_progress = build_catalog_list_item(
             client,
             catalog_item,
-            detail=detail_map.get(str(content_id)),
+            detail=detail,
             progress=display_progress,
             series_rollup=series_watch_map.get(str(content_id)),
         )
@@ -6827,20 +6882,6 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         page,
     )
 
-    # Fetch only currently in-progress records for accurate episode resume
-    # markers. Completed state comes from each catalog item's user_state.played
-    # field, so we do not need the full progress history here.
-    try:
-        in_progress_map = client.in_progress_map(
-            library_id=library_id
-        )
-    except SiloError as exc:
-        log(
-            "Unable to retrieve in-progress Silo records: %s" % exc,
-            xbmc.LOGWARNING,
-        )
-        in_progress_map = {}
-
     xbmcplugin.setContent(HANDLE, "episodes")
 
     add_previous_page(
@@ -6851,17 +6892,20 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         page=page,
     )
 
-    # Fetch extended episode metadata concurrently before Kodi receives the list.
     detail_map = fetch_detail_metadata(
         client,
         episodes,
         library_id,
     )
 
-    # The episode endpoint returns CatalogItem objects as well, including the
-    # viewer's watched flag. The in-progress map supplies detailed positions.
+    progress_map, _series_watch_map, _season_watch_map = prepare_catalog_watch_state(
+        client,
+        episodes,
+        detail_map,
+        library_id=library_id,
+    )
+
     batch = []
-    batch_size = 500
 
     for episode in episodes:
         content_id = get_content_id(episode)
@@ -6897,7 +6941,6 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         set_art(
             item,
             client,
-            # Current Silo v2 artwork fields.
             poster=(
                 episode.get("poster_url")
                 or episode.get("poster")
@@ -6906,35 +6949,25 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             ),
             backdrop=episode.get("backdrop_url"),
             logo=episode.get("logo_url"),
-            # Episode still is retained as a thumbnail fallback.
             still=(
                 episode.get("still_url")
                 or episode.get("still")
             ),
         )
 
-        # Apply the extended metadata fetched concurrently above.
         detail = detail_map.get(str(content_id))
         if detail:
             set_detail_metadata(item, detail, client)
 
-        # Start with the catalog snapshot and prefer the dedicated in-progress
-        # server record when Silo has one for this episode.
-        display_progress = catalog_progress(episode)
-        server_progress = in_progress_map.get(str(content_id))
-
-        if server_progress:
-            display_progress = server_progress
-
-        set_watch_state(
-            item,
-            display_progress,
-            "episode",
+        display_progress = (
+            progress_map.get(str(content_id))
+            or catalog_progress(detail)
+            or catalog_progress(episode)
         )
 
+        set_watch_state(item, display_progress, "episode")
         item.setProperty("IsPlayable", "true")
 
-        # Reuse an already-known single file when the episode exposes one.
         files = episode.get("files") or []
         params = {
             "action": "play",
@@ -6951,13 +6984,9 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         if episode.get("duration_seconds") is not None:
             params["duration_seconds"] = episode.get("duration_seconds")
 
-        batch.append((
-            build_url(**params),
-            item,
-            False,
-        ))
+        batch.append((build_url(**params), item, False))
 
-        if len(batch) >= batch_size:
+        if len(batch) >= 500:
             xbmcplugin.addDirectoryItems(
                 HANDLE,
                 batch,
@@ -8603,6 +8632,7 @@ def router(client):
             params.get("library_id"),
             params.get("letter"),
             params.get("page"),
+            params.get("expected_count"),
         )
         return
 
