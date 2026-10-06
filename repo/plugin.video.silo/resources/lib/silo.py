@@ -1060,7 +1060,7 @@ class SiloClient:
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
     def catalog_page(self, library_id, cursor=None, limit=200,
-                     name_prefix=None, sort=None, order=None):
+                     name_prefix=None, sort=None, order=None, seek=None):
         """Return one Silo catalog page and its continuation cursor."""
         limit = max(1, min(int(limit or 200), 200))
 
@@ -1077,6 +1077,11 @@ class SiloClient:
             params["sort"] = str(sort)
         if order:
             params["order"] = str(order)
+        if seek is not None:
+            try:
+                params["seek"] = max(0, int(seek))
+            except (TypeError, ValueError):
+                params["seek"] = 0
         if cursor:
             params["cursor"] = cursor
 
@@ -1091,53 +1096,50 @@ class SiloClient:
             self._next(data),
         )
 
-    def catalog_prefix_items(self, library_id, name_prefix, limit=200):
-        """Return all items for an exact server-side title prefix."""
+    # Return one server-side alphabet page and its total/has-more information.
+    def catalog_prefix_page(self, library_id, name_prefix, offset=0,
+                            limit=200, include_total=False):
+        """Return one indexed title-prefix page using Silo's seek support."""
         prefix = str(name_prefix or "").strip()
         if not prefix:
-            return [], 0, True
+            return [], 0, False, False
+
+        try:
+            offset = max(0, int(offset or 0))
+        except (TypeError, ValueError):
+            offset = 0
 
         limit = max(1, min(int(limit or 200), 200))
-        items = []
-        cursor = None
-        total = 0
-        total_exact = False
-        first_page = True
 
-        while True:
-            params = {
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params={
                 "library_id": library_id,
                 "limit": limit,
-                "skip_total": "false" if first_page else "true",
+                "skip_total": "false" if include_total else "true",
                 "image_size": "medium",
                 "name_prefix": prefix,
                 "sort": "title",
                 "order": "asc",
-            }
+                "seek": offset,
+            },
+        ) or {}
 
-            if cursor:
-                params["cursor"] = cursor
+        try:
+            total = int(data.get("total") or 0)
+        except (TypeError, ValueError):
+            total = 0
 
-            data = self._json(
-                "GET",
-                "/api/v2/catalog",
-                params=params,
-            ) or {}
+        total_exact = bool(data.get("total_exact"))
+        page = data.get("page") or {}
 
-            if first_page:
-                try:
-                    total = int(data.get("total") or 0)
-                except (TypeError, ValueError):
-                    total = 0
-                total_exact = bool(data.get("total_exact"))
-                first_page = False
-
-            items.extend(data.get("items", []))
-
-            cursor = self._next(data)
-            if not cursor:
-                return items, total, total_exact
-
+        return (
+            data.get("items", []),
+            total,
+            total_exact,
+            bool(page.get("has_more")),
+        )
 
     def catalog(self, library_id, limit=200):
         items = []
