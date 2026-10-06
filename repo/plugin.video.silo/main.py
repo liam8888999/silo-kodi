@@ -1001,7 +1001,9 @@ def prepare_catalog_watch_state(client, items, detail_map, library_id=None):
         detail_map=detail_map,
     )
 
-    return progress_map, series_watch_map, season_watch_mapdef set_container_watch_state(list_item, rollup):
+    return progress_map, series_watch_map, season_watch_map
+
+def set_container_watch_state(list_item, rollup):
     """Apply Silo's aggregate watch state to a series or season folder."""
     if not rollup:
         return
