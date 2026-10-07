@@ -2037,6 +2037,8 @@ def set_stream_details(list_item, version):
         list_item.setProperty("VideoResolution", _kodi_resolution(version_resolution))
     if version_video_codec:
         list_item.setProperty("VideoCodec", version_video_codec)
+        list_item.setProperty("Codec", version_video_codec)
+        list_item.setProperty("Silo.VideoCodec", version_video_codec)
 
     # Standard Kodi video labels available before individual tracks are read.
     hdr_type = _kodi_hdr_type(version.get("hdr"))
@@ -2059,9 +2061,15 @@ def set_stream_details(list_item, version):
     for track in video_tracks:
         aspect = _aspect_ratio(track.get("aspect_ratio"))
 
+        video_codec = str(
+            track.get("codec")
+            or version.get("codec_video")
+            or ""
+        ).strip().lower()
+
         info = {}
-        if track.get("codec"):
-            info["codec"] = track["codec"]
+        if video_codec:
+            info["codec"] = video_codec
         if track.get("width"):
             info["width"] = int(track["width"])
         if track.get("height"):
@@ -2141,7 +2149,7 @@ def set_stream_details(list_item, version):
                 int(track.get("height") or 0),
                 aspect,
                 duration,
-                str(track.get("codec") or ""),
+                video_codec,
                 "",
                 str(track.get("language") or ""),
                 str(hdr or ""),
@@ -2149,6 +2157,17 @@ def set_stream_details(list_item, version):
             tag.addVideoStream(stream)
         except Exception:
             pass
+
+        # Native stream metadata supplies ListItem.VideoCodec. Generic
+        # property aliases cover skins/add-ons that read Property(...).
+        if video_codec:
+            list_item.setProperty("VideoCodec", video_codec)
+            list_item.setProperty("Codec", video_codec)
+            list_item.setProperty("Silo.VideoCodec", video_codec)
+        if track.get("width") not in (None, ""):
+            list_item.setProperty("VideoWidth", str(track["width"]))
+        if track.get("height") not in (None, ""):
+            list_item.setProperty("VideoHeight", str(track["height"]))
 
     # Fallback for detail responses containing only version-level video data.
     if not video_tracks and (
@@ -2182,17 +2201,32 @@ def set_stream_details(list_item, version):
             info["height"] = height
 
         try:
+            fallback_codec = str(version.get("codec_video") or "").strip().lower()
+            fallback_aspect = _aspect_ratio(version.get("aspect_ratio"))
+
             tag.addVideoStream(
                 xbmc.VideoStreamDetail(
                     width,
                     height,
-                    _aspect_ratio(version.get("aspect_ratio")),
+                    fallback_aspect,
                     duration,
-                    str(version.get("codec_video") or ""),
+                    fallback_codec,
                 )
             )
         except Exception:
-            pass
+            fallback_codec = str(version.get("codec_video") or "").strip().lower()
+            fallback_aspect = _aspect_ratio(version.get("aspect_ratio"))
+
+        if fallback_codec:
+            list_item.setProperty("VideoCodec", fallback_codec)
+            list_item.setProperty("Codec", fallback_codec)
+            list_item.setProperty("Silo.VideoCodec", fallback_codec)
+        if width:
+            list_item.setProperty("VideoWidth", str(width))
+        if height:
+            list_item.setProperty("VideoHeight", str(height))
+        if fallback_aspect > 0:
+            list_item.setProperty("VideoAspect", str(fallback_aspect))
 
     if version.get("codec_audio"):
         list_item.setProperty(
