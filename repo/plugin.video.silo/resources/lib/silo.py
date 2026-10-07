@@ -37,6 +37,8 @@ Endpoints used by this addon:
 import base64
 import json
 import uuid
+import threading
+import time
 from urllib.parse import quote
 
 # requests is used for all API communication made by the addon itself.
@@ -50,6 +52,15 @@ import xbmcvfs
 # Read addon metadata and determine where Kodi should store persistent configuration.
 ADDON = xbmcaddon.Addon()
 ADDON_VERSION = ADDON.getAddonInfo("version")
+
+# Refresh slightly before JWT expiry so normal API calls do not hit an expired
+# access token first. The server remains authoritative and the 401 path below
+# is still kept as a final fallback for opaque tokens or clock differences.
+ACCESS_TOKEN_REFRESH_MARGIN = 60
+
+# Silo rotates refresh tokens on successful exchanges, so serialize refreshes
+# across SiloClient instances in this Kodi process.
+_REFRESH_LOCK = threading.Lock()
 
 
 # Central logging helper so every log line identifies this addon.
@@ -203,6 +214,9 @@ class SiloClient:
 
         self.session = requests.Session()
         self._caps = None
+        self._last_refresh_status = None
+        self._last_refresh_problem = {}
+        self._last_refresh_transient = False
         self.sync_settings()
         # Detail responses are reused when the same item is later played.
         self._details = {}
@@ -336,7 +350,30 @@ class SiloClient:
 
         if not _setting("token"):
             self.cfg.pop("token", None)
-            self.login()
+
+            # A stored refresh token is sufficient to restore an expired or
+            # otherwise missing access token. Never ask for the password just
+            # because Kodi restarted or the access token was lost locally.
+            if _setting("refresh_token"):
+                if not self.refresh():
+                    if self._last_refresh_transient:
+                        raise SiloError(
+                            "Silo session refresh is temporarily unavailable; try again later."
+                        )
+
+                    # The server definitively rejected the refresh token, so
+                    # this session can no longer be restored silently.
+                    self.cfg.pop("token", None)
+                    self.cfg.pop("refresh_token", None)
+                    _set_setting("token", "")
+                    _set_setting("refresh_token", "")
+                    self.login()
+            else:
+                self.login()
+
+        # Renew a JWT shortly before expiry so normal browsing/playback does
+        # not wait for an expired-token 401 to trigger the refresh path.
+        self.ensure_access_token_fresh()
 
         if need_profile and not self.cfg.get("profile_id"):
             self.select_profile()
@@ -360,8 +397,21 @@ class SiloClient:
         # A 401 may mean the access token has expired. Refresh it and retry once.
         if r.status_code == 401 and retry:
             if not self.refresh():
+                # Do not throw away a potentially valid session when the
+                # refresh failed because of a transient network/server issue.
+                if self._last_refresh_transient:
+                    raise SiloError(
+                        "Silo session refresh is temporarily unavailable; try again later.",
+                        r.status_code,
+                        {},
+                    )
+
+                # A definitive refresh-token refusal means the server has
+                # ended this session. Start a fresh credential login.
                 self.cfg.pop("token", None)
                 self.cfg.pop("refresh_token", None)
+                _set_setting("token", "")
+                _set_setting("refresh_token", "")
                 save_config(self.cfg)
                 self.login()
 
@@ -617,30 +667,119 @@ class SiloClient:
 
     # Exchange the saved refresh token for a new access token.
     def refresh(self):
-        rt = _setting("refresh_token") or self.cfg.get("refresh_token")
-        if not rt or not self.base:
+        """Rotate the Silo access/refresh pair without prompting for a password."""
+        with _REFRESH_LOCK:
+            # A different SiloClient (or another Kodi process) may have
+            # already rotated the refresh token. Re-read persistent settings
+            # before every exchange and retry once when a newer token appears.
+            for attempt in range(2):
+                rt = _setting("refresh_token") or self.cfg.get("refresh_token")
+                if not rt or not self.base:
+                    self._last_refresh_status = None
+                    self._last_refresh_problem = {}
+                    self._last_refresh_transient = False
+                    return False
+
+                try:
+                    r = self.session.post(
+                        self.base + "/api/v2/auth/refresh",
+                        headers={
+                            "Accept": "application/json",
+                            "X-Device-ID": _setting("device_id") or self.cfg["device_id"],
+                            "X-Client-Name": "kodi-silo",
+                            "X-Client-Version": ADDON_VERSION,
+                            "X-Client-Platform": "kodi",
+                        },
+                        json={"refresh_token": rt},
+                        timeout=20,
+                    )
+                except requests.RequestException as exc:
+                    self._last_refresh_status = None
+                    self._last_refresh_problem = {}
+                    self._last_refresh_transient = True
+                    log("Silo token refresh unavailable: %s" % exc, xbmc.LOGWARNING)
+                    return False
+
+                self._last_refresh_status = r.status_code
+
+                try:
+                    problem = r.json() if not r.ok else {}
+                except ValueError:
+                    problem = {}
+
+                if not r.ok:
+                    self._last_refresh_problem = problem
+                    log("Silo refresh response status=%d type=%s detail=%s" % (r.status_code, problem.get("type") or "", problem.get("detail") or ""), xbmc.LOGWARNING)
+                    self._last_refresh_transient = (
+                        r.status_code >= 500 or r.status_code in (408, 429)
+                    )
+
+                    # Refresh tokens rotate. If another client won the
+                    # exchange between our reads, the server rejects the
+                    # old token even though the session is still valid.
+                    latest_rt = _setting("refresh_token")
+                    if (
+                        attempt == 0
+                        and r.status_code == 401
+                        and latest_rt
+                        and latest_rt != rt
+                    ):
+                        log(
+                            "Silo refresh token was rotated elsewhere; retrying with the current token",
+                            xbmc.LOGWARNING,
+                        )
+                        continue
+
+                    log(
+                        "Silo token refresh failed -> %s %s"
+                        % (
+                            r.status_code,
+                            problem.get("detail") or problem.get("title") or "",
+                        ),
+                        xbmc.LOGWARNING,
+                    )
+                    return False
+
+                try:
+                    data = r.json()
+                    self._store_tokens(data)
+                except (ValueError, SiloError) as exc:
+                    self._last_refresh_problem = {}
+                    self._last_refresh_transient = True
+                    log(
+                        "Silo token refresh returned an invalid response: %s" % exc,
+                        xbmc.LOGWARNING,
+                    )
+                    return False
+
+                log("Silo access token refreshed automatically")
+                return True
+
             return False
 
-        try:
-            r = self.session.post(
-                self.base + "/api/v2/auth/refresh",
-                headers={
-                    "Accept": "application/json",
-                    "X-Device-ID": self.cfg["device_id"],
-                    "X-Client-Name": "kodi-silo",
-                    "X-Client-Version": ADDON_VERSION,
-                    "X-Client-Platform": "kodi",
-                },
-                json={"refresh_token": rt},
-                timeout=20,
-            )
-        except requests.RequestException:
+
+    def ensure_access_token_fresh(self):
+        """Refresh the access token shortly before a JWT expires."""
+        token = str(_setting("token") or self.cfg.get("token") or "").strip()
+        if not token:
             return False
 
-        if not r.ok:
-            return False
+        self.cfg["token"] = token
+        expiry = self.access_token_expiry()
+        if expiry is None:
+            return True
 
-        self._store_tokens(r.json())
+        if expiry - time.time() > ACCESS_TOKEN_REFRESH_MARGIN:
+            return True
+
+        # Another request may already have refreshed while this client was
+        # waiting. The refresh lock makes the token rotation safe.
+        if self.refresh():
+            return True
+
+        # A failed refresh must not turn a temporary network/server problem
+        # into a password prompt. Keep the current access token and let the
+        # request below decide whether the server still accepts it.
         return True
 
     # Fully log the account out locally.
@@ -940,7 +1079,13 @@ class SiloClient:
         )
 
     def search_catalog(self, query, limit=100, offset=0):
-        """Return one page of Silo's server-side catalog search results."""
+        """Return one page of Silo's v2 server-side catalog search results.
+
+        Keep the add-on's existing page/offset interface, but translate the
+        offset into Silo v2's explicit zero-based seek. The v2 catalog already
+        supplies the same profile-scoped search results plus cursor metadata,
+        so no v1 compatibility endpoint is needed.
+        """
         query = str(query or "").strip()
         if not query:
             return {"items": [], "has_more": False, "total": 0}
@@ -955,17 +1100,35 @@ class SiloClient:
         except (TypeError, ValueError):
             offset = 0
 
-        return self._json(
+        params = {
+            "source": "query",
+            "q": query,
+            "limit": limit,
+            "skip_total": "true",
+            "image_size": "medium",
+        }
+
+        # Silo v2 uses seek for a direct jump to the requested zero-based
+        # result window. Page 1 naturally starts at position zero, so omit it.
+        if offset:
+            params["seek"] = offset
+
+        data = self._json(
             "GET",
-            "/api/v1/catalog",
-            params={
-                "source": "query",
-                "q": query,
-                "limit": limit,
-                "offset": offset,
-                "include_total": "false",
-            },
+            "/api/v2/catalog",
+            params=params,
         ) or {}
+
+        page = data.get("page") or {}
+
+        return {
+            "items": data.get("items") or [],
+            "has_more": bool(page.get("has_more")),
+            "total": data.get("total", 0),
+            "total_exact": bool(data.get("total_exact", False)),
+            "next_cursor": page.get("next_cursor"),
+            "window_cursor": data.get("window_cursor"),
+        }
 
     # Join an existing Watch Party. Kodi intentionally exposes no
     # room-creation operation: this client is participant-only.
@@ -1059,23 +1222,27 @@ class SiloClient:
     # Return every catalog item in a library while handling pagination internally.
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
-    def catalog_page(self, library_id, cursor=None, limit=200):
-        """Return one Silo catalog page and its continuation cursor.
-
-        Silo's shared catalog limit supports up to 200 items per request.
-        Pagination is exposed to the Kodi UI so large libraries do not force
-        every item and its extended metadata to load before the first page.
-        """
+    def catalog_page(self, library_id, cursor=None, limit=200,
+                     name_prefix=None, sort=None, seek=None):
+        """Return one Silo catalog page and its continuation cursor."""
         limit = max(1, min(int(limit or 200), 200))
 
         params = {
             "library_id": library_id,
             "limit": limit,
             "skip_total": "true",
-            # Use practical library artwork sizes while keeping responses small.
             "image_size": "medium",
         }
 
+        if name_prefix:
+            params["name_prefix"] = str(name_prefix)
+        if sort:
+            params["sort"] = str(sort)
+        if seek is not None:
+            try:
+                params["seek"] = max(0, int(seek))
+            except (TypeError, ValueError):
+                params["seek"] = 0
         if cursor:
             params["cursor"] = cursor
 
@@ -1090,8 +1257,51 @@ class SiloClient:
             self._next(data),
         )
 
-    # Return every library item. Kept for callers that explicitly need the
-    # complete collection; normal Kodi library browsing uses catalog_page().
+    # Return one server-side alphabet page and its total/has-more information.
+    def catalog_prefix_page(self, library_id, name_prefix, offset=0,
+                            limit=200, include_total=False):
+        """Return one indexed title-prefix page using Silo's seek support."""
+        prefix = str(name_prefix or "").strip()
+        if not prefix:
+            return [], 0, False, False
+
+        try:
+            offset = max(0, int(offset or 0))
+        except (TypeError, ValueError):
+            offset = 0
+
+        limit = max(1, min(int(limit or 200), 200))
+
+        data = self._json(
+            "GET",
+            "/api/v2/catalog",
+            params={
+                "library_id": library_id,
+                "limit": limit,
+                "skip_total": "false" if include_total else "true",
+                "image_size": "medium",
+                "name_prefix": prefix,
+                "sort": "title",
+                "seek": offset,
+            },
+        ) or {}
+
+        try:
+            total = int(data.get("total") or 0)
+        except (TypeError, ValueError):
+            total = 0
+
+        total_exact = bool(data.get("total_exact"))
+        page = data.get("page") or {}
+
+        return (
+            data.get("items", []),
+            total,
+            total_exact,
+            bool(page.get("has_more")),
+        )
+
+
     def catalog(self, library_id, limit=200):
         items = []
         cursor = None
