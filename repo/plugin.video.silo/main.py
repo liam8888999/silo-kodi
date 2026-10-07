@@ -1135,12 +1135,15 @@ def set_art(list_item, client, poster=None, backdrop=None, logo=None, still=None
 
     if backdrop_url:
         art["fanart"] = backdrop_url
+        # skin.liam3 uses the landscape art slot for its wide video views.
+        art["landscape"] = backdrop_url
 
     if logo_url:
         art["clearlogo"] = logo_url
 
-    # Episode stills are useful as thumbnails when no poster is available.
-    if still_url and not poster_url:
+    # Episode stills are useful as thumbnails. Keep the poster slot intact but
+    # give Kodi's thumb slot the still when the server supplied one.
+    if still_url:
         art.update({
             "thumb": still_url,
             "icon": still_url,
@@ -1727,6 +1730,24 @@ def set_skin_compat_metadata(list_item, item):
             )
         except Exception:
             pass
+
+    # The skin also checks these values as ListItem properties.
+    if rating_value is not None:
+        _set_property_if_present(list_item, "Rating", rating_value)
+    user_rating = item.get("user_rating")
+    if user_rating is not None:
+        _set_property_if_present(list_item, "UserRating", user_rating)
+    release_date = item.get("release_date")
+    if release_date:
+        _set_property_if_present(list_item, "ReleaseDate", release_date)
+
+    backdrop_url = item.get("backdrop_url")
+    if backdrop_url:
+        _set_property_if_present(
+            list_item,
+            "Fanart_Image",
+            client.abs_url(backdrop_url),
+        )
 
     # Kodi does not expose every Silo field as a native InfoTag property.
     # Publish the remaining values under simple names that skins can consume
