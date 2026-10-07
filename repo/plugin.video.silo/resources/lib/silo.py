@@ -631,30 +631,91 @@ class SiloClient:
 
     # Exchange the saved refresh token for a new access token.
     def refresh(self):
-        rt = _setting("refresh_token") or self.cfg.get("refresh_token")
-        if not rt or not self.base:
+        """Rotate the Silo access/refresh token pair without prompting."""
+        with _REFRESH_LOCK:
+            # Another SiloClient may have rotated the refresh token while
+            # this client was waiting. Always use the current persisted value.
+            rt = _setting("refresh_token") or self.cfg.get("refresh_token")
+            if not rt or not self.base:
+                self._last_refresh_status = None
+                self._last_refresh_problem = {}
+                self._last_refresh_transient = False
+                return False
+
+            try:
+                r = self.session.post(
+                    self.base + "/api/v2/auth/refresh",
+                    headers={
+                        "Accept": "application/json",
+                        "X-Device-ID": _setting("device_id") or self.cfg["device_id"],
+                        "X-Client-Name": "kodi-silo",
+                        "X-Client-Version": ADDON_VERSION,
+                        "X-Client-Platform": "kodi",
+                    },
+                    json={"refresh_token": rt},
+                    timeout=20,
+                )
+            except requests.RequestException as exc:
+                self._last_refresh_status = None
+                self._last_refresh_problem = {}
+                self._last_refresh_transient = True
+                log("Silo token refresh unavailable: %s" % exc, xbmc.LOGWARNING)
+                return False
+
+            self._last_refresh_status = r.status_code
+
+            try:
+                problem = r.json() if not r.ok else {}
+            except ValueError:
+                problem = {}
+
+            if not r.ok:
+                self._last_refresh_problem = problem
+                self._last_refresh_transient = r.status_code >= 500 or r.status_code in (408, 429)
+                log(
+                    "Silo token refresh failed -> %s %s"
+                    % (
+                        r.status_code,
+                        problem.get("detail") or problem.get("title") or "",
+                    ),
+                    xbmc.LOGWARNING,
+                )
+                return False
+
+            try:
+                data = r.json()
+                self._store_tokens(data)
+            except (ValueError, SiloError) as exc:
+                self._last_refresh_problem = {}
+                self._last_refresh_transient = True
+                log("Silo token refresh returned an invalid response: %s" % exc, xbmc.LOGWARNING)
+                return False
+
+            log("Silo access token refreshed automatically")
+            return True
+
+    def ensure_access_token_fresh(self):
+        """Refresh the access token shortly before a JWT expires."""
+        token = str(_setting("token") or self.cfg.get("token") or "").strip()
+        if not token:
             return False
 
-        try:
-            r = self.session.post(
-                self.base + "/api/v2/auth/refresh",
-                headers={
-                    "Accept": "application/json",
-                    "X-Device-ID": self.cfg["device_id"],
-                    "X-Client-Name": "kodi-silo",
-                    "X-Client-Version": ADDON_VERSION,
-                    "X-Client-Platform": "kodi",
-                },
-                json={"refresh_token": rt},
-                timeout=20,
-            )
-        except requests.RequestException:
-            return False
+        self.cfg["token"] = token
+        expiry = self.access_token_expiry()
+        if expiry is None:
+            return True
 
-        if not r.ok:
-            return False
+        if expiry - time.time() > ACCESS_TOKEN_REFRESH_MARGIN:
+            return True
 
-        self._store_tokens(r.json())
+        # Another request may already have refreshed while this client was
+        # waiting. The refresh lock makes the token rotation safe.
+        if self.refresh():
+            return True
+
+        # A failed refresh must not turn a temporary network/server problem
+        # into a password prompt. Keep the current access token and let the
+        # request below decide whether the server still accepts it.
         return True
 
     # Fully log the account out locally.
