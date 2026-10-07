@@ -709,6 +709,7 @@ class SiloClient:
 
                 if not r.ok:
                     self._last_refresh_problem = problem
+                    log("Silo refresh response status=%d type=%s detail=%s" % (r.status_code, problem.get("type") or "", problem.get("detail") or ""), xbmc.LOGWARNING)
                     self._last_refresh_transient = (
                         r.status_code >= 500 or r.status_code in (408, 429)
                     )
