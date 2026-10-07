@@ -1475,6 +1475,8 @@ def set_catalog_metadata(list_item, item, client):
             # Preserve conventional Kodi ID aliases for clients/add-ons.
             list_item.setProperty("%s_id" % key, value)
 
+    apply_standard_video_metadata(list_item, item)
+
     # The catalog overlay is a lightweight version summary. Convert it
     # into native Kodi stream details when available so ordinary skins receive
     # resolution/audio/HDR information even before the full item detail opens.
@@ -1719,8 +1721,6 @@ def set_catalog_metadata(list_item, item, client):
                     "Silo.%s" % "".join(part.title() for part in key.split("_")),
                     str(value),
                 )
-
-    apply_standard_video_metadata(list_item, item)
 
 
 def _kodi_codec(value):
@@ -2202,6 +2202,15 @@ def set_stream_details(list_item, version):
         # property aliases cover skins/add-ons that read Property(...).
         if video_codec:
             list_item.setProperty("VideoCodec", video_codec)
+            log(
+                "Video stream metadata: codec=%s width=%s height=%s"
+                % (
+                    video_codec,
+                    track.get("width") or 0,
+                    track.get("height") or 0,
+                ),
+                xbmc.LOGDEBUG,
+            )
             list_item.setProperty("Codec", video_codec)
             list_item.setProperty("Silo.VideoCodec", video_codec)
         if track.get("width") not in (None, ""):
@@ -2259,6 +2268,14 @@ def set_stream_details(list_item, version):
 
         if fallback_codec:
             list_item.setProperty("VideoCodec", fallback_codec)
+            log(
+                "Video version metadata: codec=%s resolution=%s"
+                % (
+                    fallback_codec,
+                    version.get("resolution") or "",
+                ),
+                xbmc.LOGDEBUG,
+            )
             list_item.setProperty("Codec", fallback_codec)
             list_item.setProperty("Silo.VideoCodec", fallback_codec)
         if width:
@@ -2699,8 +2716,8 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             break
 
     version = _detail_version(detail, file_id)
-    set_stream_details(list_item, version)
     apply_standard_video_metadata(list_item, detail, version)
+    set_stream_details(list_item, version)
 
     # Preserve the chosen file's technical metadata as standard ListItem
     # properties as well as native stream details.
