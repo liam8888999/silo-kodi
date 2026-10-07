@@ -1565,6 +1565,257 @@ def set_catalog_metadata(list_item, item, client):
                 )
 
 
+def _set_property_if_present(list_item, name, value):
+    """Expose a value through a skin-friendly ListItem property when present."""
+    if value not in (None, ""):
+        list_item.setProperty(name, str(value))
+
+
+def _rating_votes(detail, source):
+    """Return the vote count for one v2 rating source when it is available."""
+    for rating in detail.get("rating_sources") or []:
+        if str(rating.get("source") or "").strip().lower() == source.lower():
+            value = rating.get("votes")
+            if value not in (None, ""):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    pass
+    return 0
+
+
+def _add_summary_video_stream(list_item, resolution, codec, hdr, duration):
+    """Add one lightweight video stream from Silo's catalog overlay summary."""
+    if not resolution and not codec:
+        return
+
+    text_value = str(resolution or "").strip().lower()
+    width = 0
+    height = 0
+
+    if "x" in text_value:
+        try:
+            width, height = [int(v) for v in text_value.split("x", 1)]
+        except (TypeError, ValueError):
+            width = height = 0
+    elif text_value.endswith("p"):
+        try:
+            height = int(text_value[:-1])
+        except (TypeError, ValueError):
+            height = 0
+
+        width_by_height = {
+            4320: 7680,
+            2160: 3840,
+            1440: 2560,
+            1080: 1920,
+            720: 1280,
+            576: 1024,
+            480: 854,
+        }
+        width = width_by_height.get(height, 0)
+
+    try:
+        tag = list_item.getVideoInfoTag()
+        tag.addVideoStream(
+            xbmc.VideoStreamDetail(
+                width,
+                height,
+                0.0,
+                int(duration or 0),
+                str(codec or ""),
+                "",
+                "",
+                str(hdr or ""),
+            )
+        )
+    except Exception:
+        pass
+
+
+def _audio_channel_count(value):
+    """Convert a channel layout such as 7.1 into a Kodi channel count."""
+    if value in (None, ""):
+        return 0
+
+    try:
+        number = float(value)
+        whole = int(number)
+        return whole + (1 if number > whole else 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _add_summary_audio_stream(list_item, codec, channels):
+    """Add one lightweight audio stream from Silo's catalog overlay summary."""
+    if not codec and not channels:
+        return
+
+    try:
+        tag = list_item.getVideoInfoTag()
+        tag.addAudioStream(
+            xbmc.AudioStreamDetail(
+                _audio_channel_count(channels),
+                str(codec or ""),
+                "",
+            )
+        )
+    except Exception:
+        pass
+
+
+def set_skin_compat_metadata(list_item, item):
+    """Fill legacy/native Kodi fields and aliases used by skin.liam3.
+
+    The skin reads normal Kodi video infolabels such as IMDBNumber, Rating,
+    VideoResolution, AudioCodec, AudioChannels, AudioLanguage.1 and
+    SubtitleLanguage.1. Keep these populated from the same Silo v2 payload,
+    while retaining the Silo.* properties for skins that prefer them.
+    """
+    if not isinstance(item, dict):
+        return
+
+    tag = list_item.getVideoInfoTag()
+
+    media_type = str(
+        item.get("type") or item.get("media_type") or ""
+    ).lower()
+
+    # The classic Kodi infolabel used heavily by skin.liam3.
+    imdb_id = item.get("imdb_id")
+    if imdb_id:
+        try:
+            tag.setIMDBNumber(str(imdb_id))
+        except Exception:
+            _set_property_if_present(list_item, "IMDBNumber", imdb_id)
+
+    # Native display fields used by the skin's information dialogs.
+    for key, setter in (
+        ("original_title", tag.setOriginalTitle),
+        ("sort_title", tag.setSortTitle),
+    ):
+        value = item.get(key)
+        if value:
+            try:
+                setter(str(value))
+            except Exception:
+                pass
+
+    # Detail includes a user-facing rating as well as source-specific scores.
+    # Prefer IMDb, then TMDB, and keep the vote count when the server provided it.
+    rating_value = None
+    rating_source = ""
+    for source, key in (
+        ("imdb", "rating_imdb"),
+        ("tmdb", "rating_tmdb"),
+    ):
+        if item.get(key) is not None:
+            rating_value = item.get(key)
+            rating_source = source
+            break
+
+    if rating_value is not None:
+        try:
+            votes = _rating_votes(item, rating_source)
+            tag.setRating(
+                float(rating_value),
+                votes,
+                rating_source,
+                True,
+            )
+        except Exception:
+            pass
+
+    # Kodi does not expose every Silo field as a native InfoTag property.
+    # Publish the remaining values under simple names that skins can consume
+    # without parsing JSON.
+    property_aliases = (
+        ("AdvisoryAge", item.get("advisory_age")),
+        ("AdvisorySource", item.get("advisory_source")),
+        ("LastAirDate", item.get("last_air_date")),
+        ("PendingTranslationLanguage", item.get("pending_translation_language")),
+        ("AirTime", item.get("air_time")),
+        ("AirTimezone", item.get("air_timezone")),
+        ("IsSpecials", item.get("is_specials")),
+        ("ShowStatus", item.get("show_status")),
+        ("Status", item.get("status")),
+    )
+    for name, value in property_aliases:
+        _set_property_if_present(list_item, "Silo.%s" % name, value)
+
+    overlay = item.get("overlay_summary") or {}
+    if isinstance(overlay, dict):
+        resolution = overlay.get("resolution")
+        video_codec = overlay.get("video_codec")
+        hdr = overlay.get("hdr")
+        audio_codec = overlay.get("audio")
+        audio_channels = overlay.get("audio_channels")
+
+        _set_property_if_present(list_item, "VideoResolution", resolution)
+        _set_property_if_present(list_item, "AudioCodec", audio_codec)
+        _set_property_if_present(list_item, "AudioChannels", audio_channels)
+        _add_summary_video_stream(
+            list_item,
+            resolution,
+            video_codec,
+            hdr,
+            item.get("duration_seconds") or (int(item.get("runtime") or 0) * 60),
+        )
+        _add_summary_audio_stream(
+            list_item,
+            audio_codec,
+            audio_channels,
+        )
+
+    # Preserve technical source information using direct skin-readable
+    # properties alongside the namespaced Silo copies.
+    for key in (
+        "resolution",
+        "hdr",
+        "audio",
+        "audio_channels",
+        "video_codec",
+        "container",
+        "aspect_ratio",
+        "release_type",
+        "edition",
+    ):
+        value = overlay.get(key) if isinstance(overlay, dict) else None
+        if value not in (None, "", False):
+            list_item.setProperty(
+                "Silo.%s" % "".join(part.title() for part in key.split("_")),
+                str(value),
+            )
+
+    # Keep the common Kodi TV metadata labels available on episodes and
+    # seasons, including a series title supplied by the v2 card.
+    series_title = item.get("series_title") or item.get("tvshow_title")
+    if series_title:
+        try:
+            tag.setTvShowTitle(str(series_title))
+        except Exception:
+            pass
+
+    show_status = item.get("show_status")
+    if show_status:
+        try:
+            tag.setTvShowStatus(str(show_status))
+        except Exception:
+            pass
+
+    # The skin explicitly reads these numbered properties in video views.
+    audio_tracks = item.get("audio_tracks") or []
+    subtitle_tracks = item.get("subtitle_tracks") or []
+    for index, track in enumerate(audio_tracks, 1):
+        language = track.get("language")
+        if language:
+            list_item.setProperty("AudioLanguage.%d" % index, str(language))
+    for index, track in enumerate(subtitle_tracks, 1):
+        language = track.get("language") or track.get("title")
+        if language:
+            list_item.setProperty("SubtitleLanguage.%d" % index, str(language))
+
+
 def _detail_version(detail, file_id=None):
     """Select the Silo file version Kodi should use for pre-play details."""
     versions = detail.get("versions") or []
