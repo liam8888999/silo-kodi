@@ -1472,8 +1472,85 @@ def set_catalog_metadata(list_item, item, client):
 
         for key, value in unique_ids.items():
             list_item.setProperty("Silo.%sID" % key.upper(), value)
-            # skin.liam3 also reads these conventional bare properties.
+            # Preserve conventional Kodi ID aliases for clients/add-ons.
             list_item.setProperty("%s_id" % key, value)
+
+    # The catalog overlay is a lightweight version summary. Convert it
+    # into native Kodi stream details when available so ordinary skins receive
+    # resolution/audio/HDR information even before the full item detail opens.
+    overlay = item.get("overlay_summary") or {}
+    if isinstance(overlay, dict):
+        resolution = str(overlay.get("resolution") or "")
+        video_codec = str(overlay.get("video_codec") or "")
+        audio_codec = str(overlay.get("audio") or "")
+        audio_channels = str(overlay.get("audio_channels") or "")
+        hdr = str(overlay.get("hdr") or "")
+        duration = item.get("duration_seconds")
+
+        if resolution or video_codec:
+            width = height = 0
+            lower_resolution = resolution.lower()
+            if "x" in lower_resolution:
+                try:
+                    width, height = [
+                        int(value)
+                        for value in lower_resolution.split("x", 1)
+                    ]
+                except (TypeError, ValueError):
+                    width = height = 0
+            elif lower_resolution.endswith("p"):
+                try:
+                    height = int(lower_resolution[:-1])
+                except (TypeError, ValueError):
+                    height = 0
+                width = {
+                    4320: 7680,
+                    2160: 3840,
+                    1440: 2560,
+                    1080: 1920,
+                    720: 1280,
+                    576: 1024,
+                    480: 854,
+                }.get(height, 0)
+
+            try:
+                tag.addVideoStream(
+                    xbmc.VideoStreamDetail(
+                        width,
+                        height,
+                        0.0,
+                        int(duration or (int(item.get("runtime") or 0) * 60)),
+                        video_codec,
+                        "",
+                        "",
+                        hdr,
+                    )
+                )
+            except Exception:
+                pass
+
+        if audio_codec or audio_channels:
+            try:
+                channels = int(float(audio_channels)) if audio_channels else 0
+            except (TypeError, ValueError):
+                channels = 0
+
+            if audio_channels and "." in audio_channels and channels > 0:
+                try:
+                    channels += 1
+                except Exception:
+                    pass
+
+            try:
+                tag.addAudioStream(
+                    xbmc.AudioStreamDetail(
+                        channels,
+                        audio_codec,
+                        "",
+                    )
+                )
+            except Exception:
+                pass
 
     # Preserve catalog viewer state that has no direct VideoInfoTag setter.
     user_state = item.get("user_state")
@@ -1711,7 +1788,7 @@ def set_stream_details(list_item, version):
     duration = int(version.get("duration") or 0)
 
     # Expose the selected version's first video track through the
-    # conventional labels used by skin.liam3.
+    # Expose the selected version's common technical labels.
     version_resolution = str(version.get("resolution") or "").strip()
     version_video_codec = str(version.get("codec_video") or "").strip()
     if version_resolution:
@@ -1908,7 +1985,7 @@ def set_stream_details(list_item, version):
                 str(subtitle_language),
             )
 
-    # skin.liam3 reads these numbered language properties directly.
+    # Expose numbered language properties for generic skin/add-on access.
     for index, track in enumerate(audio_tracks, 1):
         language = track.get("language")
         if language:
