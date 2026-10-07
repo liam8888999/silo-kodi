@@ -1718,9 +1718,9 @@ def set_skin_compat_metadata(list_item, item):
         try:
             votes = _rating_votes(item, rating_source)
             tag.setRating(
+                rating_source,
                 float(rating_value),
                 votes,
-                rating_source,
                 True,
             )
         except Exception:
@@ -1802,6 +1802,38 @@ def set_skin_compat_metadata(list_item, item):
             tag.setTvShowStatus(str(show_status))
         except Exception:
             pass
+
+    # Common classic Kodi fields used directly by skin.liam3.
+    if media_type in ("movie", "series", "season"):
+        # setShowLinks is the native source for show-link information on
+        # non-episode video items.
+        series_title = item.get("series_title") or item.get("tvshow_title")
+        if series_title:
+            try:
+                tag.setShowLinks([str(series_title)])
+            except Exception:
+                pass
+
+    # Expose source-specific scores under conventional Kodi rating names as
+    # well as the native multi-rating collection.
+    for source, key in (
+        ("imdb", "rating_imdb"),
+        ("tmdb", "rating_tmdb"),
+        ("rt_critic", "rating_rt_critic"),
+        ("rt_audience", "rating_rt_audience"),
+    ):
+        value = item.get(key)
+        if value is not None:
+            try:
+                votes = _rating_votes(item, source)
+                list_item.setRating(
+                    source,
+                    float(value),
+                    votes,
+                    source == rating_source,
+                )
+            except Exception:
+                pass
 
     # The skin explicitly reads these numbered properties in video views.
     audio_tracks = item.get("audio_tracks") or []
