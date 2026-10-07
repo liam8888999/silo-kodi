@@ -1408,6 +1408,8 @@ def set_catalog_metadata(list_item, item, client):
 
         for key, value in unique_ids.items():
             list_item.setProperty("Silo.%sID" % key.upper(), value)
+            # skin.liam3 also reads these conventional bare properties.
+            list_item.setProperty("%s_id" % key, value)
 
     # Preserve catalog viewer state that has no direct VideoInfoTag setter.
     user_state = item.get("user_state")
@@ -1927,6 +1929,15 @@ def set_stream_details(list_item, version):
     subtitle_tracks = version.get("subtitle_tracks") or []
     duration = int(version.get("duration") or 0)
 
+    # Expose the selected version's first video track through the
+    # conventional labels used by skin.liam3.
+    version_resolution = str(version.get("resolution") or "").strip()
+    version_video_codec = str(version.get("codec_video") or "").strip()
+    if version_resolution:
+        list_item.setProperty("VideoResolution", version_resolution)
+    if version_video_codec:
+        list_item.setProperty("VideoCodec", version_video_codec)
+
     for track in video_tracks:
         aspect = _aspect_ratio(track.get("aspect_ratio"))
 
@@ -2047,6 +2058,29 @@ def set_stream_details(list_item, version):
         except Exception:
             pass
 
+    if version.get("codec_audio"):
+        list_item.setProperty(
+            "AudioCodec",
+            str(version.get("codec_audio")),
+        )
+
+    for index, track in enumerate(audio_tracks, 1):
+        language = track.get("language")
+        channels = track.get("channels")
+        codec = track.get("codec") or version.get("codec_audio")
+
+        if language:
+            list_item.setProperty(
+                "AudioLanguage.%d" % index,
+                str(language),
+            )
+
+        if index == 1:
+            if codec:
+                list_item.setProperty("AudioCodec", str(codec))
+            if channels not in (None, ""):
+                list_item.setProperty("AudioChannels", str(channels))
+
     for track in audio_tracks:
         info = {}
 
@@ -2084,6 +2118,14 @@ def set_stream_details(list_item, version):
             )
         except Exception:
             pass
+
+    for index, track in enumerate(subtitle_tracks, 1):
+        subtitle_language = track.get("language") or track.get("title")
+        if subtitle_language:
+            list_item.setProperty(
+                "SubtitleLanguage.%d" % index,
+                str(subtitle_language),
+            )
 
     for track in subtitle_tracks:
         language = str(
@@ -2378,6 +2420,16 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
+
+    # Keep the chosen file's technical fields visible even when catalog cards
+    # had no overlay summary.
+    if version:
+        if version.get("resolution"):
+            list_item.setProperty("VideoResolution", str(version["resolution"]))
+        if version.get("codec_video"):
+            list_item.setProperty("VideoCodec", str(version["codec_video"]))
+        if version.get("codec_audio"):
+            list_item.setProperty("AudioCodec", str(version["codec_audio"]))
 
     # Full-detail runtime is the actual selected file duration in seconds.
     if version.get("duration"):
