@@ -2354,6 +2354,28 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
                 except Exception:
                     pass
 
+    # Populate Kodi's native trailer field when Silo supplied a YouTube
+    # trailer/teaser reference. Other providers remain available through the
+    # Silo detail payload without inventing provider-specific URLs.
+    for video in detail.get("videos") or []:
+        kind = str(video.get("kind") or "").lower()
+        site = str(video.get("site") or "").lower()
+        site_key = str(video.get("site_key") or "").strip()
+        if (
+            site_key
+            and site in ("youtube", "yt")
+            and ("trailer" in kind or "teaser" in kind)
+        ):
+            try:
+                tag.setTrailer("https://www.youtube.com/watch?v=%s" % site_key)
+            except Exception:
+                pass
+            list_item.setProperty(
+                "Trailer",
+                "https://www.youtube.com/watch?v=%s" % site_key,
+            )
+            break
+
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
 
@@ -2419,6 +2441,8 @@ def set_season_metadata(list_item, season, client, series_id=None):
             list_item.setProperty(key, str(value))
         list_item.setProperty("Silo.EpisodeCount", str(episode_count))
 
+    set_skin_compat_metadata(list_item, season)
+    
     content_id = get_content_id(season)
     if content_id:
         list_item.setProperty("Silo.ContentID", str(content_id))
@@ -2533,6 +2557,7 @@ def add_catalog_item(client, item, library_id):
     tag.setTitle(title)
 
     set_catalog_metadata(list_item, item, client)
+    set_skin_compat_metadata(list_item, item)
 
     # Copy basic metadata that Kodi can display.
     if item.get("year"):
@@ -2915,6 +2940,7 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
 
     if detail:
         set_detail_metadata(item, detail, client)
+        set_skin_compat_metadata(item, detail)
 
     display_progress = progress if progress is not None else catalog_progress(catalog_item)
     set_watch_state(item, display_progress, media_type)
