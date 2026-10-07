@@ -37,6 +37,8 @@ Endpoints used by this addon:
 import base64
 import json
 import uuid
+import threading
+import time
 from urllib.parse import quote
 
 # requests is used for all API communication made by the addon itself.
@@ -50,6 +52,15 @@ import xbmcvfs
 # Read addon metadata and determine where Kodi should store persistent configuration.
 ADDON = xbmcaddon.Addon()
 ADDON_VERSION = ADDON.getAddonInfo("version")
+
+# Refresh slightly before JWT expiry so normal API calls do not hit an expired
+# access token first. The server remains authoritative and the 401 path below
+# is still kept as a final fallback for opaque tokens or clock differences.
+ACCESS_TOKEN_REFRESH_MARGIN = 60
+
+# Silo rotates refresh tokens on successful exchanges, so serialize refreshes
+# across SiloClient instances in this Kodi process.
+_REFRESH_LOCK = threading.Lock()
 
 
 # Central logging helper so every log line identifies this addon.
@@ -203,6 +214,9 @@ class SiloClient:
 
         self.session = requests.Session()
         self._caps = None
+        self._last_refresh_status = None
+        self._last_refresh_problem = {}
+        self._last_refresh_transient = False
         self.sync_settings()
         # Detail responses are reused when the same item is later played.
         self._details = {}
