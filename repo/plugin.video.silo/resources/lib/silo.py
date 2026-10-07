@@ -1195,7 +1195,7 @@ class SiloClient:
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
     def catalog_page(self, library_id, cursor=None, limit=200,
-                     name_prefix=None, sort=None, order=None, seek=None):
+                     name_prefix=None, sort=None, seek=None):
         """Return one Silo catalog page and its continuation cursor."""
         limit = max(1, min(int(limit or 200), 200))
 
@@ -1210,8 +1210,6 @@ class SiloClient:
             params["name_prefix"] = str(name_prefix)
         if sort:
             params["sort"] = str(sort)
-        if order:
-            params["order"] = str(order)
         if seek is not None:
             try:
                 params["seek"] = max(0, int(seek))
@@ -1256,7 +1254,6 @@ class SiloClient:
                 "image_size": "medium",
                 "name_prefix": prefix,
                 "sort": "title",
-                "order": "asc",
                 "seek": offset,
             },
         ) or {}
