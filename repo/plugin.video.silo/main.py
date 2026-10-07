@@ -1707,6 +1707,8 @@ def set_catalog_metadata(list_item, item, client):
                     str(value),
                 )
 
+    apply_standard_video_metadata(list_item, item)
+
 
 def _kodi_datetime(value):
     """Convert ISO/RFC3339 timestamps to Kodi's legacy datetime format."""
@@ -2484,6 +2486,7 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
+    apply_standard_video_metadata(list_item, detail, version)
 
     # Preserve the chosen file's technical metadata as standard ListItem
     # properties as well as native stream details.
