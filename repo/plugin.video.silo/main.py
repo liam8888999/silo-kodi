@@ -1794,6 +1794,16 @@ def apply_standard_video_metadata(list_item, item, version=None):
     if default_rating is not None:
         values["rating"] = default_rating
 
+        # Silo's rating_sources carries the source-specific vote count. Keep
+        # the selected/default source's count on Kodi's standard Votes label.
+        for rating_source in item.get("rating_sources") or []:
+            if str(rating_source.get("source") or "").lower() == "imdb":
+                try:
+                    values["votes"] = int(rating_source.get("votes") or 0)
+                except (TypeError, ValueError):
+                    pass
+                break
+
     if version:
         if version.get("file_size") not in (None, ""):
             try:
@@ -1945,6 +1955,23 @@ def set_stream_details(list_item, version):
     if version_video_codec:
         list_item.setProperty("VideoCodec", version_video_codec)
 
+    # Standard Kodi video labels available before individual tracks are read.
+    if version.get("hdr"):
+        list_item.setProperty("HdrType", str(version.get("hdr")))
+    if version.get("container"):
+        list_item.setProperty("Container", str(version.get("container")))
+    if version.get("bitrate") not in (None, ""):
+        list_item.setProperty("Bitrate", str(version.get("bitrate")))
+    if version.get("file_size") not in (None, ""):
+        try:
+            list_item.setProperty("Size", str(int(version.get("file_size"))))
+        except (TypeError, ValueError):
+            pass
+    if version.get("file_path"):
+        list_item.setProperty("FilenameAndPath", str(version.get("file_path")))
+        list_item.setProperty("Path", str(version.get("file_path")))
+
+
     for track in video_tracks:
         aspect = _aspect_ratio(track.get("aspect_ratio"))
 
@@ -1983,6 +2010,24 @@ def set_stream_details(list_item, version):
 
         if hdr:
             info["hdrtype"] = hdr
+            list_item.setProperty("HdrType", str(hdr))
+
+        if track.get("width") not in (None, ""):
+            list_item.setProperty("VideoWidth", str(track.get("width")))
+        if track.get("height") not in (None, ""):
+            list_item.setProperty("VideoHeight", str(track.get("height")))
+        if aspect > 0:
+            list_item.setProperty("VideoAspect", str(aspect))
+        if track.get("frame_rate") not in (None, ""):
+            list_item.setProperty("VideoFPS", str(track.get("frame_rate")))
+        if track.get("bit_depth") not in (None, ""):
+            list_item.setProperty("VideoBitDepth", str(track.get("bit_depth")))
+        if track.get("color_space") not in (None, ""):
+            list_item.setProperty("VideoColorSpace", str(track.get("color_space")))
+        if track.get("color_transfer") not in (None, ""):
+            list_item.setProperty("VideoColorTransfer", str(track.get("color_transfer")))
+        if track.get("color_primaries") not in (None, ""):
+            list_item.setProperty("VideoColorPrimaries", str(track.get("color_primaries")))
 
         # Preserve additional probed values for skins/addons even where Kodi's
         # native stream API has no corresponding setter.
@@ -2075,6 +2120,17 @@ def set_stream_details(list_item, version):
         language = track.get("language")
         channels = track.get("channels")
         codec = track.get("codec") or version.get("codec_audio")
+
+        if codec:
+            list_item.setProperty(
+                "AudioCodec.%d" % index,
+                str(codec),
+            )
+        if channels not in (None, ""):
+            list_item.setProperty(
+                "AudioChannels.%d" % index,
+                str(channels),
+            )
 
         if language:
             list_item.setProperty(
