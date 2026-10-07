@@ -350,7 +350,30 @@ class SiloClient:
 
         if not _setting("token"):
             self.cfg.pop("token", None)
-            self.login()
+
+            # A stored refresh token is sufficient to restore an expired or
+            # otherwise missing access token. Never ask for the password just
+            # because Kodi restarted or the access token was lost locally.
+            if _setting("refresh_token"):
+                if not self.refresh():
+                    if self._last_refresh_transient:
+                        raise SiloError(
+                            "Silo session refresh is temporarily unavailable; try again later."
+                        )
+
+                    # The server definitively rejected the refresh token, so
+                    # this session can no longer be restored silently.
+                    self.cfg.pop("token", None)
+                    self.cfg.pop("refresh_token", None)
+                    _set_setting("token", "")
+                    _set_setting("refresh_token", "")
+                    self.login()
+            else:
+                self.login()
+
+        # Renew a JWT shortly before expiry so normal browsing/playback does
+        # not wait for an expired-token 401 to trigger the refresh path.
+        self.ensure_access_token_fresh()
 
         if need_profile and not self.cfg.get("profile_id"):
             self.select_profile()
@@ -374,8 +397,21 @@ class SiloClient:
         # A 401 may mean the access token has expired. Refresh it and retry once.
         if r.status_code == 401 and retry:
             if not self.refresh():
+                # Do not throw away a potentially valid session when the
+                # refresh failed because of a transient network/server issue.
+                if self._last_refresh_transient:
+                    raise SiloError(
+                        "Silo session refresh is temporarily unavailable; try again later.",
+                        r.status_code,
+                        {},
+                    )
+
+                # A definitive refresh-token refusal means the server has
+                # ended this session. Start a fresh credential login.
                 self.cfg.pop("token", None)
                 self.cfg.pop("refresh_token", None)
+                _set_setting("token", "")
+                _set_setting("refresh_token", "")
                 save_config(self.cfg)
                 self.login()
 
