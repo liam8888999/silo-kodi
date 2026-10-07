@@ -1723,6 +1723,28 @@ def set_catalog_metadata(list_item, item, client):
     apply_standard_video_metadata(list_item, item)
 
 
+def _kodi_codec(value):
+    """Normalize common codec aliases to Kodi's recognised video codec names."""
+    if value in (None, ""):
+        return ""
+
+    text = str(value).strip().lower().replace(" ", "")
+    aliases = {
+        "h.264": "h264",
+        "avc": "h264",
+        "x264": "h264",
+        "h.265": "hevc",
+        "h265": "hevc",
+        "x265": "hevc",
+        "vp8.0": "vp8",
+        "vp9.0": "vp9",
+        "mpeg-2": "mpeg2video",
+        "mpeg2": "mpeg2video",
+        "mpeg-4": "mpeg4",
+    }
+    return aliases.get(text, str(value).strip().lower())
+
+
 def _kodi_resolution(value):
     """Normalize Silo resolution text to Kodi's standard resolution label."""
     if value in (None, ""):
@@ -2032,7 +2054,7 @@ def set_stream_details(list_item, version):
     # Expose the selected version's first video track through the
     # Expose the selected version's common technical labels.
     version_resolution = str(version.get("resolution") or "").strip()
-    version_video_codec = str(version.get("codec_video") or "").strip()
+    version_video_codec = _kodi_codec(version.get("codec_video"))
     if version_resolution:
         list_item.setProperty("VideoResolution", _kodi_resolution(version_resolution))
     if version_video_codec:
@@ -2061,11 +2083,11 @@ def set_stream_details(list_item, version):
     for track in video_tracks:
         aspect = _aspect_ratio(track.get("aspect_ratio"))
 
-        video_codec = str(
+        video_codec = _kodi_codec(
             track.get("codec")
             or version.get("codec_video")
             or ""
-        ).strip().lower()
+        )
 
         info = {}
         if video_codec:
@@ -2155,6 +2177,24 @@ def set_stream_details(list_item, version):
                 str(hdr or ""),
             )
             tag.addVideoStream(stream)
+        except Exception:
+            pass
+
+        # Also populate Kodi's legacy stream-info surface. Although
+        # deprecated in Kodi 20+, it remains useful to older skin code.
+        try:
+            list_item.addStreamInfo(
+                "video",
+                {
+                    "codec": video_codec,
+                    "width": int(track.get("width") or 0),
+                    "height": int(track.get("height") or 0),
+                    "aspect": aspect,
+                    "duration": duration,
+                    "language": str(track.get("language") or ""),
+                    "hdrtype": str(hdr or ""),
+                },
+            )
         except Exception:
             pass
 
