@@ -2266,6 +2266,20 @@ def set_stream_details(list_item, version):
             fallback_codec = str(version.get("codec_video") or "").strip().lower()
             fallback_aspect = _aspect_ratio(version.get("aspect_ratio"))
 
+        try:
+            list_item.addStreamInfo(
+                "video",
+                {
+                    "codec": fallback_codec,
+                    "width": width,
+                    "height": height,
+                    "aspect": fallback_aspect,
+                    "duration": duration,
+                },
+            )
+        except Exception:
+            pass
+
         if fallback_codec:
             list_item.setProperty("VideoCodec", fallback_codec)
             log(
@@ -2718,6 +2732,62 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
     version = _detail_version(detail, file_id)
     apply_standard_video_metadata(list_item, detail, version)
     set_stream_details(list_item, version)
+
+    # Use every trustworthy Silo codec source without changing the selected
+    # playback version. This covers older scanner data where codec_video is
+    # missing at the version level but is present on a probed stream.
+    selected_codec = _kodi_codec(
+        version.get("codec_video")
+        or detail.get("effective_version_codec_video")
+        or (detail.get("overlay_summary") or {}).get("video_codec")
+        or detail.get("video_codec")
+        or ""
+    )
+
+    if not selected_codec:
+        for candidate_version in [version] + list(detail.get("versions") or []):
+            for track in candidate_version.get("video_tracks") or []:
+                selected_codec = _kodi_codec(track.get("codec"))
+                if selected_codec:
+                    break
+            if selected_codec:
+                break
+
+    if not selected_codec:
+        for source in (
+            detail.get("user_data") or {},
+            detail.get("user_state") or {},
+            detail.get("overlay_summary") or {},
+        ):
+            if isinstance(source, dict):
+                selected_codec = _kodi_codec(
+                    source.get("video_codec")
+                    or source.get("last_codec_video")
+                )
+                if selected_codec:
+                    break
+
+    if selected_codec:
+        # Duplicate across the standard stream/property surfaces. Skins differ
+        # in which form of the Kodi InfoLabel they ultimately resolve.
+        list_item.setProperty("VideoCodec", selected_codec)
+        list_item.setProperty("Codec", selected_codec)
+        list_item.setProperty("Stream.Codec", selected_codec)
+        list_item.setProperty("Silo.VideoCodec", selected_codec)
+
+        if not version.get("video_tracks"):
+            try:
+                list_item.addStreamInfo(
+                    "video",
+                    {
+                        "codec": selected_codec,
+                        "width": 0,
+                        "height": 0,
+                        "duration": int(version.get("duration") or 0),
+                    },
+                )
+            except Exception:
+                pass
 
     # Preserve the chosen file's technical metadata as standard ListItem
     # properties as well as native stream details.
