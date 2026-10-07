@@ -2127,6 +2127,23 @@ def set_stream_details(list_item, version):
                 str(subtitle_language),
             )
 
+    # skin.liam3 reads these numbered language properties directly.
+    for index, track in enumerate(audio_tracks, 1):
+        language = track.get("language")
+        if language:
+            list_item.setProperty(
+                "AudioLanguage.%d" % index,
+                str(language),
+            )
+
+    for index, track in enumerate(subtitle_tracks, 1):
+        language = track.get("language") or track.get("title")
+        if language:
+            list_item.setProperty(
+                "SubtitleLanguage.%d" % index,
+                str(language),
+            )
+
     for track in subtitle_tracks:
         language = str(
             track.get("language")
@@ -5713,6 +5730,7 @@ def _start_watch_party_guest_playback(
         if detail:
             set_catalog_metadata(item, detail, client)
             set_detail_metadata(item, detail, client, file_id=file_id)
+            set_skin_compat_metadata(item, detail)
             set_art(
                 item,
                 client,
@@ -7339,6 +7357,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         detail = detail_map.get(str(content_id))
         if detail:
             set_detail_metadata(item, detail, client)
+            set_skin_compat_metadata(item, detail)
 
         display_progress = (
             progress_map.get(str(content_id))
@@ -7632,6 +7651,7 @@ def play(
                 client,
                 file_id=file_id,
             )
+            set_skin_compat_metadata(resolved_item, detail)
 
             # Episodes normally have their own artwork. When they do not have
             # a logo/banner, inherit the parent series logo so Kodi's player
