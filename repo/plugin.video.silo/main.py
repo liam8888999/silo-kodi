@@ -1625,6 +1625,19 @@ def set_catalog_metadata(list_item, item, client):
             " / ".join(str(value) for value in badges if value),
         )
 
+    overlay = item.get("overlay_summary") or {}
+    if isinstance(overlay, dict):
+        resolution = overlay.get("resolution")
+        if resolution:
+            list_item.setProperty("VideoResolution", _kodi_resolution(resolution))
+        hdr_type = _kodi_hdr_type(overlay.get("hdr"))
+        if hdr_type:
+            list_item.setProperty("HdrType", hdr_type)
+        if overlay.get("aspect_ratio"):
+            aspect = _aspect_ratio(overlay.get("aspect_ratio"))
+            if aspect > 0:
+                list_item.setProperty("VideoAspect", str(aspect))
+
     sort_metrics = item.get("sort_metrics")
     if isinstance(sort_metrics, dict):
         for key in (
@@ -1708,6 +1721,64 @@ def set_catalog_metadata(list_item, item, client):
                 )
 
     apply_standard_video_metadata(list_item, item)
+
+
+def _kodi_resolution(value):
+    """Normalize Silo resolution text to Kodi's standard resolution label."""
+    if value in (None, ""):
+        return ""
+
+    text = str(value).strip().lower()
+    height = 0
+
+    if "x" in text:
+        try:
+            height = int(text.split("x", 1)[1].rstrip("p"))
+        except (TypeError, ValueError):
+            height = 0
+    elif text.endswith("p"):
+        try:
+            height = int(text[:-1])
+        except (TypeError, ValueError):
+            height = 0
+    else:
+        try:
+            height = int(text)
+        except (TypeError, ValueError):
+            height = 0
+
+    if height >= 4000:
+        return "8K"
+    if height >= 2000:
+        return "4K"
+    if height >= 1000:
+        return "1080"
+    if height >= 700:
+        return "720"
+    if height == 576:
+        return "576"
+    if height == 540:
+        return "540"
+    if height == 480:
+        return "480"
+
+    return str(value)
+
+
+def _kodi_hdr_type(value):
+    """Normalize known HDR names to Kodi's standard HdrType values."""
+    if value in (None, "", False):
+        return ""
+
+    text = str(value).strip().lower().replace(" ", "")
+    if text in ("dolbyvision", "dv"):
+        return "dolbyvision"
+    if text in ("hdr10", "hdr10+", "hdr10plus"):
+        return "hdr10"
+    if text in ("hlg",):
+        return "hlg"
+
+    return ""
 
 
 def _kodi_datetime(value):
@@ -1813,11 +1884,23 @@ def apply_standard_video_metadata(list_item, item, version=None):
         if version.get("added_at"):
             values["date"] = _kodi_datetime(version["added_at"])
         if version.get("file_path"):
+            file_path = str(version["file_path"])
             try:
-                tag.setFilenameAndPath(str(version["file_path"]))
+                tag.setFilenameAndPath(file_path)
             except Exception:
                 pass
-            values["path"] = str(version["file_path"])
+            values["path"] = file_path
+
+            filename = os.path.basename(file_path)
+            if filename:
+                list_item.setProperty("FileName", filename)
+                list_item.setProperty("FileNameNoExtension", os.path.splitext(filename)[0])
+                extension = os.path.splitext(filename)[1].lstrip(".")
+                if extension:
+                    list_item.setProperty("FileExtension", extension)
+            folder = os.path.dirname(file_path)
+            if folder:
+                list_item.setProperty("FolderPath", folder)
         version_name = version.get("edition_raw") or version.get("edition_key") or version.get("presentation_kind")
         if version_name:
             values["videoversion"] = str(version_name)
@@ -1951,13 +2034,14 @@ def set_stream_details(list_item, version):
     version_resolution = str(version.get("resolution") or "").strip()
     version_video_codec = str(version.get("codec_video") or "").strip()
     if version_resolution:
-        list_item.setProperty("VideoResolution", version_resolution)
+        list_item.setProperty("VideoResolution", _kodi_resolution(version_resolution))
     if version_video_codec:
         list_item.setProperty("VideoCodec", version_video_codec)
 
     # Standard Kodi video labels available before individual tracks are read.
-    if version.get("hdr"):
-        list_item.setProperty("HdrType", str(version.get("hdr")))
+    hdr_type = _kodi_hdr_type(version.get("hdr"))
+    if hdr_type:
+        list_item.setProperty("HdrType", hdr_type)
     if version.get("container"):
         list_item.setProperty("Container", str(version.get("container")))
     if version.get("bitrate") not in (None, ""):
