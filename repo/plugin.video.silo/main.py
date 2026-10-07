@@ -1134,12 +1134,16 @@ def set_art(list_item, client, poster=None, backdrop=None, logo=None, still=None
         })
 
     if backdrop_url:
-        art["fanart"] = backdrop_url
-        # skin.liam3 uses the landscape art slot for its wide video views.
-        art["landscape"] = backdrop_url
+        art.update({
+            "fanart": backdrop_url,
+            "landscape": backdrop_url,
+        })
 
     if logo_url:
-        art["clearlogo"] = logo_url
+        art.update({
+            "clearlogo": logo_url,
+            "clearart": logo_url,
+        })
 
     # Episode stills are useful as thumbnails. Keep the poster slot intact but
     # give Kodi's thumb slot the still when the server supplied one.
@@ -1313,6 +1317,35 @@ def set_catalog_metadata(list_item, item, client):
     if item.get("content_rating"):
         tag.setMpaa(item["content_rating"])
 
+    # Additional standard Kodi video metadata. Detail responses contain these
+    # fields; catalog cards apply any that are present without requiring a
+    # skin-specific adapter.
+    if item.get("original_title"):
+        try:
+            tag.setOriginalTitle(str(item["original_title"]))
+        except Exception:
+            pass
+
+    if item.get("sort_title"):
+        try:
+            tag.setSortTitle(str(item["sort_title"]))
+        except Exception:
+            pass
+
+    series_title = item.get("series_title") or item.get("tvshow_title")
+    if series_title:
+        try:
+            tag.setTvShowTitle(str(series_title))
+            tag.setShowLinks([str(series_title)])
+        except Exception:
+            pass
+
+    if item.get("show_status"):
+        try:
+            tag.setTvShowStatus(str(item["show_status"]))
+        except Exception:
+            pass
+
     if item.get("original_language"):
         try:
             tag.setOriginalLanguage(item["original_language"])
@@ -1390,6 +1423,34 @@ def set_catalog_metadata(list_item, item, client):
                     votes,
                     rating_type == default_rating,
                 )
+
+    # Populate the native IMDb field as well as the complete unique-ID map.
+    if item.get("imdb_id"):
+        try:
+            tag.setIMDBNumber(str(item["imdb_id"]))
+        except Exception:
+            pass
+
+    # Keep useful server metadata available as ordinary ListItem properties
+    # in addition to the namespaced Silo.* properties. This is generic and
+    # does not depend on any particular skin.
+    for key in (
+        "imdb_id",
+        "tmdb_id",
+        "tvdb_id",
+        "release_date",
+        "first_air_date",
+        "last_air_date",
+        "original_language",
+        "content_rating",
+        "status",
+        "show_status",
+        "advisory_age",
+        "advisory_source",
+    ):
+        value = item.get(key)
+        if value not in (None, ""):
+            list_item.setProperty(key, str(value))
 
     # Store identifiers that are useful to Kodi and to skins/addons.
     unique_ids = {}
@@ -1568,307 +1629,6 @@ def set_catalog_metadata(list_item, item, client):
                     "Silo.%s" % "".join(part.title() for part in key.split("_")),
                     str(value),
                 )
-
-
-def _set_property_if_present(list_item, name, value):
-    """Expose a value through a skin-friendly ListItem property when present."""
-    if value not in (None, ""):
-        list_item.setProperty(name, str(value))
-
-
-def _rating_votes(detail, source):
-    """Return the vote count for one v2 rating source when it is available."""
-    for rating in detail.get("rating_sources") or []:
-        if str(rating.get("source") or "").strip().lower() == source.lower():
-            value = rating.get("votes")
-            if value not in (None, ""):
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    pass
-    return 0
-
-
-def _add_summary_video_stream(list_item, resolution, codec, hdr, duration):
-    """Add one lightweight video stream from Silo's catalog overlay summary."""
-    if not resolution and not codec:
-        return
-
-    text_value = str(resolution or "").strip().lower()
-    width = 0
-    height = 0
-
-    if "x" in text_value:
-        try:
-            width, height = [int(v) for v in text_value.split("x", 1)]
-        except (TypeError, ValueError):
-            width = height = 0
-    elif text_value.endswith("p"):
-        try:
-            height = int(text_value[:-1])
-        except (TypeError, ValueError):
-            height = 0
-
-        width_by_height = {
-            4320: 7680,
-            2160: 3840,
-            1440: 2560,
-            1080: 1920,
-            720: 1280,
-            576: 1024,
-            480: 854,
-        }
-        width = width_by_height.get(height, 0)
-
-    try:
-        tag = list_item.getVideoInfoTag()
-        tag.addVideoStream(
-            xbmc.VideoStreamDetail(
-                width,
-                height,
-                0.0,
-                int(duration or 0),
-                str(codec or ""),
-                "",
-                "",
-                str(hdr or ""),
-            )
-        )
-    except Exception:
-        pass
-
-
-def _audio_channel_count(value):
-    """Convert a channel layout such as 7.1 into a Kodi channel count."""
-    if value in (None, ""):
-        return 0
-
-    try:
-        number = float(value)
-        whole = int(number)
-        return whole + (1 if number > whole else 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _add_summary_audio_stream(list_item, codec, channels):
-    """Add one lightweight audio stream from Silo's catalog overlay summary."""
-    if not codec and not channels:
-        return
-
-    try:
-        tag = list_item.getVideoInfoTag()
-        tag.addAudioStream(
-            xbmc.AudioStreamDetail(
-                _audio_channel_count(channels),
-                str(codec or ""),
-                "",
-            )
-        )
-    except Exception:
-        pass
-
-
-def set_skin_compat_metadata(list_item, item):
-    """Fill legacy/native Kodi fields and aliases used by skin.liam3.
-
-    The skin reads normal Kodi video infolabels such as IMDBNumber, Rating,
-    VideoResolution, AudioCodec, AudioChannels, AudioLanguage.1 and
-    SubtitleLanguage.1. Keep these populated from the same Silo v2 payload,
-    while retaining the Silo.* properties for skins that prefer them.
-    """
-    if not isinstance(item, dict):
-        return
-
-    tag = list_item.getVideoInfoTag()
-
-    media_type = str(
-        item.get("type") or item.get("media_type") or ""
-    ).lower()
-
-    # The classic Kodi infolabel used heavily by skin.liam3.
-    imdb_id = item.get("imdb_id")
-    if imdb_id:
-        try:
-            tag.setIMDBNumber(str(imdb_id))
-        except Exception:
-            _set_property_if_present(list_item, "IMDBNumber", imdb_id)
-
-    # Native display fields used by the skin's information dialogs.
-    for key, setter in (
-        ("original_title", tag.setOriginalTitle),
-        ("sort_title", tag.setSortTitle),
-    ):
-        value = item.get(key)
-        if value:
-            try:
-                setter(str(value))
-            except Exception:
-                pass
-
-    # Detail includes a user-facing rating as well as source-specific scores.
-    # Prefer IMDb, then TMDB, and keep the vote count when the server provided it.
-    rating_value = None
-    rating_source = ""
-    for source, key in (
-        ("imdb", "rating_imdb"),
-        ("tmdb", "rating_tmdb"),
-    ):
-        if item.get(key) is not None:
-            rating_value = item.get(key)
-            rating_source = source
-            break
-
-    if rating_value is not None:
-        try:
-            votes = _rating_votes(item, rating_source)
-            tag.setRating(
-                rating_source,
-                float(rating_value),
-                votes,
-                True,
-            )
-        except Exception:
-            pass
-
-    # The skin also checks these values as ListItem properties.
-    if rating_value is not None:
-        _set_property_if_present(list_item, "Rating", rating_value)
-    user_rating = item.get("user_rating")
-    if user_rating is not None:
-        _set_property_if_present(list_item, "UserRating", user_rating)
-    release_date = item.get("release_date")
-    if release_date:
-        _set_property_if_present(list_item, "ReleaseDate", release_date)
-
-    backdrop_url = item.get("backdrop_url")
-    if backdrop_url:
-        _set_property_if_present(
-            list_item,
-            "Fanart_Image",
-            client.abs_url(backdrop_url),
-        )
-
-    # Kodi does not expose every Silo field as a native InfoTag property.
-    # Publish the remaining values under simple names that skins can consume
-    # without parsing JSON.
-    property_aliases = (
-        ("AdvisoryAge", item.get("advisory_age")),
-        ("AdvisorySource", item.get("advisory_source")),
-        ("LastAirDate", item.get("last_air_date")),
-        ("PendingTranslationLanguage", item.get("pending_translation_language")),
-        ("AirTime", item.get("air_time")),
-        ("AirTimezone", item.get("air_timezone")),
-        ("IsSpecials", item.get("is_specials")),
-        ("ShowStatus", item.get("show_status")),
-        ("Status", item.get("status")),
-    )
-    for name, value in property_aliases:
-        _set_property_if_present(list_item, "Silo.%s" % name, value)
-
-    overlay = item.get("overlay_summary") or {}
-    if isinstance(overlay, dict):
-        resolution = overlay.get("resolution")
-        video_codec = overlay.get("video_codec")
-        hdr = overlay.get("hdr")
-        audio_codec = overlay.get("audio")
-        audio_channels = overlay.get("audio_channels")
-
-        _set_property_if_present(list_item, "VideoResolution", resolution)
-        _set_property_if_present(list_item, "AudioCodec", audio_codec)
-        _set_property_if_present(list_item, "AudioChannels", audio_channels)
-        _add_summary_video_stream(
-            list_item,
-            resolution,
-            video_codec,
-            hdr,
-            item.get("duration_seconds") or (int(item.get("runtime") or 0) * 60),
-        )
-        _add_summary_audio_stream(
-            list_item,
-            audio_codec,
-            audio_channels,
-        )
-
-    # Preserve technical source information using direct skin-readable
-    # properties alongside the namespaced Silo copies.
-    for key in (
-        "resolution",
-        "hdr",
-        "audio",
-        "audio_channels",
-        "video_codec",
-        "container",
-        "aspect_ratio",
-        "release_type",
-        "edition",
-    ):
-        value = overlay.get(key) if isinstance(overlay, dict) else None
-        if value not in (None, "", False):
-            list_item.setProperty(
-                "Silo.%s" % "".join(part.title() for part in key.split("_")),
-                str(value),
-            )
-
-    # Keep the common Kodi TV metadata labels available on episodes and
-    # seasons, including a series title supplied by the v2 card.
-    series_title = item.get("series_title") or item.get("tvshow_title")
-    if series_title:
-        try:
-            tag.setTvShowTitle(str(series_title))
-        except Exception:
-            pass
-
-    show_status = item.get("show_status")
-    if show_status:
-        try:
-            tag.setTvShowStatus(str(show_status))
-        except Exception:
-            pass
-
-    # Common classic Kodi fields used directly by skin.liam3.
-    if media_type in ("movie", "series", "season"):
-        # setShowLinks is the native source for show-link information on
-        # non-episode video items.
-        series_title = item.get("series_title") or item.get("tvshow_title")
-        if series_title:
-            try:
-                tag.setShowLinks([str(series_title)])
-            except Exception:
-                pass
-
-    # Expose source-specific scores under conventional Kodi rating names as
-    # well as the native multi-rating collection.
-    for source, key in (
-        ("imdb", "rating_imdb"),
-        ("tmdb", "rating_tmdb"),
-        ("rt_critic", "rating_rt_critic"),
-        ("rt_audience", "rating_rt_audience"),
-    ):
-        value = item.get(key)
-        if value is not None:
-            try:
-                votes = _rating_votes(item, source)
-                list_item.setRating(
-                    source,
-                    float(value),
-                    votes,
-                    source == rating_source,
-                )
-            except Exception:
-                pass
-
-    # The skin explicitly reads these numbered properties in video views.
-    audio_tracks = item.get("audio_tracks") or []
-    subtitle_tracks = item.get("subtitle_tracks") or []
-    for index, track in enumerate(audio_tracks, 1):
-        language = track.get("language")
-        if language:
-            list_item.setProperty("AudioLanguage.%d" % index, str(language))
-    for index, track in enumerate(subtitle_tracks, 1):
-        language = track.get("language") or track.get("title")
-        if language:
-            list_item.setProperty("SubtitleLanguage.%d" % index, str(language))
 
 
 def _detail_version(detail, file_id=None):
@@ -2366,6 +2126,51 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
             " / ".join(crew_details),
         )
 
+    # Detail ratings can include source-specific vote counts.
+    detail_rating_sources = detail.get("rating_sources") or []
+    detail_rating_values = {}
+    for rating_source in detail_rating_sources:
+        source = str(rating_source.get("source") or "").strip()
+        score = rating_source.get("score")
+        votes = rating_source.get("votes")
+        if not source or score is None:
+            continue
+        try:
+            detail_rating_values[source] = (
+                float(score),
+                int(votes) if votes not in (None, "") else 0,
+            )
+        except (TypeError, ValueError):
+            continue
+
+    if detail_rating_values:
+        default_source = (
+            "imdb"
+            if "imdb" in detail_rating_values
+            else (
+                "tmdb"
+                if "tmdb" in detail_rating_values
+                else next(iter(detail_rating_values))
+            )
+        )
+        try:
+            tag.setRatings(detail_rating_values, default_source)
+        except Exception:
+            for source, (score, votes) in detail_rating_values.items():
+                try:
+                    tag.setRating(
+                        score,
+                        votes,
+                        source,
+                        source == default_source,
+                    )
+                except Exception:
+                    pass
+        try:
+            tag.setVotes(detail_rating_values[default_source][1])
+        except Exception:
+            pass
+
     # Detail-only viewer and series information.
     if detail.get("user_rating") is not None:
         try:
@@ -2373,12 +2178,26 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         except (TypeError, ValueError):
             pass
 
+    # Detail-only fields that do not have a dedicated setter stay available
+    # through normal ListItem properties for any skin/add-on.
     for key in (
-        "season_count",
-        "episode_count",
+        "original_title",
+        "sort_title",
+        "imdb_id",
+        "tmdb_id",
+        "tvdb_id",
+        "first_air_date",
+        "last_air_date",
         "air_time",
         "air_timezone",
+        "season_count",
+        "episode_count",
         "effective_subtitle_language",
+        "effective_subtitle_mode",
+        "effective_show_forced_subtitles",
+        "effective_version_resolution",
+        "effective_version_codec_video",
+        "effective_version_edition_key",
         "effective_subtitle_mode",
         "effective_version_resolution",
         "effective_version_codec_video",
@@ -2459,15 +2278,21 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
     version = _detail_version(detail, file_id)
     set_stream_details(list_item, version)
 
-    # Keep the chosen file's technical fields visible even when catalog cards
-    # had no overlay summary.
+    # Preserve the chosen file's technical metadata as standard ListItem
+    # properties as well as native stream details.
     if version:
-        if version.get("resolution"):
-            list_item.setProperty("VideoResolution", str(version["resolution"]))
-        if version.get("codec_video"):
-            list_item.setProperty("VideoCodec", str(version["codec_video"]))
-        if version.get("codec_audio"):
-            list_item.setProperty("AudioCodec", str(version["codec_audio"]))
+        for property_name, value in (
+            ("VideoResolution", version.get("resolution")),
+            ("VideoCodec", version.get("codec_video")),
+            ("AudioCodec", version.get("codec_audio")),
+            ("VideoHDR", version.get("hdr")),
+            ("Container", version.get("container")),
+            ("VideoBitrate", version.get("bitrate")),
+            ("FileSize", version.get("file_size")),
+            ("Edition", version.get("edition_raw") or version.get("edition_key")),
+        ):
+            if value not in (None, ""):
+                list_item.setProperty(property_name, str(value))
 
     # Full-detail runtime is the actual selected file duration in seconds.
     if version.get("duration"):
@@ -2531,7 +2356,6 @@ def set_season_metadata(list_item, season, client, series_id=None):
             list_item.setProperty(key, str(value))
         list_item.setProperty("Silo.EpisodeCount", str(episode_count))
 
-    set_skin_compat_metadata(list_item, season)
     
     content_id = get_content_id(season)
     if content_id:
@@ -2647,7 +2471,6 @@ def add_catalog_item(client, item, library_id):
     tag.setTitle(title)
 
     set_catalog_metadata(list_item, item, client)
-    set_skin_compat_metadata(list_item, item)
 
     # Copy basic metadata that Kodi can display.
     if item.get("year"):
@@ -3030,7 +2853,6 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
 
     if detail:
         set_detail_metadata(item, detail, client)
-        set_skin_compat_metadata(item, detail)
 
     display_progress = progress if progress is not None else catalog_progress(catalog_item)
     set_watch_state(item, display_progress, media_type)
@@ -5751,7 +5573,6 @@ def _start_watch_party_guest_playback(
         if detail:
             set_catalog_metadata(item, detail, client)
             set_detail_metadata(item, detail, client, file_id=file_id)
-            set_skin_compat_metadata(item, detail)
             set_art(
                 item,
                 client,
@@ -7378,7 +7199,6 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         detail = detail_map.get(str(content_id))
         if detail:
             set_detail_metadata(item, detail, client)
-            set_skin_compat_metadata(item, detail)
 
         display_progress = (
             progress_map.get(str(content_id))
@@ -7672,7 +7492,6 @@ def play(
                 client,
                 file_id=file_id,
             )
-            set_skin_compat_metadata(resolved_item, detail)
 
             # Episodes normally have their own artwork. When they do not have
             # a logo/banner, inherit the parent series logo so Kodi's player
