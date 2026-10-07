@@ -1708,6 +1708,153 @@ def set_catalog_metadata(list_item, item, client):
                 )
 
 
+def _kodi_datetime(value):
+    """Convert ISO/RFC3339 timestamps to Kodi's legacy datetime format."""
+    if value in (None, ""):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return text
+
+
+def apply_standard_video_metadata(list_item, item, version=None):
+    """Expose applicable Silo data through standard Kodi video metadata."""
+    if not isinstance(item, dict):
+        return
+
+    tag = list_item.getVideoInfoTag()
+    media_type = str(item.get("type") or item.get("media_type") or "").lower()
+    info = {}
+
+    values = {
+        "genre": item.get("genres"),
+        "country": item.get("countries"),
+        "year": item.get("year"),
+        "episode": item.get("episode_number"),
+        "season": item.get("season_number"),
+        "sortepisode": item.get("episode_number"),
+        "sortseason": item.get("season_number"),
+        "showlink": item.get("series_title"),
+        "mpaa": item.get("content_rating"),
+        "plot": item.get("overview") or item.get("plot"),
+        "plotoutline": item.get("overview") or item.get("plot"),
+        "title": item.get("title") or item.get("name"),
+        "originaltitle": item.get("original_title"),
+        "sorttitle": item.get("sort_title"),
+        "studio": item.get("studios"),
+        "tagline": item.get("tagline"),
+        "tvshowtitle": item.get("series_title"),
+        "status": item.get("show_status") or item.get("status"),
+        "tag": item.get("keywords"),
+        "imdbnumber": item.get("imdb_id"),
+        "premiered": item.get("release_date") or item.get("air_date"),
+        "aired": item.get("air_date") or item.get("release_date"),
+        "dateadded": _kodi_datetime(item.get("added_at")),
+        "mediatype": {"movie":"movie","series":"tvshow","season":"season","episode":"episode","video":"video"}.get(media_type, "video"),
+    }
+    if item.get("runtime"):
+        try:
+            values["duration"] = int(round(float(item["runtime"]) * 60))
+        except (TypeError, ValueError):
+            pass
+
+    sort_metrics = item.get("sort_metrics")
+    if isinstance(sort_metrics, dict):
+        last_played = _kodi_datetime(sort_metrics.get("viewed_at"))
+        if last_played:
+            values["lastplayed"] = last_played
+        try:
+            if sort_metrics.get("play_count") is not None:
+                values["playcount"] = max(0, int(sort_metrics["play_count"]))
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        if item.get("user_rating") is not None:
+            values["userrating"] = int(item["user_rating"])
+    except (TypeError, ValueError):
+        pass
+
+    default_rating = None
+    for key in ("rating_imdb", "rating_tmdb"):
+        if item.get(key) is not None:
+            try:
+                default_rating = float(item[key])
+            except (TypeError, ValueError):
+                default_rating = None
+            if default_rating is not None:
+                break
+    if default_rating is not None:
+        values["rating"] = default_rating
+
+    if version:
+        if version.get("file_size") not in (None, ""):
+            try:
+                values["size"] = int(version["file_size"])
+            except (TypeError, ValueError):
+                pass
+        if version.get("added_at"):
+            values["date"] = _kodi_datetime(version["added_at"])
+        if version.get("file_path"):
+            try:
+                tag.setFilenameAndPath(str(version["file_path"]))
+            except Exception:
+                pass
+            values["path"] = str(version["file_path"])
+        version_name = version.get("edition_raw") or version.get("edition_key") or version.get("presentation_kind")
+        if version_name:
+            values["videoversion"] = str(version_name)
+            try:
+                tag.setVideoAssetTitle(str(version_name))
+            except Exception:
+                pass
+
+    filtered = {key: value for key, value in values.items() if value not in (None, "", [], ())}
+    if filtered:
+        try:
+            list_item.setInfo("video", filtered)
+        except Exception:
+            pass
+
+    if item.get("release_date"):
+        list_item.setProperty("OriginalDate", str(item["release_date"]))
+        list_item.setProperty("ReleaseDate", str(item["release_date"]))
+
+    if item.get("sort_title") or item.get("title") or item.get("name"):
+        title_for_sort = str(item.get("sort_title") or item.get("title") or item.get("name"))
+        match = re.search(r"[0-9A-Za-z]", title_for_sort)
+        if match:
+            list_item.setProperty("SortLetter", match.group(0).upper())
+
+    try:
+        if item.get("episode_number") is not None:
+            tag.setSortEpisode(int(item["episode_number"]))
+    except (TypeError, ValueError, AttributeError):
+        pass
+
+    try:
+        if item.get("season_number") is not None:
+            tag.setSortSeason(int(item["season_number"]))
+    except (TypeError, ValueError, AttributeError):
+        pass
+
+    if isinstance(sort_metrics, dict):
+        if sort_metrics.get("viewed_at"):
+            try:
+                tag.setLastPlayed(_kodi_datetime(sort_metrics["viewed_at"]))
+            except Exception:
+                pass
+        if sort_metrics.get("play_count") is not None:
+            try:
+                tag.setPlaycount(max(0, int(sort_metrics["play_count"])))
+            except (TypeError, ValueError):
+                pass
+
 def _detail_version(detail, file_id=None):
     """Select the Silo file version Kodi should use for pre-play details."""
     versions = detail.get("versions") or []
