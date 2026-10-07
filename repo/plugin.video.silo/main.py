@@ -1985,23 +1985,6 @@ def set_stream_details(list_item, version):
                 str(subtitle_language),
             )
 
-    # Expose numbered language properties for generic skin/add-on access.
-    for index, track in enumerate(audio_tracks, 1):
-        language = track.get("language")
-        if language:
-            list_item.setProperty(
-                "AudioLanguage.%d" % index,
-                str(language),
-            )
-
-    for index, track in enumerate(subtitle_tracks, 1):
-        language = track.get("language") or track.get("title")
-        if language:
-            list_item.setProperty(
-                "SubtitleLanguage.%d" % index,
-                str(language),
-            )
-
     for track in subtitle_tracks:
         language = str(
             track.get("language")
