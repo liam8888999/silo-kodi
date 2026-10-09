@@ -7790,6 +7790,7 @@ def track_progress(
         position,
         target_label,
         expected_source_url=None,
+        request_started_at=None,
     ):
         """Adopt an Silo replan without visibly jumping back to zero."""
         new_url = new_info.get("url")
@@ -7802,7 +7803,7 @@ def track_progress(
             expected_source_url,
             target_label,
             position,
-            request_started_at,
+            request_started_at or time.time(),
         ):
             return False
 
