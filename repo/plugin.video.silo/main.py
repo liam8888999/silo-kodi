@@ -7716,8 +7716,13 @@ def track_progress(
         parsed = urlparse(raw_url)
         return parsed._replace(query="", fragment="").geturl().rstrip("/")
 
-    def adaptive_replan_still_matches_player(expected_source_url, target_label):
-        """Reject a delayed replan if Kodi has stopped or changed media."""
+    def adaptive_replan_still_matches_player(
+        expected_source_url,
+        target_label,
+        requested_position,
+        request_started_at,
+    ):
+        """Reject delayed replans after a stop, media change, or seek."""
         expected_key = playback_url_key(expected_source_url)
 
         if (
@@ -7747,6 +7752,37 @@ def track_progress(
             )
             return False
 
+        try:
+            current_position = max(0.0, float(player.getTime()))
+        except Exception:
+            current_position = float(requested_position or 0.0)
+
+        elapsed = max(0.0, time.time() - request_started_at)
+        drift = current_position - max(0.0, float(requested_position or 0.0))
+
+        # A seek or fast-forward during the server request invalidates the
+        # timeline anchor in the response. Normal playback drift is expected.
+        if drift < -1.0 or drift > elapsed + 3.0:
+            log(
+                "Discarding stale adaptive replan for quality=%s because "
+                "the playback position jumped during the request "
+                "(requested=%.3f current=%.3f elapsed=%.1fs)."
+                % (target_label, requested_position, current_position, elapsed),
+                xbmc.LOGWARNING,
+            )
+            return False
+
+        # A very slow replan should not rewind playback that has continued to
+        # advance in the meantime. A truly stalled source remains eligible.
+        if elapsed >= 10.0 and drift >= 5.0:
+            log(
+                "Discarding stale adaptive replan for quality=%s because the "
+                "server took %.1fs while playback advanced by %.1fs."
+                % (target_label, elapsed, drift),
+                xbmc.LOGWARNING,
+            )
+            return False
+
         return True
 
     def switch_stream(
@@ -7765,6 +7801,8 @@ def track_progress(
         if not adaptive_replan_still_matches_player(
             expected_source_url,
             target_label,
+            position,
+            request_started_at,
         ):
             return False
 
@@ -8076,6 +8114,12 @@ def track_progress(
                 caching_started_at = None
                 stall_started_at = None
                 stalled_for = 0.0
+
+                # Start the no-progress timer from the end of the grace window,
+                # not from the seek/switch itself. Otherwise the first monitor
+                # tick after grace could immediately classify a false stall.
+                last_progress_position = None
+                last_progress_change_at = now
             else:
                 # Player.Caching catches Kodi's internal rebuffering state while
                 # position movement catches stalls where Kodi does not expose
@@ -8234,6 +8278,7 @@ def track_progress(
                             )
                         except Exception:
                             source_url_before_replan = ""
+                        replan_started_at = time.time()
 
                         # quality_change names the exact next published rung.
                         # This starts a fresh intent replan chain rather than
@@ -8262,6 +8307,7 @@ def track_progress(
                                 position,
                                 target_label,
                                 expected_source_url=source_url_before_replan,
+                                request_started_at=replan_started_at,
                             )
                         ):
                             switch_time = time.time()
@@ -8461,6 +8507,7 @@ def track_progress(
                             )
                         except Exception:
                             source_url_before_replan = ""
+                        replan_started_at = time.time()
 
                         # Never send "auto" for an adaptive quality recovery.
                         # Silo expects the label of the exact ladder rung wanted.
@@ -8489,6 +8536,7 @@ def track_progress(
                                 position,
                                 target_label,
                                 expected_source_url=source_url_before_replan,
+                                request_started_at=replan_started_at,
                             )
                         ):
                             now = time.time()
