@@ -34,6 +34,7 @@ import time
 import threading
 import json
 import datetime
+from email.utils import parsedate_to_datetime
 import base64
 import hashlib
 import os
@@ -7468,6 +7469,36 @@ def playback_session_was_terminated(exc):
         and problem.get("detail") == "Playback session not found"
     )
 
+def progress_retry_delay(exc, default_delay=5.0):
+    """Return a safe delay before retrying a failed playback-progress report.
+
+    Silo may return Retry-After as either seconds or an HTTP date. Honouring
+    it avoids hammering a temporarily unavailable access-resolution dependency.
+    """
+    fallback = max(1.0, float(default_delay or 5.0))
+    raw_value = str(getattr(exc, "retry_after", None) or "").strip()
+
+    if not raw_value:
+        return fallback
+
+    try:
+        delay = float(raw_value)
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(raw_value)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=datetime.timezone.utc)
+            delay = (
+                retry_at - datetime.datetime.now(datetime.timezone.utc)
+            ).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return fallback
+
+    # Never busy-loop on a zero/past value. The cap prevents a malformed header
+    # from disabling progress updates for an unreasonable period.
+    return min(3600.0, max(1.0, delay))
+
+
 def track_progress(
     client,
     session_id,
@@ -7677,11 +7708,69 @@ def track_progress(
 
         return labels[target_index]
 
-    def switch_stream(new_info, position, target_label):
+    def playback_url_key(value):
+        """Normalise a Kodi URL for comparing the active media path."""
+        raw_url = str(value or "").split("|", 1)[0].strip()
+        if not raw_url:
+            return ""
+        parsed = urlparse(raw_url)
+        return parsed._replace(query="", fragment="").geturl().rstrip("/")
+
+    def adaptive_replan_still_matches_player(expected_source_url, target_label):
+        """Reject a delayed replan if Kodi has stopped or changed media."""
+        expected_key = playback_url_key(expected_source_url)
+
+        if (
+            monitor.abortRequested()
+            or not player.isPlaying()
+            or not xbmc.getCondVisibility("Player.HasMedia")
+        ):
+            log(
+                "Discarding stale adaptive replan for quality=%s because "
+                "Kodi playback has stopped." % target_label,
+                xbmc.LOGWARNING,
+            )
+            return False
+
+        try:
+            current_url = str(player.getPlayingFile() or "")
+        except Exception:
+            current_url = ""
+
+        current_key = playback_url_key(current_url)
+        if not expected_key or not current_key or current_key != expected_key:
+            log(
+                "Discarding stale adaptive replan for quality=%s because "
+                "the active Kodi media changed (expected=%s, current=%s)."
+                % (target_label, expected_key or "unknown", current_key or "unknown"),
+                xbmc.LOGWARNING,
+            )
+            return False
+
+        return True
+
+    def switch_stream(
+        new_info,
+        position,
+        target_label,
+        expected_source_url=None,
+    ):
         """Adopt an Silo replan without visibly jumping back to zero."""
         new_url = new_info.get("url")
         if not new_url:
             return False
+
+        # The server request can take long enough for playback to stop or for
+        # the user to start another item. Never let a stale response reopen it.
+        if not adaptive_replan_still_matches_player(
+            expected_source_url,
+            target_label,
+        ):
+            return False
+
+        # player.play() normally starts playback even if the old item was
+        # paused. Preserve the user's pause state across an adaptive handoff.
+        was_paused = bool(xbmc.getCondVisibility("Player.Paused"))
 
         new_plan = new_info.get("playback_plan") or {}
         timeline = new_plan.get("timeline") or {}
@@ -7739,7 +7828,7 @@ def track_progress(
         # actual current playing file, otherwise the adaptive monitor can begin
         # measuring the old stream and immediately issue another replan.
         attached = False
-        expected_url = str(new_url).split("?", 1)[0]
+        expected_url_key = playback_url_key(new_url)
         for _ in range(120):
             if monitor.abortRequested():
                 break
@@ -7750,12 +7839,7 @@ def track_progress(
                 except Exception:
                     playing_url = ""
 
-                playing_base = playing_url.split("?", 1)[0]
-
-                if (
-                    playing_url == str(new_url)
-                    or playing_base == expected_url
-                ):
+                if playback_url_key(playing_url) == expected_url_key:
                     attached = True
                     break
 
@@ -7768,6 +7852,17 @@ def track_progress(
                 xbmc.LOGWARNING,
             )
             return False
+
+        if was_paused and player.isPlaying():
+            try:
+                if not xbmc.getCondVisibility("Player.Paused"):
+                    player.pause()
+            except Exception as exc:
+                log(
+                    "Unable to preserve the paused state after adaptive "
+                    "quality switch: %s" % exc,
+                    xbmc.LOGWARNING,
+                )
 
         playback_info.clear()
         playback_info.update(new_info)
@@ -7785,10 +7880,14 @@ def track_progress(
     last_position = 0.0
     last_progress_position = None
     last_progress_change_at = time.time()
+    last_observed_position = None
+    last_position_sample_at = time.time()
+    seek_grace_until = 0.0
     last_reported_paused = None
     last_paused = None
     progress_report_interval = 5.0
     next_progress_report_at = time.time()
+    next_progress_retry_not_before = 0.0
     progress_confirmed = True
     stall_started_at = None
     caching_started_at = None
@@ -7874,6 +7973,37 @@ def track_progress(
         position = max(0.0, position)
         paused = bool(xbmc.getCondVisibility("Player.Paused"))
 
+        # Kodi time can move backwards on resume/jump-back, or jump forwards
+        # during a seek/fast-forward. Neither is evidence of a network stall.
+        # Compare movement with elapsed wall time so normal playback at 1x does
+        # not trip this guard, while seeks and speed changes reset stall state.
+        if last_observed_position is not None:
+            sample_interval = max(0.0, now - last_position_sample_at)
+            position_delta = position - last_observed_position
+            jump_kind = None
+
+            if position_delta < -1.0:
+                jump_kind = "backward seek"
+            elif position_delta > sample_interval + 3.0:
+                jump_kind = "forward seek or playback-speed change"
+
+            if jump_kind:
+                last_progress_position = position
+                last_progress_change_at = now
+                caching_started_at = None
+                stall_started_at = None
+                seek_grace_until = now + 8.0
+                healthy_since = now if progress_confirmed and not paused else 0.0
+                log(
+                    "Adaptive stall timers reset after %s "
+                    "(position delta=%.3fs over %.3fs); applying 8s grace."
+                    % (jump_kind, position_delta, sample_interval),
+                    xbmc.LOGINFO,
+                )
+
+        last_observed_position = position
+        last_position_sample_at = now
+
         if paused:
             # Paused time is not playback health and must never count as a
             # buffering stall or toward the healthy recovery timer.
@@ -7940,8 +8070,9 @@ def track_progress(
             # this period the old player state may still be visible even though
             # the replacement URL has already been requested.
             in_post_switch_grace = now < post_switch_grace_until
+            in_seek_grace = now < seek_grace_until
 
-            if in_post_switch_grace:
+            if in_post_switch_grace or in_seek_grace:
                 caching_started_at = None
                 stall_started_at = None
                 stalled_for = 0.0
@@ -7968,6 +8099,22 @@ def track_progress(
 
                 if position_stalled or caching_stalled:
                     if stall_started_at is None:
+                        reasons = []
+                        if caching_stalled:
+                            reasons.append("Kodi caching")
+                        if position_stalled:
+                            reasons.append("playback position unchanged")
+                        log(
+                            "Adaptive stall detected: reason=%s quality=%s "
+                            "position=%.3f threshold=%.1fs."
+                            % (
+                                "+".join(reasons) or "unknown",
+                                detect_quality_label(playback_info) or "unknown",
+                                position,
+                                stall_threshold,
+                            ),
+                            xbmc.LOGWARNING,
+                        )
                         healthy_since = 0.0
                         stall_started_at = (
                             caching_started_at
@@ -8071,12 +8218,22 @@ def track_progress(
                         except (TypeError, ValueError):
                             current_bitrate = 0
 
+                        # Silo's API requires a bandwidth estimate. This is a
+                        # conservative planning hint derived from the selected
+                        # recipe, not a measurement of live network throughput.
                         estimated_bandwidth = max(
                             100,
                             int(current_bitrate * 0.60)
                             if current_bitrate > 0
                             else 1500,
                         )
+
+                        try:
+                            source_url_before_replan = str(
+                                player.getPlayingFile() or ""
+                            )
+                        except Exception:
+                            source_url_before_replan = ""
 
                         # quality_change names the exact next published rung.
                         # This starts a fresh intent replan chain rather than
@@ -8104,6 +8261,7 @@ def track_progress(
                                 new_info,
                                 position,
                                 target_label,
+                                expected_source_url=source_url_before_replan,
                             )
                         ):
                             switch_time = time.time()
@@ -8288,12 +8446,21 @@ def track_progress(
                         except (TypeError, ValueError):
                             current_bitrate = 0
 
+                        # This is a planning hint from the selected recipe,
+                        # not measured network throughput.
                         estimated_bandwidth = max(
                             1500,
                             int(current_bitrate * 1.35)
                             if current_bitrate > 0
                             else 8000,
                         )
+
+                        try:
+                            source_url_before_replan = str(
+                                player.getPlayingFile() or ""
+                            )
+                        except Exception:
+                            source_url_before_replan = ""
 
                         # Never send "auto" for an adaptive quality recovery.
                         # Silo expects the label of the exact ladder rung wanted.
@@ -8321,6 +8488,7 @@ def track_progress(
                                 new_info,
                                 position,
                                 target_label,
+                                expected_source_url=source_url_before_replan,
                             )
                         ):
                             now = time.time()
@@ -8401,8 +8569,14 @@ def track_progress(
             last_reported_paused is not None
             and bool(paused) != bool(last_reported_paused)
         )
+        # A pause-state change usually triggers an immediate report, but it
+        # must never bypass a Retry-After delay from a failed report.
         should_report_progress = (
-            now >= next_progress_report_at or pause_state_changed
+            now >= next_progress_report_at
+            or (
+                pause_state_changed
+                and now >= next_progress_retry_not_before
+            )
         )
 
         if should_report_progress:
@@ -8415,6 +8589,7 @@ def track_progress(
                     paused,
                 )
                 last_reported_paused = bool(paused)
+                next_progress_retry_not_before = 0.0
                 next_progress_report_at = now + progress_report_interval
             except SiloError as exc:
                 if playback_session_was_terminated(exc):
@@ -8437,9 +8612,36 @@ def track_progress(
                     "Unable to report playback progress: %s" % exc,
                     xbmc.LOGWARNING,
                 )
-                # Keep the next scheduled report based on the current time so
-                # a slow/unreachable server does not alter adaptive monitoring.
-                next_progress_report_at = now + progress_report_interval
+
+                # In particular, honour Silo's Retry-After on dependency
+                # failures such as HTTP 503. Keep playback monitoring alive and
+                # send the latest position when this retry window expires.
+                default_retry = (
+                    15.0 if getattr(exc, "status", None) == 503
+                    else progress_report_interval
+                )
+                retry_delay = progress_retry_delay(exc, default_retry)
+                next_progress_retry_not_before = now + retry_delay
+                next_progress_report_at = now + retry_delay
+                log(
+                    "Playback progress reporting deferred for %.1fs "
+                    "(HTTP %s, Retry-After=%s)."
+                    % (
+                        retry_delay,
+                        getattr(exc, "status", "unknown"),
+                        getattr(exc, "retry_after", None) or "not provided",
+                    ),
+                    xbmc.LOGINFO,
+                )
+            except Exception as exc:
+                retry_delay = progress_report_interval
+                next_progress_retry_not_before = now + retry_delay
+                next_progress_report_at = now + retry_delay
+                log(
+                    "Unexpected error reporting playback progress; retrying "
+                    "in %.1fs: %s" % (retry_delay, exc),
+                    xbmc.LOGWARNING,
+                )
 
         for _ in range(50):
             if not player.isPlaying() or monitor.abortRequested():
