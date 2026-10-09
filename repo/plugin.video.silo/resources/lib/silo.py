@@ -298,7 +298,7 @@ class SiloClient:
         h = {
             "Accept": "application/json",
             "X-Device-ID": device_id,
-            "X-Client-Name": "kodi-silo",
+            "X-Client-Name": "plugin.video.silo",
             "X-Client-Version": ADDON_VERSION,
             "X-Client-Platform": "kodi",
         }
@@ -574,7 +574,7 @@ class SiloClient:
                 headers={
                     "Accept": "application/json",
                     "X-Device-ID": self.cfg["device_id"],
-                    "X-Client-Name": "kodi-silo",
+                    "X-Client-Name": "plugin.video.silo",
                     "X-Client-Version": ADDON_VERSION,
                     "X-Client-Platform": "kodi",
                 },
@@ -686,7 +686,7 @@ class SiloClient:
                         headers={
                             "Accept": "application/json",
                             "X-Device-ID": _setting("device_id") or self.cfg["device_id"],
-                            "X-Client-Name": "kodi-silo",
+                            "X-Client-Name": "plugin.video.silo",
                             "X-Client-Version": ADDON_VERSION,
                             "X-Client-Platform": "kodi",
                         },
@@ -1793,7 +1793,7 @@ class SiloClient:
             )
 
         log(
-            "adaptive replan delivery=%s quality=%s bandwidth_estimate_kbps=%d position=%.3f"
+            "adaptive replan delivery=%s quality=%s client_bandwidth_hint_kbps=%d (recipe-based, not measured throughput) position=%.3f"
             % (
                 new_plan.get("delivery"),
                 quality_preference or "auto",
