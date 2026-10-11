@@ -1,24 +1,18 @@
 # Silo Kodi Skin
 
-A Kodi skin add-on focused on the Silo Media Server add-on.
+A Silo-focused Kodi skin designed for Kodi 21.3 Omega.
 
-## Status
+## Version 0.1.2
 
-Early first pass. Version 0.1.1 corrects the Kodi 21 Omega skin ABI declaration and removes a hard dependency on a specific version of `plugin.video.silo`. This is not yet a complete replacement for every Kodi window: directory browsing, video information, playback OSD, dialogs, settings, and watch-party flows still need dedicated layouts and testing on Kodi 21.
+- Fix malformed shared include XML which could prevent the skin from loading.
+- Replace the home window with a self-contained Silo-first screen.
+- Add a Kodi settings hub, settings-category controls, a settings dialog, a profiles page, system information, and a calibration fallback.
+- Use Kodi 21.3's `xbmc.gui` 5.17.0 ABI.
 
-## Install for development
+## Install
 
-1. Install `skin.silo-0.1.1.zip` from the compatible package, or copy the `skin.silo` directory into Kodi's `addons` directory.
-2. Ensure `plugin.video.silo` is installed and configured to use the Silo features.
-3. In Kodi, open **Settings → Interface → Skin** and select **Silo**.
+Install `skin.silo-0.1.2.zip` from Kodi's **Add-ons → Install from zip file** option, then select **Silo** from **Settings → Interface → Skin**. Keep the Silo video add-on installed separately; this skin does not duplicate its authentication or API.
 
-## Design
+## Known limitations
 
-- Dark navy canvas with Silo mint accent.
-- A simple, remote-friendly home screen with large focus targets.
-- Entry points into Silo and Silo settings.
-- No duplicate login or server API code; Silo-Kodi remains responsible for server communication.
-
-## Compatibility notes
-
-Kodi 21.3 Omega requires `xbmc.gui` 5.17.0. The skin manifest now declares that requirement. The action routes for search, watchlist, and history remain placeholders until aligned with the current Silo-Kodi router; Browse Silo and Silo Settings are the initial known-safe paths.
+This is a usability recovery build, not yet a full copy of Estuary. Kodi settings pages have dedicated layouts, but less-common modal dialogs and some advanced windows still need complete skin-specific implementations and runtime testing on Kodi 21.3.
