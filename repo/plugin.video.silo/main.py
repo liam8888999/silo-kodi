@@ -6034,6 +6034,14 @@ def _sort_merged_home_items(items, detail_map, group_key):
             "updated_at",
             "added_at",
         )
+    elif group_key == "recommended":
+        fields = (
+            "added_at",
+            "release_date",
+            "air_date",
+            "first_air_date",
+            "updated_at",
+        )
     else:
         return
 
@@ -6079,11 +6087,21 @@ def list_home_section_group(client, group_key):
         xbmcplugin.endOfDirectory(HANDLE)
         return
 
-    matching = [
-        section
-        for section in sections
-        if _home_section_group_key(section) == str(group_key or "")
-    ]
+    requested_group = str(group_key or "")
+    if requested_group == "recommended":
+        # The skin's Recommended rail blends only the server's Recently Added
+        # and Recently Released rows, deduplicated and sorted as one catalogue.
+        matching = [
+            section
+            for section in sections
+            if _home_section_group_key(section) in ("recently added", "recently released")
+        ]
+    else:
+        matching = [
+            section
+            for section in sections
+            if _home_section_group_key(section) == requested_group
+        ]
 
     if not matching:
         notify("Home section no longer exists")
@@ -6157,7 +6175,11 @@ def list_home_section_group(client, group_key):
             # on the final combined page and should be the copy we display.
             combined.append(candidate)
 
-    title = _home_section_group_title(matching[0])
+    title = (
+        "Recommended"
+        if requested_group == "recommended"
+        else _home_section_group_title(matching[0])
+    )
     _render_catalog_items(
         client,
         {
@@ -6254,6 +6276,103 @@ def list_home_section(client, section_id):
         )
 
     _render_catalog_items(client, normalized)
+
+
+def list_skin_home_section(client, section_key):
+    """Render a dynamic Silo Home section for a skin widget.
+
+    The skin knows the semantic row it wants, not Silo's server-generated
+    section IDs. Resolve the current IDs at runtime so custom server sections
+    and library changes do not break the home screen.
+    """
+    key = str(section_key or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+    # Do not open multiple authentication prompts while Kodi is creating
+    # several independent home widgets. The Browse button takes unauthenticated
+    # users through the normal Silo login/settings flow.
+    if not client.cfg.get("token"):
+        xbmcplugin.setPluginCategory(HANDLE, "Silo Home")
+        xbmcplugin.setContent(HANDLE, "videos")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    if key == "recommended":
+        list_home_section_group(client, "recommended")
+        return
+
+    if key in ("watchlist", "favorites", "history"):
+        _list_personal_catalog(client, key)
+        return
+
+    if key in ("recently_added", "recently_released"):
+        list_home_section_group(
+            client,
+            "recently added" if key == "recently_added" else "recently released",
+        )
+        return
+
+    aliases = {
+        "continue_watching": {
+            "continue_watching", "continue", "in_progress", "inprogress", "resume",
+        },
+        "next_up": {"next_up", "up_next", "next_episode"},
+        "surprise_me": {"surprise_me", "surprise"},
+    }
+    type_aliases = aliases.get(key, {key})
+    title_terms = {
+        "continue_watching": ("continue watching", "in progress", "resume"),
+        "next_up": ("next up", "up next", "next episode"),
+        "surprise_me": ("surprise me", "surprise"),
+    }.get(key, (key.replace("_", " "),))
+
+    try:
+        sections = client.home_sections(image_size="medium") or []
+    except SiloError as exc:
+        log("Unable to load Silo Home widget %s: %s" % (key, exc), xbmc.LOGWARNING)
+        sections = []
+
+    candidates = []
+    for section in sections:
+        section_type = str(section.get("section_type") or "").strip().lower()
+        section_type = section_type.replace("-", "_").replace(" ", "_")
+        title = str(section.get("title") or "").strip().casefold()
+        section_id = section.get("id") or section.get("section_id")
+        if not section_id:
+            continue
+
+        score = 0
+        if section_type in type_aliases:
+            score += 10
+        if any(term in title for term in title_terms):
+            score += 5
+        if score:
+            try:
+                if section.get("total_count") is not None and int(section.get("total_count")) <= 0:
+                    continue
+            except (TypeError, ValueError):
+                pass
+            candidates.append((score, section))
+
+    if not candidates:
+        xbmcplugin.setPluginCategory(HANDLE, {
+            "continue_watching": "Continue Watching",
+            "next_up": "Next Up",
+            "surprise_me": "Surprise Me",
+        }.get(key, key.replace("_", " ").title()))
+        xbmcplugin.setContent(HANDLE, "videos")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    candidates.sort(
+        key=lambda row: (
+            row[0],
+            str(row[1].get("title") or "").casefold(),
+        ),
+        reverse=True,
+    )
+    section_id = candidates[0][1].get("id") or candidates[0][1].get("section_id")
+    list_home_section(client, section_id)
+
 
 def list_libraries(client):
     """Display the accessible Silo libraries inside the Libraries folder."""
@@ -8827,6 +8946,13 @@ def router(client):
         # the Silo profile before returning to the library screen.
         client.login_full()
         xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if action == "skin_section":
+        list_skin_home_section(
+            client,
+            params.get("section_key"),
+        )
         return
 
     if action == "home_section":
