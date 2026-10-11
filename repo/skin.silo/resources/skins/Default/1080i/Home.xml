@@ -22,7 +22,7 @@
     </control>
     <control type="image">
       <left>0</left><top>365</top><width>1920</width><height>75</height>
-      <texture>white.png</texture><colordiffuse>FF10141D</colordiffuse>
+      <texture>white.png</texture><colordiffuse>F710141D</colordiffuse>
     </control>
     <control type="image">
       <left>0</left><top>0</top><width>1920</width><height>7</height>
@@ -40,87 +40,92 @@
     </control>
 
     <control type="button" id="100">
-      <left>410</left><top>30</top><width>150</width><height>54</height>
-      <label>HOME</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
-      <onleft>104</onleft><onright>101</onright><onup>100</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Home)</onclick>
+      <left>340</left><top>25</top><width>92</width><height>46</height>
+      <label>HOME</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>100</onleft><onright>101</onright><onup>100</onup><ondown>9000</ondown><onclick>ActivateWindow(Home)</onclick>
     </control>
     <control type="button" id="101">
-      <left>565</left><top>30</top><width>180</width><height>54</height>
-      <label>LIBRARIES</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
-      <onleft>100</onleft><onright>102</onright><onup>101</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=libraries,return)</onclick>
+      <left>438</left><top>25</top><width>136</width><height>46</height>
+      <label>LIBRARIES</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>100</onleft><onright>102</onright><onup>101</onup><ondown>9000</ondown><onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=libraries,return)</onclick>
     </control>
     <control type="button" id="102">
-      <left>750</left><top>30</top><width>180</width><height>54</height>
-      <label>YOUR STUFF</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
-      <onleft>101</onleft><onright>103</onright><onup>102</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=your_stuff,return)</onclick>
+      <left>580</left><top>25</top><width>140</width><height>46</height>
+      <label>YOUR STUFF</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>101</onleft><onright>103</onright><onup>102</onup><ondown>9000</ondown><onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=your_stuff,return)</onclick>
     </control>
     <control type="button" id="103">
-      <left>935</left><top>30</top><width>175</width><height>54</height>
-      <label>WATCH PARTY</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
-      <onleft>102</onleft><onright>104</onright><onup>103</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=watch_party_join,return)</onclick>
+      <left>726</left><top>25</top><width>158</width><height>46</height>
+      <label>WATCH PARTY</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>102</onleft><onright>104</onright><onup>103</onup><ondown>9000</ondown><onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=watch_party_join,return)</onclick>
     </control>
     <control type="button" id="104">
-      <left>1115</left><top>30</top><width>145</width><height>54</height>
-      <label>SEARCH</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
-      <onleft>103</onleft><onright>105</onright><onup>104</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=search,return)</onclick>
+      <left>890</left><top>25</top><width>100</width><height>46</height>
+      <label>SEARCH</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>103</onleft><onright>105</onright><onup>104</onup><ondown>9000</ondown><onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=search,return)</onclick>
     </control>
     <control type="button" id="105">
-      <left>1710</left><top>30</top><width>145</width><height>54</height>
-      <label>SETTINGS</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>8</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
-      <onleft>104</onleft><onright>100</onright><onup>105</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Settings)</onclick>
+      <left>996</left><top>25</top><width>124</width><height>46</height>
+      <label>PROFILES</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>104</onleft><onright>106</onright><onup>105</onup><ondown>9000</ondown><onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=switch_profile,return)</onclick>
+    </control>
+    <control type="button" id="106">
+      <left>1126</left><top>25</top><width>130</width><height>46</height>
+      <label>SETTINGS</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>105</onleft><onright>107</onright><onup>106</onup><ondown>9000</ondown><onclick>ActivateWindow(Settings)</onclick>
+    </control>
+    <control type="button" id="107">
+      <left>1262</left><top>25</top><width>105</width><height>46</height>
+      <label>POWER</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>106</onleft><onright>107</onright><onup>107</onup><ondown>9000</ondown><onclick>ActivateWindow(ShutdownMenu)</onclick>
+    </control>
+    <control type="label" id="82">
+      <right>70</right><top>34</top><width>380</width><height>30</height>
+      <label>$INFO[System.Date]</label><font>font12</font><textcolor>FF9BA8BA</textcolor><align>right</align>
     </control>
 
-    <!-- Hero title: updates as the featured poster row moves -->
     <control type="label" id="201">
-      <left>94</left><top>130</top><width>700</width><height>34</height>
-      <label>FEATURED FOR YOU</label><font>font14</font><textcolor>FF48D6B5</textcolor>
+      <left>92</left><top>106</top><width>700</width><height>28</height>
+      <label>FEATURED FOR YOU</label><font>font12</font><textcolor>FF48D6B5</textcolor>
     </control>
     <control type="label" id="202">
-      <left>90</left><top>169</top><width>1050</width><height>78</height>
-      <label>$INFO[Container(9000).ListItem.Label]</label><font>font32_title</font><textcolor>FFFFFFFF</textcolor>
-      <scroll>true</scroll>
+      <left>88</left><top>139</top><width>1000</width><height>64</height>
+      <label>$INFO[Container(9000).ListItem.Label]</label><font>font32_title</font><textcolor>FFFFFFFF</textcolor><scroll>true</scroll>
+      <visible>!String.IsEmpty(Container(9000).ListItem.Label)</visible>
+    </control>
+    <control type="label" id="207">
+      <left>92</left><top>145</top><width>900</width><height>56</height>
+      <label>Discover something worth watching.</label><font>font32_title</font><textcolor>FFFFFFFF</textcolor>
+      <visible>String.IsEmpty(Container(9000).ListItem.Label)</visible>
     </control>
     <control type="label" id="203">
       <left>94</left><top>208</top><width>950</width><height>28</height>
-      <label>$INFO[Container(9000).ListItem.Year]$INFO[Container(9000).ListItem.Genre,   •   ]$INFO[Container(9000).ListItem.Rating,   •   ★ ]</label>
-      <font>font14</font><textcolor>FFD0D8E4</textcolor>
+      <label>$INFO[Container(9000).ListItem.Year]$INFO[Container(9000).ListItem.Genre,   •   ]$INFO[Container(9000).ListItem.Rating,   •   ★ ]</label><font>font12</font><textcolor>FFD0D8E4</textcolor>
+      <visible>!String.IsEmpty(Container(9000).ListItem.Label)</visible>
     </control>
     <control type="textbox" id="204">
       <left>94</left><top>244</top><width>790</width><height>70</height>
       <label>$INFO[Container(9000).ListItem.Plot]</label><font>font14</font><textcolor>FFB8C0CE</textcolor>
-      <autoscroll delay="5000" time="2500" repeat="5000">true</autoscroll>
+      <autoscroll delay="5000" time="2500" repeat="5000">true</autoscroll><visible>!String.IsEmpty(Container(9000).ListItem.Label)</visible>
     </control>
     <control type="button" id="205">
       <left>94</left><top>327</top><width>190</width><height>46</height>
-      <label>BROWSE SILO</label><font>font14</font><textcolor>FF10141D</textcolor><textoffsetx>18</textoffsetx>
-      <texturefocus border="8" colordiffuse="FFFFFFFF">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="FF48D6B5">white.png</texturenofocus>
-      <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/,return)</onclick>
+      <label>BROWSE SILO</label><font>font12</font><textcolor>FF10141D</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FFFFFFFF">white.png</texturefocus><texturenofocus border="8" colordiffuse="FF48D6B5">white.png</texturenofocus>
+      <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>9000</ondown><onclick>ActivateWindow(Videos,plugin://plugin.video.silo/,return)</onclick>
     </control>
     <control type="button" id="206">
       <left>296</left><top>327</top><width>216</width><height>46</height>
-      <label>CONTINUE WATCHING</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>18</textoffsetx>
-      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="8" colordiffuse="88242D39">white.png</texturenofocus>
+      <label>CONTINUE WATCHING</label><font>font12</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FF10141D</focusedcolor>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus><texturenofocus border="8" colordiffuse="88242D39">white.png</texturenofocus>
       <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>1000</ondown>
       <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=skin_section&amp;section_key=continue_watching,return)</onclick>
     </control>
