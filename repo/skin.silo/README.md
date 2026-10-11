@@ -1,19 +1,19 @@
 # Silo Kodi Skin
 
-A Silo-focused Kodi skin designed for Kodi 21.3 Omega.
+A media-centric Kodi skin focused on the Silo Media Server add-on.
 
-## Version 0.1.2
+## Version 0.2.0
 
-- Fix malformed shared include XML which could prevent the skin from loading.
-- Add a self-contained Silo-first home screen and a Silo directory view.
-- Add a Kodi settings hub, settings-category templates, profile/system information pages, and a dedicated settings dialog.
-- Add keyboard, selection, confirmation, and busy dialogs for common Silo and Kodi actions.
-- Declare Kodi 21.3's `xbmc.gui` 5.17.0 ABI and the required `font13` definition.
+- Replaces the launcher-style home with a cinematic backdrop and dynamic poster shelves.
+- Adds Recommended/Featured, Continue Watching, and Recently Added shelves fed by Silo's existing catalogue and viewer progress.
+- Shows artwork and metadata for the currently selected featured title.
+- Adds quick navigation for Libraries, Your Stuff, Watch Party, Search, and Settings.
+- Requires Silo Kodi add-on 1.1.7 for the skin-widget route.
 
 ## Install
 
-Install `skin.silo-0.1.2.zip` using Kodi's **Add-ons → Install from zip file** option, then select **Silo** under **Settings → Interface → Skin**. Keep the Silo video add-on installed separately; this skin does not duplicate its authentication or API.
+Install the matching plugin.video.silo-1.1.7.zip first, then install skin.silo-0.2.0.zip using Kodi's **Add-ons → Install from zip file** option. Select **Silo** from **Settings → Interface → Skin**.
 
-## Known limitations
+## Notes
 
-This is a recovery/usability build, not yet a complete skin replacement. Some less-common dialogs and advanced windows still need skin-specific layouts. The XML and ZIP structure have been validated, but the skin has not yet been smoke-tested in a running Kodi 21.3 session.
+The home layout uses live Silo catalogue routes, not sample media. The package passes XML parsing and archive-integrity checks, but has not yet been smoke-tested inside a running Kodi 21.3 instance. Less-common dialogs and advanced screens may need further polish.
