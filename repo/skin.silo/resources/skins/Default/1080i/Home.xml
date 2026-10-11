@@ -1,100 +1,198 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <window>
-  <defaultcontrol>110</defaultcontrol>
+  <defaultcontrol>100</defaultcontrol>
   <controls>
+    <!-- Base canvas -->
     <control type="image">
       <left>0</left><top>0</top><width>1920</width><height>1080</height>
       <texture>white.png</texture><colordiffuse>FF10141D</colordiffuse>
     </control>
+
+    <!-- Artwork for the currently focused featured title -->
     <control type="image">
-      <left>0</left><top>0</top><width>1920</width><height>8</height>
+      <left>0</left><top>0</top><width>1920</width><height>620</height>
+      <texture>$INFO[Container(9000).ListItem.Art(fanart)]</texture>
+      <aspectratio>scale</aspectratio>
+      <visible>!String.IsEmpty(Container(9000).ListItem.Art(fanart))</visible>
+    </control>
+    <!-- Keep the left side readable over all backdrops -->
+    <control type="image">
+      <left>0</left><top>0</top><width>1920</width><height>620</height>
+      <texture>white.png</texture><colordiffuse>CC10141D</colordiffuse>
+    </control>
+    <control type="image">
+      <left>0</left><top>510</top><width>1920</width><height>110</height>
+      <texture>white.png</texture><colordiffuse>FF10141D</colordiffuse>
+    </control>
+    <control type="image">
+      <left>0</left><top>0</top><width>1920</width><height>7</height>
       <texture>white.png</texture><colordiffuse>FF48D6B5</colordiffuse>
     </control>
-    <control type="label" id="100">
-      <left>96</left><top>58</top><width>700</width><height>76</height>
-      <label>SILO</label><font>font48_title</font><textcolor>FFFFFFFF</textcolor>
+
+    <!-- Header / navigation -->
+    <control type="label" id="80">
+      <left>72</left><top>23</top><width>230</width><height>58</height>
+      <label>SILO</label><font>font32_title</font><textcolor>FFFFFFFF</textcolor>
     </control>
-    <control type="label" id="101">
-      <left>100</left><top>132</top><width>900</width><height>42</height>
-      <label>YOUR LIBRARY. YOUR SERVER.</label><font>font16</font><textcolor>FF48D6B5</textcolor>
-    </control>
-    <control type="label" id="102">
-      <right>96</right><top>76</top><width>560</width><height>44</height>
-      <label>$INFO[System.Date]</label><font>font18</font><textcolor>FFB8C0CE</textcolor><align>right</align>
+    <control type="label" id="81">
+      <left>74</left><top>70</top><width>360</width><height>24</height>
+      <label>YOUR MEDIA, BEAUTIFULLY ORGANISED</label><font>font10</font><textcolor>FF48D6B5</textcolor>
     </control>
 
-    <control type="label" id="103">
-      <left>96</left><top>254</top><width>1000</width><height>42</height>
-      <label>WELCOME BACK</label><font>font16</font><textcolor>FF48D6B5</textcolor>
+    <control type="button" id="100">
+      <left>410</left><top>30</top><width>150</width><height>54</height>
+      <label>HOME</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>104</onleft><onright>101</onright><onup>100</onup><ondown>9000</ondown>
+      <onclick>ActivateWindow(Home)</onclick>
     </control>
-    <control type="label" id="104">
-      <left>92</left><top>306</top><width>1120</width><height>90</height>
-      <label>Everything you love,</label><font>font48_title</font><textcolor>FFFFFFFF</textcolor>
+    <control type="button" id="101">
+      <left>565</left><top>30</top><width>180</width><height>54</height>
+      <label>LIBRARIES</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>100</onleft><onright>102</onright><onup>101</onup><ondown>9000</ondown>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=libraries,return)</onclick>
     </control>
-    <control type="label" id="105">
-      <left>92</left><top>390</top><width>1120</width><height>90</height>
-      <label>all in one place.</label><font>font48_title</font><textcolor>FFFFFFFF</textcolor>
+    <control type="button" id="102">
+      <left>750</left><top>30</top><width>180</width><height>54</height>
+      <label>YOUR STUFF</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>101</onleft><onright>103</onright><onup>102</onup><ondown>9000</ondown>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=your_stuff,return)</onclick>
     </control>
-    <control type="textbox" id="106">
-      <left>98</left><top>492</top><width>950</width><height>90</height>
-      <label>Browse your Silo libraries, search for something new, or continue watching from your server's saved progress.</label>
-      <font>font18</font><textcolor>FFB8C0CE</textcolor>
+    <control type="button" id="103">
+      <left>935</left><top>30</top><width>175</width><height>54</height>
+      <label>WATCH PARTY</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>102</onleft><onright>104</onright><onup>103</onup><ondown>9000</ondown>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=watch_party_join,return)</onclick>
     </control>
-
-    <control type="button" id="110">
-      <left>96</left><top>670</top><width>420</width><height>100</height>
-      <label>Browse Silo</label><font>font24_title</font><textcolor>FFFFFFFF</textcolor>
-      <textoffsetx>28</textoffsetx>
-      <texturefocus border="12" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="12" colordiffuse="FF252D3A">white.png</texturenofocus>
-      <onup>110</onup><ondown>111</ondown><onleft>110</onleft><onright>111</onright>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/,return)</onclick>
+    <control type="button" id="104">
+      <left>1115</left><top>30</top><width>145</width><height>54</height>
+      <label>SEARCH</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>12</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>103</onleft><onright>105</onright><onup>104</onup><ondown>9000</ondown>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=search,return)</onclick>
     </control>
-    <control type="button" id="111">
-      <left>536</left><top>670</top><width>300</width><height>100</height>
-      <label>Silo Settings</label><font>font22</font><textcolor>FFFFFFFF</textcolor>
-      <textoffsetx>22</textoffsetx>
-      <texturefocus border="12" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="12" colordiffuse="FF252D3A">white.png</texturenofocus>
-      <onup>111</onup><ondown>112</ondown><onleft>110</onleft><onright>112</onright>
-      <onclick>Addon.OpenSettings(plugin.video.silo)</onclick>
-    </control>
-    <control type="button" id="112">
-      <left>856</left><top>670</top><width>300</width><height>100</height>
-      <label>Kodi Settings</label><font>font22</font><textcolor>FFFFFFFF</textcolor>
-      <textoffsetx>22</textoffsetx>
-      <texturefocus border="12" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="12" colordiffuse="FF252D3A">white.png</texturenofocus>
-      <onup>112</onup><ondown>113</ondown><onleft>111</onleft><onright>113</onright>
+    <control type="button" id="105">
+      <left>1710</left><top>30</top><width>145</width><height>54</height>
+      <label>SETTINGS</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>8</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="44242D39">white.png</texturenofocus>
+      <onleft>104</onleft><onright>100</onright><onup>105</onup><ondown>9000</ondown>
       <onclick>ActivateWindow(Settings)</onclick>
     </control>
-    <control type="button" id="113">
-      <left>1176</left><top>670</top><width>300</width><height>100</height>
-      <label>Add-ons</label><font>font22</font><textcolor>FFFFFFFF</textcolor>
-      <textoffsetx>22</textoffsetx>
-      <texturefocus border="12" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="12" colordiffuse="FF252D3A">white.png</texturenofocus>
-      <onup>113</onup><ondown>114</ondown><onleft>112</onleft><onright>114</onright>
-      <onclick>ActivateWindow(AddonBrowser)</onclick>
+
+    <!-- Hero title: updates as the featured poster row moves -->
+    <control type="label" id="201">
+      <left>94</left><top>130</top><width>700</width><height>34</height>
+      <label>FEATURED ON SILO</label><font>font14</font><textcolor>FF48D6B5</textcolor>
     </control>
-    <control type="button" id="114">
-      <left>1496</left><top>670</top><width>328</width><height>100</height>
-      <label>Power</label><font>font22</font><textcolor>FFFFFFFF</textcolor>
-      <textoffsetx>22</textoffsetx>
-      <texturefocus border="12" colordiffuse="FF48D6B5">white.png</texturefocus>
-      <texturenofocus border="12" colordiffuse="FF252D3A">white.png</texturenofocus>
-      <onup>114</onup><ondown>114</ondown><onleft>113</onleft><onright>114</onright>
-      <onclick>ActivateWindow(ShutdownMenu)</onclick>
+    <control type="label" id="202">
+      <left>90</left><top>169</top><width>1050</width><height>78</height>
+      <label>$INFO[Container(9000).ListItem.Label]</label><font>font32_title</font><textcolor>FFFFFFFF</textcolor>
+      <scroll>true</scroll>
+    </control>
+    <control type="label" id="203">
+      <left>95</left><top>245</top><width>930</width><height>36</height>
+      <label>$INFO[Container(9000).ListItem.Year]$INFO[Container(9000).ListItem.Genre,   •   ]$INFO[Container(9000).ListItem.Rating,   •   ★ ]</label>
+      <font>font14</font><textcolor>FFD0D8E4</textcolor>
+    </control>
+    <control type="textbox" id="204">
+      <left>96</left><top>284</top><width>795</width><height>75</height>
+      <label>$INFO[Container(9000).ListItem.Plot]</label><font>font14</font><textcolor>FFB8C0CE</textcolor>
+      <autoscroll delay="5000" time="2500" repeat="5000">true</autoscroll>
+    </control>
+    <control type="button" id="205">
+      <left>96</left><top>356</top><width>210</width><height>52</height>
+      <label>VIEW ALL</label><font>font14</font><textcolor>FF10141D</textcolor><textoffsetx>18</textoffsetx>
+      <texturefocus border="8" colordiffuse="FFFFFFFF">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="FF48D6B5">white.png</texturenofocus>
+      <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>9000</ondown>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=skin_section&amp;section_key=recommended,return)</onclick>
+    </control>
+    <control type="button" id="206">
+      <left>318</left><top>356</top><width>210</width><height>52</height>
+      <label>CONTINUE</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>18</textoffsetx>
+      <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
+      <texturenofocus border="8" colordiffuse="88242D39">white.png</texturenofocus>
+      <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>1000</ondown>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=skin_section&amp;section_key=continue_watching,return)</onclick>
     </control>
 
-    <control type="label" id="120">
-      <left>98</left><top>840</top><width>1100</width><height>46</height>
-      <label>LIBRARIES  •  SEARCH  •  RESUME PLAYBACK  •  WATCH PARTIES</label>
-      <font>font14</font><textcolor>FF778499</textcolor>
+    <!-- Featured / recommended rail -->
+    <control type="label" id="301">
+      <left>96</left><top>413</top><width>600</width><height>36</height>
+      <label>RECOMMENDED FOR YOU</label><font>font18</font><textcolor>FFFFFFFF</textcolor>
     </control>
-    <control type="label" id="121">
-      <left>98</left><top>1004</top><width>900</width><height>30</height>
-      <label>Use your remote or keyboard to navigate</label><font>font12</font><textcolor>FF667386</textcolor>
+    <control type="panel" id="9000">
+      <left>92</left><top>452</top><width>1738</width><height>153</height>
+      <orientation>horizontal</orientation><itemgap>16</itemgap><scrolltime>180</scrolltime>
+      <focusposition>0</focusposition>
+      <onleft>104</onleft><onright>9000</onright><onup>205</onup><ondown>1000</ondown>
+      <itemlayout width="132" height="151">
+        <control type="image"><left>0</left><top>0</top><width>132</width><height>151</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+      </itemlayout>
+      <focusedlayout width="152" height="153">
+        <control type="image"><left>0</left><top>0</top><width>152</width><height>153</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="image"><left>0</left><top>0</top><width>152</width><height>153</height><texture colordiffuse="FF48D6B5" border="5">white.png</texture></control>
+      </focusedlayout>
+      <content>plugin://plugin.video.silo/?action=skin_section&amp;section_key=recommended</content>
+    </control>
+
+    <!-- Continue watching rail -->
+    <control type="label" id="401">
+      <left>96</left><top>615</top><width>700</width><height>34</height>
+      <label>CONTINUE WATCHING</label><font>font18</font><textcolor>FFFFFFFF</textcolor>
+    </control>
+    <control type="panel" id="1000">
+      <left>92</left><top>654</top><width>1738</width><height>164</height>
+      <orientation>horizontal</orientation><itemgap>16</itemgap><scrolltime>180</scrolltime>
+      <onleft>1000</onleft><onright>1000</onright><onup>9000</onup><ondown>1100</ondown>
+      <itemlayout width="132" height="163">
+        <control type="image"><left>0</left><top>0</top><width>132</width><height>133</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="progress"><left>8</left><top>133</top><width>116</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg>white.png</texturebg><midtexture colordiffuse="FF48D6B5">white.png</midtexture></control>
+        <control type="label"><left>0</left><top>139</top><width>132</width><height>24</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>center</align></control>
+      </itemlayout>
+      <focusedlayout width="152" height="164">
+        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><texture colordiffuse="FF48D6B5" border="5">white.png</texture></control>
+        <control type="progress"><left>8</left><top>134</top><width>136</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg>white.png</texturebg><midtexture colordiffuse="FF48D6B5">white.png</midtexture></control>
+        <control type="label"><left>0</left><top>140</top><width>152</width><height>24</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
+      </focusedlayout>
+      <content>plugin://plugin.video.silo/?action=skin_section&amp;section_key=continue_watching</content>
+    </control>
+
+    <!-- Latest additions rail -->
+    <control type="label" id="501">
+      <left>96</left><top>827</top><width>700</width><height>34</height>
+      <label>RECENTLY ADDED</label><font>font18</font><textcolor>FFFFFFFF</textcolor>
+    </control>
+    <control type="panel" id="1100">
+      <left>92</left><top>866</top><width>1738</width><height>164</height>
+      <orientation>horizontal</orientation><itemgap>16</itemgap><scrolltime>180</scrolltime>
+      <onleft>1100</onleft><onright>1100</onright><onup>1000</onup><ondown>100</ondown>
+      <itemlayout width="132" height="163">
+        <control type="image"><left>0</left><top>0</top><width>132</width><height>133</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="label"><left>0</left><top>136</top><width>132</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>center</align></control>
+      </itemlayout>
+      <focusedlayout width="152" height="164">
+        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><texture colordiffuse="FF48D6B5" border="5">white.png</texture></control>
+        <control type="label"><left>0</left><top>138</top><width>152</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
+      </focusedlayout>
+      <content>plugin://plugin.video.silo/?action=skin_section&amp;section_key=recently_added</content>
+    </control>
+
+    <!-- A subtle footer rather than Kodi's normal section-heavy menu -->
+    <control type="label" id="700">
+      <right>80</right><top>1038</top><width>700</width><height>26</height>
+      <label>SILO  •  PRIVATE MEDIA, YOUR WAY</label><font>font10</font><textcolor>FF778499</textcolor><align>right</align>
     </control>
   </controls>
 </window>
