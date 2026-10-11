@@ -2,18 +2,19 @@
 
 A media-centric Kodi skin focused on the Silo Media Server add-on.
 
-## Version 0.2.0
+## Version 0.2.1
 
-- Replaces the launcher-style home with a cinematic backdrop and dynamic poster shelves.
-- Adds Recommended/Featured, Continue Watching, and Recently Added shelves fed by Silo's existing catalogue and viewer progress.
-- Shows artwork and metadata for the currently selected featured title.
-- Adds quick navigation for Libraries, Your Stuff, Watch Party, Search, and Settings.
-- Requires Silo Kodi add-on 1.1.7 for the skin-widget route.
+- Separates the featured title, metadata, synopsis and action buttons with consistent spacing.
+- Uses fixed-size poster cards and a mint outline that does not cover the artwork when focused.
+- Adds title captions to Recommended and Recently Added posters.
+- Makes Continue Watching distinct with landscape art, a progress bar and title labels.
+- Keeps live content in Silo's existing catalogue, artwork, metadata and playback routes.
+- Targets Kodi 21.3 Omega (`xbmc.gui` 5.17.0) and requires Silo Kodi add-on 1.1.7 for home widgets.
 
 ## Install
 
-Install the matching plugin.video.silo-1.1.7.zip first, then install skin.silo-0.2.0.zip using Kodi's **Add-ons → Install from zip file** option. Select **Silo** from **Settings → Interface → Skin**.
+Install `plugin.video.silo-1.1.7.zip` first, then install `skin.silo-0.2.1.zip` from Kodi's **Add-ons → Install from zip file** option. Select **Silo** under **Settings → Interface → Skin**.
 
-## Notes
+## Validation
 
-The home layout uses live Silo catalogue routes, not sample media. The package passes XML parsing and archive-integrity checks, but has not yet been smoke-tested inside a running Kodi 21.3 instance. Less-common dialogs and advanced screens may need further polish.
+The ZIP and XML have been checked for integrity and well-formedness. This build has not yet been smoke-tested in a running Kodi 21.3 session.
