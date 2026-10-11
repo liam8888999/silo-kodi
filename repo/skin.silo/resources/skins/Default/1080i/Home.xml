@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <window>
-  <defaultcontrol>100</defaultcontrol>
+  <defaultcontrol>9000</defaultcontrol>
   <controls>
     <!-- Base canvas -->
     <control type="image">
@@ -10,18 +10,18 @@
 
     <!-- Artwork for the currently focused featured title -->
     <control type="image">
-      <left>0</left><top>0</top><width>1920</width><height>620</height>
+      <left>0</left><top>0</top><width>1920</width><height>440</height>
       <texture>$INFO[Container(9000).ListItem.Art(fanart)]</texture>
       <aspectratio>scale</aspectratio>
       <visible>!String.IsEmpty(Container(9000).ListItem.Art(fanart))</visible>
     </control>
     <!-- Keep the left side readable over all backdrops -->
     <control type="image">
-      <left>0</left><top>0</top><width>1920</width><height>620</height>
+      <left>0</left><top>0</top><width>1920</width><height>440</height>
       <texture>white.png</texture><colordiffuse>CC10141D</colordiffuse>
     </control>
     <control type="image">
-      <left>0</left><top>510</top><width>1920</width><height>110</height>
+      <left>0</left><top>365</top><width>1920</width><height>75</height>
       <texture>white.png</texture><colordiffuse>FF10141D</colordiffuse>
     </control>
     <control type="image">
@@ -31,7 +31,7 @@
 
     <!-- Header / navigation -->
     <control type="label" id="80">
-      <left>72</left><top>23</top><width>230</width><height>58</height>
+      <left>68</left><top>17</top><width>230</width><height>48</height>
       <label>SILO</label><font>font32_title</font><textcolor>FFFFFFFF</textcolor>
     </control>
     <control type="label" id="81">
@@ -91,7 +91,7 @@
     <!-- Hero title: updates as the featured poster row moves -->
     <control type="label" id="201">
       <left>94</left><top>130</top><width>700</width><height>34</height>
-      <label>FEATURED ON SILO</label><font>font14</font><textcolor>FF48D6B5</textcolor>
+      <label>FEATURED FOR YOU</label><font>font14</font><textcolor>FF48D6B5</textcolor>
     </control>
     <control type="label" id="202">
       <left>90</left><top>169</top><width>1050</width><height>78</height>
@@ -99,92 +99,102 @@
       <scroll>true</scroll>
     </control>
     <control type="label" id="203">
-      <left>95</left><top>245</top><width>930</width><height>36</height>
+      <left>94</left><top>208</top><width>950</width><height>28</height>
       <label>$INFO[Container(9000).ListItem.Year]$INFO[Container(9000).ListItem.Genre,   •   ]$INFO[Container(9000).ListItem.Rating,   •   ★ ]</label>
       <font>font14</font><textcolor>FFD0D8E4</textcolor>
     </control>
     <control type="textbox" id="204">
-      <left>96</left><top>284</top><width>795</width><height>75</height>
+      <left>94</left><top>244</top><width>790</width><height>70</height>
       <label>$INFO[Container(9000).ListItem.Plot]</label><font>font14</font><textcolor>FFB8C0CE</textcolor>
       <autoscroll delay="5000" time="2500" repeat="5000">true</autoscroll>
     </control>
     <control type="button" id="205">
-      <left>96</left><top>356</top><width>210</width><height>52</height>
-      <label>VIEW ALL</label><font>font14</font><textcolor>FF10141D</textcolor><textoffsetx>18</textoffsetx>
+      <left>94</left><top>327</top><width>190</width><height>46</height>
+      <label>BROWSE SILO</label><font>font14</font><textcolor>FF10141D</textcolor><textoffsetx>18</textoffsetx>
       <texturefocus border="8" colordiffuse="FFFFFFFF">white.png</texturefocus>
       <texturenofocus border="8" colordiffuse="FF48D6B5">white.png</texturenofocus>
       <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>9000</ondown>
-      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=skin_section&amp;section_key=recommended,return)</onclick>
+      <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/,return)</onclick>
     </control>
     <control type="button" id="206">
-      <left>318</left><top>356</top><width>210</width><height>52</height>
-      <label>CONTINUE</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>18</textoffsetx>
+      <left>296</left><top>327</top><width>216</width><height>46</height>
+      <label>CONTINUE WATCHING</label><font>font14</font><textcolor>FFFFFFFF</textcolor><textoffsetx>18</textoffsetx>
       <texturefocus border="8" colordiffuse="FF48D6B5">white.png</texturefocus>
       <texturenofocus border="8" colordiffuse="88242D39">white.png</texturenofocus>
       <onleft>205</onleft><onright>206</onright><onup>100</onup><ondown>1000</ondown>
       <onclick>ActivateWindow(Videos,plugin://plugin.video.silo/?action=skin_section&amp;section_key=continue_watching,return)</onclick>
     </control>
 
-    <!-- Featured / recommended rail -->
+    <!-- Recommended shelf: portrait posters, matching card sizes and captions. -->
     <control type="label" id="301">
-      <left>96</left><top>413</top><width>600</width><height>36</height>
-      <label>RECOMMENDED FOR YOU</label><font>font18</font><textcolor>FFFFFFFF</textcolor>
+      <left>94</left><top>392</top><width>650</width><height>29</height>
+      <label>RECOMMENDED</label><font>font16</font><textcolor>FFFFFFFF</textcolor>
     </control>
     <control type="panel" id="9000">
-      <left>92</left><top>452</top><width>1738</width><height>153</height>
+      <left>88</left><top>426</top><width>1744</width><height>181</height>
       <orientation>horizontal</orientation><itemgap>16</itemgap><scrolltime>180</scrolltime>
-      <focusposition>0</focusposition>
-      <onleft>104</onleft><onright>9000</onright><onup>205</onup><ondown>1000</ondown>
-      <itemlayout width="132" height="151">
-        <control type="image"><left>0</left><top>0</top><width>132</width><height>151</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+      <focusposition>0</focusposition><onleft>104</onleft><onright>9000</onright><onup>205</onup><ondown>1000</ondown>
+      <itemlayout width="124" height="181">
+        <control type="image"><left>13</left><top>0</top><width>98</width><height>147</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="label"><left>0</left><top>151</top><width>124</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>center</align></control>
       </itemlayout>
-      <focusedlayout width="152" height="153">
-        <control type="image"><left>0</left><top>0</top><width>152</width><height>153</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
-        <control type="image"><left>0</left><top>0</top><width>152</width><height>153</height><texture colordiffuse="FF48D6B5" border="5">white.png</texture></control>
+      <focusedlayout width="124" height="181">
+        <control type="image"><left>13</left><top>0</top><width>98</width><height>147</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="image"><left>13</left><top>0</top><width>98</width><height>3</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>13</left><top>144</top><width>98</width><height>3</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>13</left><top>0</top><width>3</width><height>147</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>108</left><top>0</top><width>3</width><height>147</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="label"><left>0</left><top>151</top><width>124</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
       </focusedlayout>
       <content>plugin://plugin.video.silo/?action=skin_section&amp;section_key=recommended</content>
     </control>
 
-    <!-- Continue watching rail -->
+    <!-- Wide artwork makes Continue Watching distinct from the poster shelves. -->
     <control type="label" id="401">
-      <left>96</left><top>615</top><width>700</width><height>34</height>
-      <label>CONTINUE WATCHING</label><font>font18</font><textcolor>FFFFFFFF</textcolor>
+      <left>94</left><top>614</top><width>650</width><height>29</height>
+      <label>CONTINUE WATCHING</label><font>font16</font><textcolor>FFFFFFFF</textcolor>
     </control>
     <control type="panel" id="1000">
-      <left>92</left><top>654</top><width>1738</width><height>164</height>
-      <orientation>horizontal</orientation><itemgap>16</itemgap><scrolltime>180</scrolltime>
+      <left>88</left><top>648</top><width>1744</width><height>146</height>
+      <orientation>horizontal</orientation><itemgap>18</itemgap><scrolltime>180</scrolltime>
       <onleft>1000</onleft><onright>1000</onright><onup>9000</onup><ondown>1100</ondown>
-      <itemlayout width="132" height="163">
-        <control type="image"><left>0</left><top>0</top><width>132</width><height>133</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
-        <control type="progress"><left>8</left><top>133</top><width>116</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg>white.png</texturebg><midtexture colordiffuse="FF48D6B5">white.png</midtexture></control>
-        <control type="label"><left>0</left><top>139</top><width>132</width><height>24</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>center</align></control>
+      <itemlayout width="202" height="146">
+        <control type="image"><left>4</left><top>0</top><width>194</width><height>109</height><aspectratio>scale</aspectratio><texture>$INFO[ListItem.Art(fanart)]</texture></control>
+        <control type="progress"><left>4</left><top>112</top><width>194</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg>white.png</texturebg><midtexture colordiffuse="FF48D6B5">white.png</midtexture></control>
+        <control type="label"><left>4</left><top>121</top><width>194</width><height>23</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>left</align></control>
       </itemlayout>
-      <focusedlayout width="152" height="164">
-        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
-        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><texture colordiffuse="FF48D6B5" border="5">white.png</texture></control>
-        <control type="progress"><left>8</left><top>134</top><width>136</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg>white.png</texturebg><midtexture colordiffuse="FF48D6B5">white.png</midtexture></control>
-        <control type="label"><left>0</left><top>140</top><width>152</width><height>24</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
+      <focusedlayout width="202" height="146">
+        <control type="image"><left>4</left><top>0</top><width>194</width><height>109</height><aspectratio>scale</aspectratio><texture>$INFO[ListItem.Art(fanart)]</texture></control>
+        <control type="image"><left>4</left><top>0</top><width>194</width><height>3</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>4</left><top>106</top><width>194</width><height>3</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>4</left><top>0</top><width>3</width><height>109</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>195</left><top>0</top><width>3</width><height>109</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="progress"><left>4</left><top>112</top><width>194</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg>white.png</texturebg><midtexture colordiffuse="FF48D6B5">white.png</midtexture></control>
+        <control type="label"><left>4</left><top>121</top><width>194</width><height>23</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>left</align></control>
       </focusedlayout>
       <content>plugin://plugin.video.silo/?action=skin_section&amp;section_key=continue_watching</content>
     </control>
 
-    <!-- Latest additions rail -->
+    <!-- Fresh additions: same portrait proportions as Recommended. -->
     <control type="label" id="501">
-      <left>96</left><top>827</top><width>700</width><height>34</height>
-      <label>RECENTLY ADDED</label><font>font18</font><textcolor>FFFFFFFF</textcolor>
+      <left>94</left><top>800</top><width>650</width><height>29</height>
+      <label>RECENTLY ADDED</label><font>font16</font><textcolor>FFFFFFFF</textcolor>
     </control>
     <control type="panel" id="1100">
-      <left>92</left><top>866</top><width>1738</width><height>164</height>
+      <left>88</left><top>834</top><width>1744</width><height>181</height>
       <orientation>horizontal</orientation><itemgap>16</itemgap><scrolltime>180</scrolltime>
       <onleft>1100</onleft><onright>1100</onright><onup>1000</onup><ondown>100</ondown>
-      <itemlayout width="132" height="163">
-        <control type="image"><left>0</left><top>0</top><width>132</width><height>133</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
-        <control type="label"><left>0</left><top>136</top><width>132</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>center</align></control>
+      <itemlayout width="124" height="181">
+        <control type="image"><left>13</left><top>0</top><width>98</width><height>147</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="label"><left>0</left><top>151</top><width>124</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFDCE3ED</textcolor><align>center</align></control>
       </itemlayout>
-      <focusedlayout width="152" height="164">
-        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
-        <control type="image"><left>0</left><top>0</top><width>152</width><height>134</height><texture colordiffuse="FF48D6B5" border="5">white.png</texture></control>
-        <control type="label"><left>0</left><top>138</top><width>152</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
+      <focusedlayout width="124" height="181">
+        <control type="image"><left>13</left><top>0</top><width>98</width><height>147</height><aspectratio>keep</aspectratio><texture>$INFO[ListItem.Art(poster)]</texture></control>
+        <control type="image"><left>13</left><top>0</top><width>98</width><height>3</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>13</left><top>144</top><width>98</width><height>3</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>13</left><top>0</top><width>3</width><height>147</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="image"><left>108</left><top>0</top><width>3</width><height>147</height><texture colordiffuse="FF48D6B5">white.png</texture></control>
+        <control type="label"><left>0</left><top>151</top><width>124</width><height>26</height><label>$INFO[ListItem.Label]</label><font>font10</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
       </focusedlayout>
       <content>plugin://plugin.video.silo/?action=skin_section&amp;section_key=recently_added</content>
     </control>
