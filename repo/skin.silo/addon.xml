@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="skin.silo" name="Silo" version="0.1.1" provider-name="liam8888999">
+<addon id="skin.silo" name="Silo" version="0.1.2" provider-name="liam8888999">
   <requires>
-    <!-- Kodi 21.3 Omega ships xbmc.gui 5.17.0. -->
     <import addon="xbmc.gui" version="5.17.0"/>
   </requires>
   <extension point="xbmc.gui.skin">
@@ -9,7 +8,7 @@
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">A Silo-first media centre skin for Kodi</summary>
-    <description lang="en_GB">A cinematic interface designed around the Silo Media Server Kodi add-on. Browse your Silo catalogue, search, access your collections and continue watching from a focused home screen.</description>
+    <description lang="en_GB">A dark, remote-friendly Kodi skin with a Silo-first home screen and settings navigation.</description>
     <platform>all</platform>
     <license>GPL-3.0-or-later</license>
     <assets>
