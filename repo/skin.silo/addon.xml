@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="skin.silo" name="Silo" version="0.1.0" provider-name="liam8888999">
+  <requires>
+    <import addon="xbmc.gui" version="5.15.0"/>
+    <import addon="plugin.video.silo" version="1.1.6"/>
+  </requires>
+  <extension point="xbmc.gui.skin" defaultresolution="1080i" defaultresolutionwide="1080i">
+    <res width="1920" height="1080" aspect="16:9">resources/skins/Default/1080i</res>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">A Silo-first media centre skin for Kodi</summary>
+    <description lang="en_GB">A cinematic interface designed around the Silo Media Server Kodi add-on. Browse your Silo catalogue, search, access your collections and continue watching from a focused home screen.</description>
+    <platform>all</platform>
+    <license>GPL-3.0-or-later</license>
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
+  </extension>
+</addon>
