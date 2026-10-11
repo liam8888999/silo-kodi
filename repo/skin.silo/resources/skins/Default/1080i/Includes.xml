@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<includes>
+  <include name="SiloBackground">
+    <control type="image">
+      <left>0</left>
+      <top>0</top>
+      <width>1920</width>
+      <height>1080</height>
+      <texture colordiffuse="FF10141D">white.png</texture>
+      <aspectratio>scale</aspectratio>
+    </control>
+    <control type="image">
+      <left>0</left>
+      <top>0</top>
+      <width>1920</width>
+      <height>1080</height>
+      <texture>backgrounds/silo-gradient.png</texture>
+      <aspectratio>scale</aspectratio>
+      <visible>!String.IsEmpty(Window(Home).Property(Silo.Background))</visible>
+    </control>
+  </include>
+  <include name="SiloNavButton">
+    <control type="button">
+      <height>62</height>
+      <textoffsetx>22</textoffsetx>
+      <font>font18</font>
+      <textcolor>FFB8C0CE</textcolor>
+      <focusedcolor>FFFFFFFF</focusedcolor>
+      <texturenofocus border="12">white.png</texturenofocus>
+      <texturefocus border="12" colordiffuse>white.png</texturefocus>
+      <colordiffuse>00FFFFFF</colordiffuse>
+      <focusedcolor>FFFFFFFF</focusedcolor>
+      <onleft>9000</onleft>
+    </control>
+  </include>
+  <include name="SiloSectionLabel">
+    <control type="label">
+      <height>42</height>
+      <font>font24_title</font>
+      <textcolor>FFFFFFFF</textcolor>
+      <shadowcolor>90000000</shadowcolor>
+      <label>$INFO[Control.GetLabel(9001)]</label>
+    </control>
+  </include>
+</includes>
