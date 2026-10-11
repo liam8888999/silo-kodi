@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window>
+  <controls>
+    <control type="image"><centerleft>50%</centerleft><centertop>50%</centertop><width>560</width><height>180</height><texture>white.png</texture><colordiffuse>FF1B222D</colordiffuse></control>
+    <control type="label"><centerleft>50%</centerleft><centertop>47%</centertop><width>520</width><height>80</height><font>font22</font><textcolor>FFFFFFFF</textcolor><align>center</align></control>
+  </controls>
+</window>
