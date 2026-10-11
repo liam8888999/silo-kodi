@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="skin.silo" name="Silo" version="0.2.0" provider-name="liam8888999">
+<addon id="skin.silo" name="Silo" version="0.2.1" provider-name="liam8888999">
   <requires>
     <import addon="xbmc.gui" version="5.17.0"/>
     <import addon="plugin.video.silo" version="1.1.7"/>
@@ -9,11 +9,9 @@
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">A media-centric skin for Silo Server on Kodi</summary>
-    <description lang="en_GB">A cinematic Silo home dashboard with dynamic poster shelves, artwork, metadata, continue watching, and library navigation.</description>
+    <description lang="en_GB">A cinematic Silo dashboard with fixed poster rails, backdrop artwork, metadata and direct browsing.</description>
     <platform>all</platform>
     <license>GPL-3.0-or-later</license>
-    <assets>
-      <icon>icon.png</icon>
-    </assets>
+    <assets><icon>icon.png</icon></assets>
   </extension>
 </addon>
