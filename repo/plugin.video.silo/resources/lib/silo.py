@@ -276,9 +276,6 @@ class SiloClient:
         self._last_refresh_status = None
         self._last_refresh_problem = {}
         self._last_refresh_transient = False
-        # Cache visible library names so opening several version pickers does
-        # not issue a library-list request every time.
-        self._library_names = None
         self.sync_settings()
         # Detail responses are reused when the same item is later played.
         self._details = {}
@@ -313,7 +310,6 @@ class SiloClient:
             for key in ("token", "refresh_token", "profile_id", "profile_token", "bandwidth_estimate_cache"):
                 self.cfg.pop(key, None)
             self._caps = None
-            self._library_names = None
 
         self.cfg["server"] = server if server else self.cfg.get("server", "")
         self.cfg["username"] = username if username else self.cfg.get("username", "")
@@ -1035,26 +1031,6 @@ class SiloClient:
             cursor = self._next(data)
             if not cursor:
                 return libraries
-
-    def library_name(self, library_id):
-        """Return the visible name for one library ID, cached per client identity."""
-        if library_id in (None, ""):
-            return ""
-
-        wanted = str(library_id)
-        if self._library_names is None:
-            names = {}
-            for library in self.libraries():
-                if not isinstance(library, dict):
-                    continue
-                item_id = library.get("id") or library.get("library_id")
-                name = library.get("name") or library.get("library_name")
-                if item_id not in (None, "") and name not in (None, ""):
-                    names[str(item_id)] = str(name).strip()
-            self._library_names = names
-
-        return self._library_names.get(wanted, "")
-
 
     # Return the profile-wide Home sections. These combine content across
     # all libraries visible to the selected profile.

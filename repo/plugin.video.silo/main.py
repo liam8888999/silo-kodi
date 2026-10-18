@@ -7234,7 +7234,7 @@ def _version_track_summaries(tracks, kind, limit=5):
     return summaries
 
 
-def _version_picker_listitem(version, index, library_name=""):
+def _version_picker_listitem(version, index):
     """Build a Kodi detailed-list row for a Silo file version."""
     file_id = version.get("id") or version.get("file_id")
     filename = (
@@ -7299,21 +7299,9 @@ def _version_picker_listitem(version, index, library_name=""):
     container_label = container_aliases.get(container.lower(), container.upper())
     size_label = _version_size_label(version.get("file_size"))
     duration_label = _version_duration_label(version.get("duration"))
-    # A file's library must come from that version's own record. Do not
-    # fall back to the item's requested/presentation library: multi-library
-    # items can have versions stored in different libraries.
-    row_library_name = str(
-        version.get("library_name")
-        or version.get("media_folder_name")
-        or library_name
-        or ""
-    ).strip()
 
-    # Put these two requested fields at the start of the secondary label so
-    # Kodi skins are less likely to truncate them on long technical summaries.
+    # Lead with runtime, then the technical summary.
     secondary_parts = []
-    if row_library_name:
-        secondary_parts.append(row_library_name)
     if duration_label:
         secondary_parts.append(duration_label)
     if resolution:
@@ -7341,8 +7329,6 @@ def _version_picker_listitem(version, index, library_name=""):
     )
 
     details = []
-    if row_library_name:
-        details.append("Library: %s" % row_library_name)
     if filename:
         details.append("File: %s" % filename)
     if file_id is not None:
@@ -7426,33 +7412,10 @@ def choose_file(client, content_id, library_id):
     if len(versions) == 1:
         return versions[0].get("id") or versions[0].get("file_id")
 
-    items = []
-    for index, version in enumerate(versions):
-        # The current versions API does not yet include a library ID/name per
-        # file. Use per-version values when the server provides them, resolving
-        # that version's library ID through the cached visible-library list.
-        # Never label every version with the library used to open the item.
-        version_library_id = (
-            version.get("library_id")
-            or version.get("media_folder_id")
-        )
-        version_library_name = (
-            version.get("library_name")
-            or version.get("media_folder_name")
-            or ""
-        )
-        if version_library_id not in (None, "") and not version_library_name:
-            try:
-                version_library_name = client.library_name(version_library_id)
-            except Exception as exc:
-                log(
-                    "Unable to resolve library name for file version %s: %s"
-                    % (version.get("file_id") or version.get("id"), exc),
-                    xbmc.LOGDEBUG,
-                )
-        items.append(
-            _version_picker_listitem(version, index, version_library_name)
-        )
+    items = [
+        _version_picker_listitem(version, index)
+        for index, version in enumerate(versions)
+    ]
     selected = xbmcgui.Dialog().select(
         "Select version",
         items,
