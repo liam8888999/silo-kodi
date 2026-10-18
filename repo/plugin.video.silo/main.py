@@ -7583,19 +7583,19 @@ def track_progress(
             )
 
     def quality_ladder(plan):
-        """Return Silo's published quality ladder in server order."""
+        """Return Auto plus Silo's fixed quality rungs, in descending order."""
         entries = []
-        seen = set()
+        seen = {"auto", "original"}
 
         for quality in (plan or {}).get("available_qualities") or []:
             if not isinstance(quality, dict):
                 continue
 
             label = str(quality.get("label") or "").strip()
-            if not label or label in seen:
+            if not label or label.lower() in seen:
                 continue
 
-            seen.add(label)
+            seen.add(label.lower())
 
             try:
                 height = int(quality.get("height") or 0)
@@ -7613,23 +7613,45 @@ def track_progress(
                 "bitrate_kbps": bitrate,
             })
 
-        # Silo's v3 contract publishes original first. Preserve that order
-        # instead of inventing a local ordering of the server's rungs.
+        # The current /api/v2 contract publishes only fixed rungs. Treat Auto
+        # as a virtual top entry: it represents the source, not a fixed recipe.
+        # Ignore legacy "original" source entries from older server versions.
+        entries.insert(0, {
+            "label": "auto",
+            "height": 0,
+            "bitrate_kbps": 0,
+        })
         return entries
 
     def detect_quality_label(info):
-        """Identify the current rung from the last adopted plan."""
-        plan = (info or {}).get("playback_plan") or {}
+        """Identify Auto/source playback or the active fixed rung."""
+        info = info or {}
+        plan = info.get("playback_plan") or {}
         ladder = quality_ladder(plan)
+        fixed_rungs = [entry for entry in ladder if entry["label"] != "auto"]
 
-        preferred = str((info or {}).get("adaptive_quality") or "").strip()
-        labels = [entry["label"] for entry in ladder]
+        preferred = str(info.get("adaptive_quality") or "").strip()
+        if preferred and preferred.lower() not in ("auto", "original"):
+            if any(entry["label"] == preferred for entry in fixed_rungs):
+                return preferred
 
-        if preferred and preferred in labels:
-            return preferred
+        requested = str(
+            info.get("quality_preference")
+            or plan.get("quality_preference")
+            or ""
+        ).strip().lower()
+        if requested == "original":
+            requested = "auto"
+
+        delivery = str(plan.get("delivery") or "").strip().lower()
+        reason = str(plan.get("decision_reason") or "").strip().lower()
+
+        # Direct source delivery and the planner's explicit Auto-source reason
+        # are authoritative even when the source shares dimensions with a rung.
+        if delivery == "original_http" or reason == "quality_auto_source":
+            return "auto"
 
         recipe = plan.get("effective_recipe") or {}
-
         try:
             current_height = int(recipe.get("height") or 0)
         except (TypeError, ValueError):
@@ -7640,21 +7662,23 @@ def track_progress(
         except (TypeError, ValueError):
             current_bitrate = 0
 
-        # Prefer an exact height/bitrate match. This also lets an initial plan
-        # that was capped by Silo identify its actual rung instead of assuming
-        # that "original" was necessarily the active recipe.
+        # Match actual output dimensions/bitrate against fixed entries first.
+        # Auto may itself choose a fixed rung when the source cannot be used.
         if current_height > 0 or current_bitrate > 0:
-            for entry in ladder:
+            for entry in fixed_rungs:
                 if (
                     entry["height"] == current_height
                     and entry["bitrate_kbps"] == current_bitrate
                 ):
                     return entry["label"]
 
-        if labels:
-            return labels[0]
+        if preferred.lower() in ("auto", "original") or requested == "auto":
+            return "auto"
 
-        return ""
+        if fixed_rungs:
+            return fixed_rungs[0]["label"]
+
+        return "auto"
 
 
     # Per-video-session quality memory. A quality that actually caused a sustained
@@ -8254,24 +8278,9 @@ def track_progress(
                         downshift_retry_count = 0
                         downshift_retry_exhausted = False
                     else:
-                        recipe = plan.get("effective_recipe") or {}
-
-                        try:
-                            current_bitrate = int(
-                                recipe.get("bitrate_kbps") or 0
-                            )
-                        except (TypeError, ValueError):
-                            current_bitrate = 0
-
-                        # Silo's API requires a bandwidth estimate. This is a
-                        # conservative planning hint derived from the selected
-                        # recipe, not a measurement of live network throughput.
-                        estimated_bandwidth = max(
-                            100,
-                            int(current_bitrate * 0.60)
-                            if current_bitrate > 0
-                            else 1500,
-                        )
+                        # Fixed-rung requests need no bandwidth estimate.
+                        # The client only sends a cached, real measurement for Auto.
+                        estimated_bandwidth = None
 
                         try:
                             source_url_before_replan = str(
@@ -8484,23 +8493,9 @@ def track_progress(
                             )
                         )
 
-                        recipe = plan.get("effective_recipe") or {}
-
-                        try:
-                            current_bitrate = int(
-                                recipe.get("bitrate_kbps") or 0
-                            )
-                        except (TypeError, ValueError):
-                            current_bitrate = 0
-
-                        # This is a planning hint from the selected recipe,
-                        # not measured network throughput.
-                        estimated_bandwidth = max(
-                            1500,
-                            int(current_bitrate * 1.35)
-                            if current_bitrate > 0
-                            else 8000,
-                        )
+                        # Fixed-rung requests need no bandwidth estimate.
+                        # The client only sends a cached, real measurement for Auto.
+                        estimated_bandwidth = None
 
                         try:
                             source_url_before_replan = str(
@@ -8510,8 +8505,9 @@ def track_progress(
                             source_url_before_replan = ""
                         replan_started_at = time.time()
 
-                        # Never send "auto" for an adaptive quality recovery.
-                        # Silo expects the label of the exact ladder rung wanted.
+                        # Fixed rungs use their exact server-published label.
+                        # Auto is the virtual source-quality ceiling; the client
+                        # adds a cached measured bandwidth to that replan when available.
                         new_info = client.replan_playback(
                             playback_info,
                             position,
