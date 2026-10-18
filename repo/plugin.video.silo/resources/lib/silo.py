@@ -36,6 +36,7 @@ Endpoints used by this addon:
 # Standard library modules used for configuration, UUID generation and URL handling.
 import base64
 import json
+import re
 import uuid
 import threading
 import time
@@ -66,6 +67,60 @@ _REFRESH_LOCK = threading.Lock()
 # Central logging helper so every log line identifies this addon.
 def log(msg, level=xbmc.LOGINFO):
     xbmc.log("[plugin.video.silo] %s" % msg, level)
+
+
+def _kodi_output_hdr_details():
+    """Return HDR formats Kodi reports for the active display, or None if unknown.
+
+    System.SupportedHDRTypes describes the display's supported HDR formats. Do
+    not infer output support from a generic HDR decoder flag: the server uses
+    these details to decide whether a source-preserving remux is appropriate.
+    Kodi does not expose Dolby Vision profile/level support through this label,
+    so this helper deliberately never invents Dolby Vision profile claims.
+    """
+    try:
+        raw = str(xbmc.getInfoLabel("System.SupportedHDRTypes") or "").strip().lower()
+    except Exception:
+        raw = ""
+
+    if not raw:
+        log(
+            "Kodi did not report supported display HDR types; output HDR capability is unknown.",
+            xbmc.LOGDEBUG,
+        )
+        return None
+
+    compact = re.sub(r"[^a-z0-9+]", "", raw)
+    hdr10_plus = bool(re.search(r"hdr\\s*10\\s*(?:\\+|plus)", raw)) or "hdr10plus" in compact
+    hdr10 = hdr10_plus or bool(re.search(r"hdr\\s*10(?!\\s*(?:\\+|plus))", raw))
+    hlg = "hlg" in compact or "hybridloggamma" in compact
+    dolby_vision = (
+        "dolbyvision" in compact
+        or bool(re.search(r"\\bdv\\b", raw))
+    )
+
+    if not any((hdr10, hdr10_plus, hlg, dolby_vision)):
+        log(
+            "Kodi did not report any recognized display HDR types; output HDR capability is unknown.",
+            xbmc.LOGDEBUG,
+        )
+        return None
+
+    details = {
+        "hdr10": hdr10,
+        "hdr10_plus": hdr10_plus,
+        "hlg": hlg,
+        # The system label only reports that Dolby Vision is supported, not
+        # which profiles/levels the active display accepts. Keep this empty so
+        # the server does not overclaim Profile 5/7/8 compatibility.
+        "dolby_vision_profiles": [],
+    }
+    log(
+        "Kodi display HDR types: HDR10=%s HDR10+=%s HLG=%s DolbyVision=%s"
+        % (hdr10, hdr10_plus, hlg, dolby_vision),
+        xbmc.LOGDEBUG,
+    )
+    return details
 
 
 # Window property used to keep the login loading indicator visible while the
@@ -1656,6 +1711,7 @@ class SiloClient:
     def _start_body(self, file_id, start_position=0.0, quality_preference="auto", direct_play_only=False):
         caps = self.playback_caps()
         pv = self._protocol_version()
+        output_hdr_details = _kodi_output_hdr_details()
         quality_preference = str(quality_preference or "auto").strip()
         if quality_preference.lower() == "original":
             # The current API retains original only as a deprecated alias.
@@ -1767,6 +1823,17 @@ class SiloClient:
         hls_delivery["audio_passthrough_codecs"] = []
         deliveries["hls"] = hls_delivery
 
+        # These declarations are about what the active output can display,
+        # not what the server can encode. Replace any generic/server-default
+        # HDR details with Kodi's display report for the source-preserving
+        # original and progressive routes. When Kodi cannot report them, omit
+        # the claims rather than borrowing unrelated capability data.
+        for delivery in (original_delivery, progressive_delivery):
+            if output_hdr_details is None:
+                delivery.pop("hdr_details", None)
+            else:
+                delivery["hdr_details"] = dict(output_hdr_details)
+
         if direct_play_only:
             # In direct-play-only mode, tell Silo that transcoding/remux-style
             # delivery is not an acceptable fallback. The returned plan is
@@ -1798,6 +1865,8 @@ class SiloClient:
                 "codecs_video_hardware": [],
                 "codecs_audio": audio,
                 "containers": containers,
+                # The generic decoder-level HDR flag is not a display report.
+                # The current output's supported formats are sent separately below.
                 "hdr": True,
             },
             "client_playback_context": {
@@ -1810,7 +1879,11 @@ class SiloClient:
                     "model": "",
                     "os_version": xbmc.getInfoLabel("System.OSVersionInfo"),
                 },
-                "output": {},
+                "output": (
+                    {"hdr_details": dict(output_hdr_details)}
+                    if output_hdr_details is not None
+                    else {}
+                ),
                 "deliveries": deliveries,
             },
         }
