@@ -7256,23 +7256,19 @@ def _version_picker_listitem(version, index):
             except (TypeError, ValueError):
                 pass
 
-    primary_parts = []
-    if resolution:
-        primary_parts.append(resolution)
     hdr = version.get("hdr")
-    if hdr is True:
-        primary_parts.append("HDR")
-    elif hdr is False:
-        primary_parts.append("SDR")
-    if video_codec:
-        primary_parts.append(video_codec)
-
     edition = str(version.get("edition_raw") or version.get("edition_key") or "").strip()
-    primary_label = " · ".join(primary_parts)
-    if edition:
-        primary_label = (primary_label + " — " if primary_label else "") + edition
-    if not primary_label:
-        primary_label = filename or "File version %d" % (index + 1)
+
+    # Keep the source's name/filename visible as the main label, as the
+    # previous compact picker did. Put the technical summary on the second line.
+    primary_label = (
+        version.get("name")
+        or version.get("title")
+        or filename
+        or "File version %d" % (index + 1)
+    )
+    if edition and edition.casefold() not in str(primary_label).casefold():
+        primary_label = "%s — %s" % (primary_label, edition)
 
     audio_tracks = version.get("audio_tracks") or []
     first_audio = audio_tracks[0] if audio_tracks and isinstance(audio_tracks[0], dict) else {}
@@ -7304,6 +7300,14 @@ def _version_picker_listitem(version, index):
     size_label = _version_size_label(version.get("file_size"))
 
     secondary_parts = []
+    if resolution:
+        secondary_parts.append(resolution)
+    if hdr is True:
+        secondary_parts.append("HDR")
+    elif hdr is False:
+        secondary_parts.append("SDR")
+    if video_codec:
+        secondary_parts.append(video_codec)
     audio_label = " ".join(audio_parts)
     if audio_label:
         secondary_parts.append(audio_label)
@@ -7311,8 +7315,6 @@ def _version_picker_listitem(version, index):
         secondary_parts.append(container_label)
     if size_label:
         secondary_parts.append(size_label)
-    if not secondary_parts and filename:
-        secondary_parts.append(filename)
     if not secondary_parts and file_id is not None:
         secondary_parts.append("File ID %s" % file_id)
 
