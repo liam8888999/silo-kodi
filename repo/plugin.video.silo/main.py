@@ -7073,6 +7073,330 @@ def resolve_playback_library_id(client, content_id, library_id=None):
     )
 
 
+def _version_codec_label(value):
+    """Return a readable codec name for the version picker."""
+    codec = str(value or "").strip()
+    if not codec:
+        return ""
+
+    aliases = {
+        "h264": "H.264",
+        "avc": "H.264",
+        "x264": "H.264",
+        "h265": "HEVC",
+        "hevc": "HEVC",
+        "x265": "HEVC",
+        "av1": "AV1",
+        "vp9": "VP9",
+        "vp8": "VP8",
+        "mpeg2video": "MPEG-2",
+        "mpeg4": "MPEG-4",
+        "truehd": "TrueHD",
+        "eac3": "E-AC-3",
+        "ac3": "AC-3",
+        "dts-hd ma": "DTS-HD MA",
+        "dts_hd_ma": "DTS-HD MA",
+        "dts": "DTS",
+        "aac": "AAC",
+        "flac": "FLAC",
+        "opus": "Opus",
+        "mp3": "MP3",
+        "pcm_bluray": "PCM",
+    }
+    return aliases.get(codec.lower(), codec.upper())
+
+
+def _version_size_label(value):
+    """Format an API file size, supplied in bytes, for display."""
+    try:
+        size = float(value)
+    except (TypeError, ValueError):
+        return ""
+
+    if size <= 0:
+        return ""
+
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1000 or unit == "TB":
+            if unit == "B":
+                return "%d %s" % (int(size), unit)
+            return "%.1f %s" % (size, unit)
+        size /= 1000.0
+
+    return ""
+
+
+def _version_duration_label(value):
+    """Format a version duration in seconds as h:mm:ss or m:ss."""
+    try:
+        seconds = max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return ""
+
+    if seconds <= 0:
+        return ""
+
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, seconds)
+    return "%d:%02d" % (minutes, seconds)
+
+
+def _version_channel_label(track):
+    """Return a useful channel-layout label from an audio track."""
+    if not isinstance(track, dict):
+        return ""
+
+    layout = str(track.get("layout") or track.get("channel_layout") or "").strip()
+    if layout:
+        return layout
+
+    value = track.get("channels")
+    try:
+        channels = int(value)
+    except (TypeError, ValueError):
+        return str(value or "").strip()
+
+    return {
+        1: "mono",
+        2: "2.0",
+        6: "5.1",
+        8: "7.1",
+    }.get(channels, "%d ch" % channels if channels > 0 else "")
+
+
+def _version_track_summaries(tracks, kind, limit=5):
+    """Summarise track metadata for the detailed version-picker information."""
+    if not isinstance(tracks, list):
+        return []
+
+    summaries = []
+    for track in tracks[:limit]:
+        if not isinstance(track, dict):
+            continue
+
+        parts = []
+        title = track.get("title") or track.get("embedded_title")
+        language = track.get("language")
+        codec = track.get("codec") or track.get("codec_%s" % kind)
+        if title:
+            parts.append(str(title).strip())
+        if language:
+            parts.append(str(language).strip().upper())
+        if codec:
+            parts.append(_version_codec_label(codec))
+
+        if kind == "audio":
+            channels = _version_channel_label(track)
+            if channels:
+                parts.append(channels)
+            bitrate = track.get("bitrate")
+            try:
+                bitrate = int(bitrate)
+            except (TypeError, ValueError):
+                bitrate = 0
+            if bitrate > 0:
+                parts.append("%.1f Mbps" % (bitrate / 1000000.0)
+                             if bitrate >= 1000000
+                             else "%d kbps" % (bitrate // 1000))
+
+        elif kind == "video":
+            width = track.get("width")
+            height = track.get("height")
+            if width and height:
+                parts.append("%s×%s" % (width, height))
+            bit_depth = track.get("bit_depth")
+            if bit_depth:
+                parts.append("%s-bit" % bit_depth)
+            frame_rate = track.get("frame_rate")
+            if frame_rate:
+                parts.append("%s fps" % frame_rate)
+            dolby_vision = track.get("dolby_vision")
+            if dolby_vision:
+                parts.append("Dolby Vision %s" % dolby_vision)
+            video_range = track.get("video_range") or track.get("video_range_type")
+            if video_range and str(video_range).lower() not in ("sdr", "standard"):
+                parts.append(str(video_range))
+
+        elif kind == "subtitle":
+            if track.get("forced"):
+                parts.append("Forced")
+            if track.get("hearing_impaired"):
+                parts.append("SDH")
+
+        if parts:
+            summaries.append(" · ".join(dict.fromkeys(parts)))
+
+    if len(tracks) > limit:
+        summaries.append("+ %d more" % (len(tracks) - limit))
+
+    return summaries
+
+
+def _version_picker_listitem(version, index):
+    """Build a Kodi detailed-list row for a Silo file version."""
+    file_id = version.get("id") or version.get("file_id")
+    filename = (
+        version.get("file_name")
+        or version.get("filename")
+        or version.get("name")
+        or version.get("title")
+        or ""
+    )
+    resolution = str(version.get("resolution") or "").strip()
+    video_codec = _version_codec_label(version.get("codec_video"))
+    if not resolution:
+        video_tracks = version.get("video_tracks") or []
+        if video_tracks and isinstance(video_tracks[0], dict):
+            height = video_tracks[0].get("height")
+            try:
+                if height:
+                    resolution = "%dp" % int(height)
+            except (TypeError, ValueError):
+                pass
+
+    primary_parts = []
+    if resolution:
+        primary_parts.append(resolution)
+    hdr = version.get("hdr")
+    if hdr is True:
+        primary_parts.append("HDR")
+    elif hdr is False:
+        primary_parts.append("SDR")
+    if video_codec:
+        primary_parts.append(video_codec)
+
+    edition = str(version.get("edition_raw") or version.get("edition_key") or "").strip()
+    primary_label = " · ".join(primary_parts)
+    if edition:
+        primary_label = (primary_label + " — " if primary_label else "") + edition
+    if not primary_label:
+        primary_label = filename or "File version %d" % (index + 1)
+
+    audio_tracks = version.get("audio_tracks") or []
+    first_audio = audio_tracks[0] if audio_tracks and isinstance(audio_tracks[0], dict) else {}
+    audio_codec = _version_codec_label(version.get("codec_audio"))
+    if not audio_codec:
+        audio_codec = _version_codec_label(first_audio.get("codec"))
+    audio_parts = []
+    if audio_codec:
+        audio_parts.append(audio_codec)
+    audio_channels = _version_channel_label(first_audio)
+    if audio_channels:
+        audio_parts.append(audio_channels)
+    audio_language = str(
+        version.get("effective_audio_language") or first_audio.get("language") or ""
+    ).strip()
+    if audio_language:
+        audio_parts.append(audio_language.upper())
+    if len(audio_tracks) > 1:
+        audio_parts.append("%d audio tracks" % len(audio_tracks))
+
+    container = str(version.get("container") or "").strip()
+    container_aliases = {
+        "matroska": "MKV",
+        "mpegts": "MPEG-TS",
+        "mpeg-ts": "MPEG-TS",
+        "quicktime": "MOV",
+    }
+    container_label = container_aliases.get(container.lower(), container.upper())
+    size_label = _version_size_label(version.get("file_size"))
+
+    secondary_parts = []
+    audio_label = " ".join(audio_parts)
+    if audio_label:
+        secondary_parts.append(audio_label)
+    if container_label:
+        secondary_parts.append(container_label)
+    if size_label:
+        secondary_parts.append(size_label)
+    if not secondary_parts and filename:
+        secondary_parts.append(filename)
+    if not secondary_parts and file_id is not None:
+        secondary_parts.append("File ID %s" % file_id)
+
+    item = xbmcgui.ListItem(
+        label=primary_label,
+        label2=" · ".join(secondary_parts),
+        offscreen=True,
+    )
+
+    details = []
+    if filename:
+        details.append("File: %s" % filename)
+    if file_id is not None:
+        details.append("File ID: %s" % file_id)
+    if resolution:
+        details.append("Resolution: %s" % resolution)
+    if video_codec:
+        details.append("Video codec: %s" % video_codec)
+    if hdr is True:
+        details.append("Dynamic range: HDR")
+    elif hdr is False:
+        details.append("Dynamic range: SDR")
+    if edition:
+        details.append("Edition: %s" % edition)
+    if audio_label:
+        details.append("Audio: %s" % audio_label)
+    if container_label:
+        details.append("Container: %s" % container_label)
+    if size_label:
+        details.append("File size: %s" % size_label)
+
+    bitrate = version.get("bitrate")
+    try:
+        bitrate = int(bitrate)
+    except (TypeError, ValueError):
+        bitrate = 0
+    if bitrate > 0:
+        details.append(
+            "Bitrate: %.1f Mbps" % (bitrate / 1000.0)
+            if bitrate >= 1000
+            else "Bitrate: %d kbps" % bitrate
+        )
+
+    duration_label = _version_duration_label(version.get("duration"))
+    if duration_label:
+        details.append("Duration: %s" % duration_label)
+
+    added_at = str(version.get("added_at") or "").strip()
+    if added_at:
+        details.append("Added: %s" % added_at.replace("T", " ")[:16])
+
+    track_sections = (
+        ("Video tracks", _version_track_summaries(version.get("video_tracks"), "video")),
+        ("Audio tracks", _version_track_summaries(audio_tracks, "audio")),
+        ("Subtitle tracks", _version_track_summaries(version.get("subtitle_tracks"), "subtitle")),
+    )
+    for heading, summaries in track_sections:
+        if summaries:
+            details.append("%s:" % heading)
+            details.extend("  %s" % summary for summary in summaries)
+
+    item.setInfo("video", {
+        "title": filename or primary_label,
+        "plot": "\n".join(details),
+        "duration": max(0, int(float(version.get("duration") or 0))),
+        "codec": video_codec,
+        "file": filename,
+    })
+    if file_id is not None:
+        item.setProperty("Silo.FileId", str(file_id))
+    if resolution:
+        item.setProperty("Silo.Resolution", resolution)
+    if video_codec:
+        item.setProperty("Silo.VideoCodec", video_codec)
+    if audio_codec:
+        item.setProperty("Silo.AudioCodec", audio_codec)
+    if hdr is not None:
+        item.setProperty("Silo.HDR", "true" if hdr else "false")
+    if edition:
+        item.setProperty("Silo.Edition", edition)
+
+    return item
+
+
 def choose_file(client, content_id, library_id):
     """Return the file/version selected by the user."""
     versions = client.versions(content_id, library_id)
@@ -7083,18 +7407,15 @@ def choose_file(client, content_id, library_id):
     if len(versions) == 1:
         return versions[0].get("id") or versions[0].get("file_id")
 
-    labels = []
-
-    for version in versions:
-        labels.append(
-            version.get("name")
-            or version.get("title")
-            or version.get("filename")
-            or version.get("file_name")
-            or str(version.get("id") or version.get("file_id"))
-        )
-
-    selected = xbmcgui.Dialog().select("Select version", labels)
+    items = [
+        _version_picker_listitem(version, index)
+        for index, version in enumerate(versions)
+    ]
+    selected = xbmcgui.Dialog().select(
+        "Select version",
+        items,
+        useDetails=True,
+    )
 
     if selected < 0:
         return None
