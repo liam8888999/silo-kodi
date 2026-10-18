@@ -91,12 +91,12 @@ def _kodi_output_hdr_details():
         return None
 
     compact = re.sub(r"[^a-z0-9+]", "", raw)
-    hdr10_plus = bool(re.search(r"hdr\\s*10\\s*(?:\\+|plus)", raw)) or "hdr10plus" in compact
-    hdr10 = hdr10_plus or bool(re.search(r"hdr\\s*10(?!\\s*(?:\\+|plus))", raw))
+    hdr10_plus = bool(re.search(r"hdr\s*10\s*(?:\+|plus)", raw)) or "hdr10plus" in compact
+    hdr10 = hdr10_plus or bool(re.search(r"hdr\s*10(?!\s*(?:\+|plus))", raw))
     hlg = "hlg" in compact or "hybridloggamma" in compact
     dolby_vision = (
         "dolbyvision" in compact
-        or bool(re.search(r"\\bdv\\b", raw))
+        or bool(re.search(r"\bdv\b", raw))
     )
 
     if not any((hdr10, hdr10_plus, hlg, dolby_vision)):
