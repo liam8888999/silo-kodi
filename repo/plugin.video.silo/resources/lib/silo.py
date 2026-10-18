@@ -1817,7 +1817,7 @@ class SiloClient:
 
         # A measured probe is cached between playback starts. Never synthesize a
         # throughput estimate from the media recipe: Auto treats this field as a
-      measurement when deciding whether it can safely use the source bitrate.
+        # measurement when deciding whether it can safely use the source bitrate.
         if not direct_play_only:
             estimate = self.measure_bandwidth_kbps()
             if estimate is not None:
