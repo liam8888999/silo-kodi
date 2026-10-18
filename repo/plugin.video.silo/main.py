@@ -7930,7 +7930,14 @@ def track_progress(
         playback_info.clear()
         playback_info.update(new_info)
         playback_info["session_id"] = session_id
-        playback_info["adaptive_quality"] = target_label
+        # Auto is an intent, not a fixed output rung. The server can correctly
+        # answer an Auto request with a fixed rung when the source will not fit
+        # the measured bandwidth or the device's capabilities.
+        playback_info["adaptive_quality"] = (
+            detect_quality_label(new_info)
+            if str(target_label).strip().lower() in ("auto", "original")
+            else target_label
+        )
 
         return True
 
@@ -8458,7 +8465,7 @@ def track_progress(
                     )
 
                     if target_label is None:
-                        # Already at the source/original ceiling. There is
+                        # Already at the Auto/source ceiling. There is
                         # nothing higher to request until a future downshift.
                         last_up_replan_at = now
                         healthy_since = now
@@ -8546,22 +8553,55 @@ def track_progress(
                             healthy_since = 0.0
                             post_switch_grace_until = now + 15.0
 
-                            # The higher rung is now a probe. It must actually
-                            # advance and then remain healthy for the full
-                            # confirmation interval before replacing the current
-                            # trusted quality.
-                            probe_quality = target_label
-
-                            log(
-                                "Adaptive quality probe started: %s -> %s; "
-                                "target must remain healthy for %.0fs before "
-                                "becoming trusted"
-                                % (
-                                    current_label,
-                                    target_label,
-                                    quality_confirmation_threshold,
-                                )
+                            # Auto may resolve to a fixed rung instead of the
+                            # source. Only call it an upward probe if the server's
+                            # effective result is actually above the current rung.
+                            active_label = (
+                                playback_info.get("adaptive_quality") or target_label
                             )
+                            rung_labels = [
+                                entry["label"] for entry in quality_ladder(plan)
+                            ]
+                            try:
+                                current_index = rung_labels.index(current_label)
+                            except ValueError:
+                                current_index = len(rung_labels) - 1
+                            try:
+                                active_index = rung_labels.index(active_label)
+                            except ValueError:
+                                active_index = 0
+                            is_upward_probe = (
+                                active_label == "auto" or active_index < current_index
+                            )
+
+                            if is_upward_probe:
+                                # It must advance and remain healthy for the full
+                                # confirmation interval before replacing trusted quality.
+                                probe_quality = active_label
+                                log(
+                                    "Adaptive quality probe started: %s -> %s "
+                                    "(requested %s); target must remain healthy "
+                                    "for %.0fs before becoming trusted"
+                                    % (
+                                        current_label,
+                                        active_label,
+                                        target_label,
+                                        quality_confirmation_threshold,
+                                    )
+                                )
+                            else:
+                                # Auto retained or selected a non-higher rung. It
+                                # is an accepted server decision, not an upshift probe.
+                                known_good_quality = active_label
+                                known_good_since = now
+                                probe_quality = None
+                                healthy_since = now
+                                log(
+                                    "Auto resolved to %s rather than a higher source "
+                                    "quality; keeping the server-selected rung."
+                                    % active_label,
+                                    xbmc.LOGDEBUG,
+                                )
 
                             log(
                                 "Adaptive upshift complete: %s -> %s "
