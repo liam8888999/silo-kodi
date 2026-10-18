@@ -2115,9 +2115,23 @@ class SiloClient:
         plan = data.get("playback_plan")
 
         if not plan:
+            terminal = data.get("terminal") or data.get("outcome")
+            if (
+                direct_play_only
+                and isinstance(terminal, dict)
+                and terminal.get("reason") == "client_hls_unsupported"
+            ):
+                raise SiloError(
+                    "Only allow direct play is enabled, but Silo determined this "
+                    "item needs an HLS adaptation route. Turn off 'Only allow direct "
+                    "play' to permit remuxing/transcoding. If you expect this file "
+                    "to direct play, check its video profile/HDR format, selected "
+                    "audio track, subtitles, and Silo playback diagnostics.",
+                    problem=terminal,
+                )
             raise SiloError(
-                "Server refused playback: %s"
-                % json.dumps(data.get("terminal") or data.get("outcome"))[:300]
+                "Server refused playback: %s" % json.dumps(terminal)[:300],
+                problem=terminal if isinstance(terminal, dict) else {},
             )
 
         if direct_play_only and str(plan.get("delivery") or "").strip().lower() != "original_http":
