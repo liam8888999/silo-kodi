@@ -7234,7 +7234,7 @@ def _version_track_summaries(tracks, kind, limit=5):
     return summaries
 
 
-def _version_picker_listitem(version, index):
+def _version_picker_listitem(version, index, poster_url=None):
     """Build a Kodi detailed-list row for a Silo file version."""
     file_id = version.get("id") or version.get("file_id")
     filename = (
@@ -7328,6 +7328,15 @@ def _version_picker_listitem(version, index):
         offscreen=True,
     )
 
+    # The detailed selector can show the media poster alongside each version.
+    # Artwork is optional; keep the picker fully usable if it is unavailable.
+    if poster_url:
+        item.setArt({
+            "thumb": poster_url,
+            "poster": poster_url,
+            "icon": poster_url,
+        })
+
     details = []
     if filename:
         details.append("File: %s" % filename)
@@ -7412,8 +7421,30 @@ def choose_file(client, content_id, library_id):
     if len(versions) == 1:
         return versions[0].get("id") or versions[0].get("file_id")
 
+    # File versions describe the streams, while the parent catalog item
+    # supplies its artwork. Resolve the poster once and reuse it for every row.
+    # The artwork lookup is best-effort and must not block manual version choice.
+    poster_url = ""
+    try:
+        detail = client.item_detail(content_id, library_id)
+        if isinstance(detail, dict):
+            poster = (
+                detail.get("poster_url")
+                or detail.get("poster")
+                or detail.get("still_url")
+                or detail.get("backdrop_url")
+                or detail.get("backdrop")
+            )
+            poster_url = _art_url(client, poster)
+    except Exception as exc:
+        log(
+            "Unable to retrieve artwork for version picker (%s): %s"
+            % (content_id, exc),
+            xbmc.LOGDEBUG,
+        )
+
     items = [
-        _version_picker_listitem(version, index)
+        _version_picker_listitem(version, index, poster_url=poster_url)
         for index, version in enumerate(versions)
     ]
     selected = xbmcgui.Dialog().select(
