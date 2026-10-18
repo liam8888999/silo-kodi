@@ -99,7 +99,9 @@ def _kodi_output_hdr_details():
         or bool(re.search(r"\bdv\b", raw))
     )
 
-    if not any((hdr10, hdr10_plus, hlg, dolby_vision)):
+    # Dolby Vision presence alone is insufficient for the server's
+    # profile-specific output contract; do not treat it as a complete report.
+    if not any((hdr10, hdr10_plus, hlg)):
         log(
             "Kodi did not report any recognized display HDR types; output HDR capability is unknown.",
             xbmc.LOGDEBUG,
