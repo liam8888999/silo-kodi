@@ -7234,7 +7234,7 @@ def _version_track_summaries(tracks, kind, limit=5):
     return summaries
 
 
-def _version_picker_listitem(version, index):
+def _version_picker_listitem(version, index, library_name=""):
     """Build a Kodi detailed-list row for a Silo file version."""
     file_id = version.get("id") or version.get("file_id")
     filename = (
@@ -7298,8 +7298,18 @@ def _version_picker_listitem(version, index):
     }
     container_label = container_aliases.get(container.lower(), container.upper())
     size_label = _version_size_label(version.get("file_size"))
+    duration_label = _version_duration_label(version.get("duration"))
+    row_library_name = str(
+        version.get("library_name") or library_name or ""
+    ).strip()
 
+    # Put these two requested fields at the start of the secondary label so
+    # Kodi skins are less likely to truncate them on long technical summaries.
     secondary_parts = []
+    if row_library_name:
+        secondary_parts.append(row_library_name)
+    if duration_label:
+        secondary_parts.append(duration_label)
     if resolution:
         secondary_parts.append(resolution)
     if hdr is True:
@@ -7325,6 +7335,8 @@ def _version_picker_listitem(version, index):
     )
 
     details = []
+    if row_library_name:
+        details.append("Library: %s" % row_library_name)
     if filename:
         details.append("File: %s" % filename)
     if file_id is not None:
@@ -7358,9 +7370,8 @@ def _version_picker_listitem(version, index):
             else "Bitrate: %d kbps" % bitrate
         )
 
-    duration_label = _version_duration_label(version.get("duration"))
     if duration_label:
-        details.append("Duration: %s" % duration_label)
+        details.append("Runtime: %s" % duration_label)
 
     added_at = str(version.get("added_at") or "").strip()
     if added_at:
@@ -7409,8 +7420,19 @@ def choose_file(client, content_id, library_id):
     if len(versions) == 1:
         return versions[0].get("id") or versions[0].get("file_id")
 
+    try:
+        library_name = client.library_name(library_id)
+    except Exception as exc:
+        # Showing the library name is a convenience, not a playback dependency.
+        # Keep the version picker usable when library discovery is unavailable.
+        log(
+            "Unable to resolve library name for version picker: %s" % exc,
+            xbmc.LOGDEBUG,
+        )
+        library_name = ""
+
     items = [
-        _version_picker_listitem(version, index)
+        _version_picker_listitem(version, index, library_name)
         for index, version in enumerate(versions)
     ]
     selected = xbmcgui.Dialog().select(
