@@ -7517,8 +7517,8 @@ def track_progress(
     video session. Its retry cooldown increases after repeated failures, which prevents
     the controller from repeatedly bouncing between the same two rungs.
 
-    "original" is Silo's source-preserving ceiling. It remains the highest rung, but
-    it is not repeatedly retried simply because playback has been healthy for 90 seconds.
+    "auto" is Silo's source-preserving intent and sits above the fixed quality rungs.
+    It is not repeatedly retried simply because playback has been healthy for 90 seconds.
     """
     player = xbmc.Player()
     monitor = xbmc.Monitor()
