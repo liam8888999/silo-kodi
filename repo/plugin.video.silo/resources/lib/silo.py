@@ -112,6 +112,7 @@ _INTERNAL_SETTINGS = (
     "refresh_token",
     "profile_id",
     "profile_token",
+    "bandwidth_estimate_cache",
 )
 
 
@@ -134,6 +135,7 @@ def _clear_account_settings():
         "refresh_token",
         "profile_id",
         "profile_token",
+        "bandwidth_estimate_cache",
         "start_overrides",
     ):
         _set_setting(key, "")
@@ -248,7 +250,7 @@ class SiloClient:
         )
 
         if new_identity != old_identity:
-            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+            for key in ("token", "refresh_token", "profile_id", "profile_token", "bandwidth_estimate_cache"):
                 self.cfg.pop(key, None)
             self._caps = None
 
@@ -344,7 +346,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True, extra_headers=None):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True, extra_headers=None, stream=False):
         if not self.base:
             self._prompt_account()
 
@@ -390,6 +392,7 @@ class SiloClient:
                 params=params,
                 json=body,
                 timeout=timeout,
+                stream=stream,
             )
         except requests.RequestException as e:
             raise SiloError("Cannot reach server: %s" % e)
@@ -425,6 +428,7 @@ class SiloClient:
                 timeout,
                 log_not_found,
                 extra_headers,
+                stream,
             )
 
         # A locked profile may need a fresh profile-verification token.
@@ -1511,10 +1515,151 @@ class SiloClient:
         except (TypeError, ValueError):
             return 3
 
+    # Read a previously measured bandwidth value for this server, if it is fresh.
+    def _bandwidth_cache_record(self):
+        raw = _setting("bandwidth_estimate_cache")
+        try:
+            record = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+
+        if not isinstance(record, dict) or record.get("server") != self.base:
+            return None
+
+        try:
+            measured_at = float(record.get("measured_at"))
+        except (TypeError, ValueError):
+            return None
+
+        age = time.time() - measured_at
+        if age < 0:
+            return None
+
+        record["_age_seconds"] = age
+        return record
+
+    def cached_bandwidth_estimate_kbps(self):
+        """Return a fresh measured value, never a recipe-derived guess."""
+        record = self._bandwidth_cache_record()
+        if not record or record.get("_age_seconds", float("inf")) > 1800:
+            return None
+
+        try:
+            kbps = int(record.get("kbps"))
+        except (TypeError, ValueError):
+            return None
+
+        return max(100, min(kbps, 1000000)) if kbps >= 100 else None
+
+    def _store_bandwidth_probe_result(self, kbps):
+        record = {
+            "server": self.base,
+            "measured_at": time.time(),
+            "kbps": int(kbps) if kbps is not None else None,
+        }
+        value = json.dumps(record, separators=(",", ":"))
+        self.cfg["bandwidth_estimate_cache"] = value
+        _set_setting("bandwidth_estimate_cache", value)
+
+    def measure_bandwidth_kbps(self):
+        """Measure throughput using Silo's advertised, rate-limited probe API.
+
+        The result is cached for 30 minutes. Failed probes are briefly cached too,
+        avoiding repeated requests if the endpoint is temporarily unavailable.
+        """
+        caps = self.playback_caps()
+        features = caps.get("features") or []
+        if "bandwidth_probe_v1" not in features:
+            return None
+
+        cached = self._bandwidth_cache_record()
+        if cached:
+            age = cached.get("_age_seconds", float("inf"))
+            if age <= 1800:
+                try:
+                    kbps = int(cached.get("kbps"))
+                    if kbps >= 100:
+                        return min(kbps, 1000000)
+                except (TypeError, ValueError):
+                    # A cached failed attempt is retried after a short cooldown.
+                    if "kbps" in cached and cached.get("kbps") is None and age < 300:
+                        return None
+
+        response = None
+        started = None
+        warm = None
+        bytes_received = 0
+        now = None
+        try:
+            response = self._send(
+                "GET",
+                "/api/v2/playback/bandwidth-probe",
+                params={"size": 40000000},
+                need_profile=False,
+                timeout=(5, 2),
+                extra_headers={"Accept": "application/octet-stream"},
+                stream=True,
+            )
+
+            # Match the server web client's probe window: ignore the first chunk
+            # for connection ramp-up, then time at most two seconds of traffic.
+            for chunk in response.iter_content(chunk_size=16 * 1024):
+                if not chunk:
+                    continue
+                now = time.monotonic()
+                if started is None:
+                    started = now
+                    continue
+
+                bytes_received += len(chunk)
+                elapsed = now - started
+                if warm is None and elapsed >= 0.3:
+                    warm = (now, bytes_received)
+                if elapsed >= 2.0:
+                    break
+        except (requests.RequestException, SiloError, ValueError, OSError) as exc:
+            log("Bandwidth probe unavailable; Auto will use best-effort source quality: %s" % exc, xbmc.LOGDEBUG)
+            self._store_bandwidth_probe_result(None)
+            return None
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
+        if started is None or now is None:
+            self._store_bandwidth_probe_result(None)
+            return None
+
+        elapsed = now - started
+        if elapsed <= 0 or (elapsed < 0.2 and bytes_received < 1000000):
+            self._store_bandwidth_probe_result(None)
+            return None
+
+        if warm and now - warm[0] >= warm[0] - started and bytes_received > warm[1]:
+            kbps = int(((bytes_received - warm[1]) * 8) / ((now - warm[0]) * 1000))
+        else:
+            kbps = int((bytes_received * 8) / (elapsed * 1000))
+
+        if kbps < 100:
+            self._store_bandwidth_probe_result(None)
+            return None
+
+        kbps = min(kbps, 1000000)
+        self._store_bandwidth_probe_result(kbps)
+        log("Measured server bandwidth: %d kbps (cached for 30 minutes)." % kbps, xbmc.LOGDEBUG)
+        return kbps
+
+
     # Build a protocol-v3 playback/start request.
-    def _start_body(self, file_id, start_position=0.0, quality_preference="original", direct_play_only=False):
+    def _start_body(self, file_id, start_position=0.0, quality_preference="auto", direct_play_only=False):
         caps = self.playback_caps()
         pv = self._protocol_version()
+        quality_preference = str(quality_preference or "auto").strip()
+        if quality_preference.lower() == "original":
+            # The current API retains original only as a deprecated alias.
+            quality_preference = "auto"
 
         # JellyCon deliberately does not restrict DirectPlayProfiles by codec,
         # container, resolution or decoder. Silo's current v3 planner requires
@@ -1634,7 +1779,7 @@ class SiloClient:
             hls_delivery["enabled"] = False
             hls_delivery["supported_on_device"] = False
 
-        return {
+        body = {
             "installation_id": self._installation_id(),
             "protocol_version": pv,
             "client_features": ["playback_plan_v3", "seek_reanchor_v1"],
@@ -1642,7 +1787,7 @@ class SiloClient:
             "profile_id": str(self.cfg["profile_id"]),
             "start_position": float(start_position),
             "playback_attempt_id": uuid.uuid4().hex,
-            "quality_preference": str(quality_preference or "original"),
+            "quality_preference": quality_preference,
             "subtitle_fidelity_preference": "preserve",
             "metered": False,
             "progress_persistence": "server",
@@ -1670,6 +1815,16 @@ class SiloClient:
             },
         }
 
+        # A measured probe is cached between playback starts. Never synthesize a
+        # throughput estimate from the media recipe: Auto treats this field as a
+      measurement when deciding whether it can safely use the source bitrate.
+        if not direct_play_only:
+            estimate = self.measure_bandwidth_kbps()
+            if estimate is not None:
+                body["bandwidth_estimate_kbps"] = estimate
+
+        return body
+
 
     # Replan an active session when the player reports sustained network trouble.
 
@@ -1677,7 +1832,7 @@ class SiloClient:
 
     # an observed effective bandwidth estimate.
 
-    def replan_playback(self, info, position, bandwidth_estimate_kbps, quality_preference="auto", operation="failure_recovery", failure=None):
+    def replan_playback(self, info, position, bandwidth_estimate_kbps=None, quality_preference="auto", operation="failure_recovery", failure=None):
 
         plan = (info or {}).get("playback_plan") or {}
         session_id = (info or {}).get("session_id") or plan.get("session_id")
@@ -1685,12 +1840,20 @@ class SiloClient:
         if not session_id or not plan:
             raise SiloError("Cannot replan playback without an active Silo plan.")
 
-        try:
-            bandwidth_estimate_kbps = int(bandwidth_estimate_kbps)
-        except (TypeError, ValueError):
-            raise SiloError("Invalid bandwidth estimate for playback replan.")
+        quality_preference = str(quality_preference or "auto").strip()
+        if quality_preference.lower() == "original":
+            quality_preference = "auto"
 
-        bandwidth_estimate_kbps = max(100, min(bandwidth_estimate_kbps, 1000000))
+        if bandwidth_estimate_kbps is not None:
+            try:
+                bandwidth_estimate_kbps = int(bandwidth_estimate_kbps)
+            except (TypeError, ValueError):
+                raise SiloError("Invalid bandwidth estimate for playback replan.")
+            bandwidth_estimate_kbps = max(100, min(bandwidth_estimate_kbps, 1000000))
+        elif quality_preference == "auto":
+            # Reuse only a still-fresh measured result; do not run a probe while
+            # playback is active because the extra transfer competes with media.
+            bandwidth_estimate_kbps = self.cached_bandwidth_estimate_kbps()
 
         playback_attempt_id = str((info or {}).get("playback_attempt_id") or "")
         plan_attempt_id = str((info or {}).get("plan_attempt_id") or "")
@@ -1747,15 +1910,17 @@ class SiloClient:
             "plan_attempt_key": current_plan_key,
             "attempted_plan_keys": attempted_plan_keys,
             "attempt_count": attempt_count,
-            "quality_preference": str(quality_preference or "auto"),
+            "quality_preference": quality_preference,
             "position_seconds": max(0.0, float(position or 0.0)),
             "metered": bool((info or {}).get("metered", False)),
-            "bandwidth_estimate_kbps": bandwidth_estimate_kbps,
             "selected_tracks": plan.get("selected_tracks") or {},
             "client_capabilities": (info or {}).get("client_capabilities") or {},
             "client_playback_context": (info or {}).get("client_playback_context") or {},
             **({"failure": failure} if failure else {}),
         }
+
+        if bandwidth_estimate_kbps is not None:
+            body["bandwidth_estimate_kbps"] = bandwidth_estimate_kbps
 
         data = self._json(
             "POST",
@@ -1793,11 +1958,11 @@ class SiloClient:
             )
 
         log(
-            "adaptive replan delivery=%s quality=%s client_bandwidth_hint_kbps=%d (recipe-based, not measured throughput) position=%.3f"
+            "adaptive replan delivery=%s quality=%s bandwidth_estimate_kbps=%s position=%.3f"
             % (
                 new_plan.get("delivery"),
                 quality_preference or "auto",
-                bandwidth_estimate_kbps,
+                bandwidth_estimate_kbps if bandwidth_estimate_kbps is not None else "omitted",
                 float(position or 0.0),
             )
         )
@@ -1836,14 +2001,10 @@ class SiloClient:
         quality_preference = str(
             (info or {}).get("quality_preference")
             or plan.get("quality_preference")
-            or "original"
-        )
-
-        recipe = plan.get("effective_recipe") or {}
-        try:
-            current_bitrate = int(recipe.get("bitrate_kbps") or 0)
-        except (TypeError, ValueError):
-            current_bitrate = 0
+            or "auto"
+        ).strip()
+        if quality_preference.lower() == "original":
+            quality_preference = "auto"
 
         body = {
             "installation_id": self._installation_id(),
@@ -1860,11 +2021,15 @@ class SiloClient:
             "quality_preference": quality_preference,
             "position_seconds": max(0.0, float(position or 0.0)),
             "metered": bool((info or {}).get("metered", False)),
-            "bandwidth_estimate_kbps": max(100, current_bitrate) if current_bitrate else 1500,
             "selected_tracks": plan.get("selected_tracks") or {},
             "client_capabilities": (info or {}).get("client_capabilities") or {},
             "client_playback_context": (info or {}).get("client_playback_context") or {},
         }
+
+        if quality_preference == "auto":
+            estimate = self.cached_bandwidth_estimate_kbps()
+            if estimate is not None:
+                body["bandwidth_estimate_kbps"] = estimate
 
         data = self._json(
             "POST",
@@ -1933,7 +2098,7 @@ class SiloClient:
         ]
 
     # Ask Silo for a playable stream URL using the supplied server-authoritative start position.
-    def start_playback(self, file_id, start_position=0.0, quality_preference="original", direct_play_only=False):
+    def start_playback(self, file_id, start_position=0.0, quality_preference="auto", direct_play_only=False):
         body = self._start_body(
             file_id,
             start_position,
@@ -2003,7 +2168,7 @@ class SiloClient:
             "client_features": body.get("client_features") or [],
             # Preserve the requested quality so a seek_reanchor can reproduce
             # the attempt's intent while the server keeps its current frozen route.
-            "quality_preference": str(quality_preference or "original"),
+            "quality_preference": body.get("quality_preference") or "auto",
             # plan_attempt_id is client-owned; keep one stable ID for all
             # replans in this playback session, matching Silo's other clients.
             "plan_attempt_id": uuid.uuid4().hex,
