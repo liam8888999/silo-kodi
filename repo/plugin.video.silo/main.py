@@ -7299,8 +7299,14 @@ def _version_picker_listitem(version, index, library_name=""):
     container_label = container_aliases.get(container.lower(), container.upper())
     size_label = _version_size_label(version.get("file_size"))
     duration_label = _version_duration_label(version.get("duration"))
+    # A file's library must come from that version's own record. Do not
+    # fall back to the item's requested/presentation library: multi-library
+    # items can have versions stored in different libraries.
     row_library_name = str(
-        version.get("library_name") or library_name or ""
+        version.get("library_name")
+        or version.get("media_folder_name")
+        or library_name
+        or ""
     ).strip()
 
     # Put these two requested fields at the start of the secondary label so
@@ -7420,21 +7426,33 @@ def choose_file(client, content_id, library_id):
     if len(versions) == 1:
         return versions[0].get("id") or versions[0].get("file_id")
 
-    try:
-        library_name = client.library_name(library_id)
-    except Exception as exc:
-        # Showing the library name is a convenience, not a playback dependency.
-        # Keep the version picker usable when library discovery is unavailable.
-        log(
-            "Unable to resolve library name for version picker: %s" % exc,
-            xbmc.LOGDEBUG,
+    items = []
+    for index, version in enumerate(versions):
+        # The current versions API does not yet include a library ID/name per
+        # file. Use per-version values when the server provides them, resolving
+        # that version's library ID through the cached visible-library list.
+        # Never label every version with the library used to open the item.
+        version_library_id = (
+            version.get("library_id")
+            or version.get("media_folder_id")
         )
-        library_name = ""
-
-    items = [
-        _version_picker_listitem(version, index, library_name)
-        for index, version in enumerate(versions)
-    ]
+        version_library_name = (
+            version.get("library_name")
+            or version.get("media_folder_name")
+            or ""
+        )
+        if version_library_id not in (None, "") and not version_library_name:
+            try:
+                version_library_name = client.library_name(version_library_id)
+            except Exception as exc:
+                log(
+                    "Unable to resolve library name for file version %s: %s"
+                    % (version.get("file_id") or version.get("id"), exc),
+                    xbmc.LOGDEBUG,
+                )
+        items.append(
+            _version_picker_listitem(version, index, version_library_name)
+        )
     selected = xbmcgui.Dialog().select(
         "Select version",
         items,
