@@ -1032,7 +1032,6 @@ class SiloClient:
             if not cursor:
                 return libraries
 
-
     # Return the profile-wide Home sections. These combine content across
     # all libraries visible to the selected profile.
     def home_sections(self, image_size="medium"):
