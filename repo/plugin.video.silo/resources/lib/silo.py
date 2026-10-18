@@ -1603,7 +1603,7 @@ class SiloClient:
 
             # Match the server web client's probe window: ignore the first chunk
             # for connection ramp-up, then time at most two seconds of traffic.
-            for chunk in response.iter_content(chunk_size=16 * 1024):
+            for chunk in response.iter_content(chunk_size=8 * 1024):
                 if not chunk:
                     continue
                 now = time.monotonic()
