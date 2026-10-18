@@ -8560,7 +8560,7 @@ def track_progress(
                                 playback_info.get("adaptive_quality") or target_label
                             )
                             rung_labels = [
-                                entry["label"] for entry in quality_ladder(plan)
+                                entry["label"] for entry in quality_ladder(new_plan)
                             ]
                             try:
                                 current_index = rung_labels.index(current_label)
