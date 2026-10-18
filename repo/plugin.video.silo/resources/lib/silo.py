@@ -1828,7 +1828,7 @@ class SiloClient:
         # HDR details with Kodi's display report for the source-preserving
         # original and progressive routes. When Kodi cannot report them, omit
         # the claims rather than borrowing unrelated capability data.
-        for delivery in (original_delivery, progressive_delivery):
+        for delivery in (original_delivery, progressive_delivery, hls_delivery):
             if output_hdr_details is None:
                 delivery.pop("hdr_details", None)
             else:
