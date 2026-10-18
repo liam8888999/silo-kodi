@@ -7517,8 +7517,8 @@ def track_progress(
     video session. Its retry cooldown increases after repeated failures, which prevents
     the controller from repeatedly bouncing between the same two rungs.
 
-    "original" is Silo's source-preserving ceiling. It remains the highest rung, but
-    it is not repeatedly retried simply because playback has been healthy for 90 seconds.
+    "auto" is Silo's source-preserving intent and sits above the fixed quality rungs.
+    It is not repeatedly retried simply because playback has been healthy for 90 seconds.
     """
     player = xbmc.Player()
     monitor = xbmc.Monitor()
@@ -7583,19 +7583,19 @@ def track_progress(
             )
 
     def quality_ladder(plan):
-        """Return Silo's published quality ladder in server order."""
+        """Return Auto plus Silo's fixed quality rungs, in descending order."""
         entries = []
-        seen = set()
+        seen = {"auto", "original"}
 
         for quality in (plan or {}).get("available_qualities") or []:
             if not isinstance(quality, dict):
                 continue
 
             label = str(quality.get("label") or "").strip()
-            if not label or label in seen:
+            if not label or label.lower() in seen:
                 continue
 
-            seen.add(label)
+            seen.add(label.lower())
 
             try:
                 height = int(quality.get("height") or 0)
@@ -7613,23 +7613,45 @@ def track_progress(
                 "bitrate_kbps": bitrate,
             })
 
-        # Silo's v3 contract publishes original first. Preserve that order
-        # instead of inventing a local ordering of the server's rungs.
+        # The current /api/v2 contract publishes only fixed rungs. Treat Auto
+        # as a virtual top entry: it represents the source, not a fixed recipe.
+        # Ignore legacy "original" source entries from older server versions.
+        entries.insert(0, {
+            "label": "auto",
+            "height": 0,
+            "bitrate_kbps": 0,
+        })
         return entries
 
     def detect_quality_label(info):
-        """Identify the current rung from the last adopted plan."""
-        plan = (info or {}).get("playback_plan") or {}
+        """Identify Auto/source playback or the active fixed rung."""
+        info = info or {}
+        plan = info.get("playback_plan") or {}
         ladder = quality_ladder(plan)
+        fixed_rungs = [entry for entry in ladder if entry["label"] != "auto"]
 
-        preferred = str((info or {}).get("adaptive_quality") or "").strip()
-        labels = [entry["label"] for entry in ladder]
+        preferred = str(info.get("adaptive_quality") or "").strip()
+        if preferred and preferred.lower() not in ("auto", "original"):
+            if any(entry["label"] == preferred for entry in fixed_rungs):
+                return preferred
 
-        if preferred and preferred in labels:
-            return preferred
+        requested = str(
+            info.get("quality_preference")
+            or plan.get("quality_preference")
+            or ""
+        ).strip().lower()
+        if requested == "original":
+            requested = "auto"
+
+        delivery = str(plan.get("delivery") or "").strip().lower()
+        reason = str(plan.get("decision_reason") or "").strip().lower()
+
+        # Direct source delivery and the planner's explicit Auto-source reason
+        # are authoritative even when the source shares dimensions with a rung.
+        if delivery == "original_http" or reason == "quality_auto_source":
+            return "auto"
 
         recipe = plan.get("effective_recipe") or {}
-
         try:
             current_height = int(recipe.get("height") or 0)
         except (TypeError, ValueError):
@@ -7640,21 +7662,23 @@ def track_progress(
         except (TypeError, ValueError):
             current_bitrate = 0
 
-        # Prefer an exact height/bitrate match. This also lets an initial plan
-        # that was capped by Silo identify its actual rung instead of assuming
-        # that "original" was necessarily the active recipe.
+        # Match actual output dimensions/bitrate against fixed entries first.
+        # Auto may itself choose a fixed rung when the source cannot be used.
         if current_height > 0 or current_bitrate > 0:
-            for entry in ladder:
+            for entry in fixed_rungs:
                 if (
                     entry["height"] == current_height
                     and entry["bitrate_kbps"] == current_bitrate
                 ):
                     return entry["label"]
 
-        if labels:
-            return labels[0]
+        if preferred.lower() in ("auto", "original") or requested == "auto":
+            return "auto"
 
-        return ""
+        if fixed_rungs:
+            return fixed_rungs[0]["label"]
+
+        return "auto"
 
 
     # Per-video-session quality memory. A quality that actually caused a sustained
@@ -7906,7 +7930,14 @@ def track_progress(
         playback_info.clear()
         playback_info.update(new_info)
         playback_info["session_id"] = session_id
-        playback_info["adaptive_quality"] = target_label
+        # Auto is an intent, not a fixed output rung. The server can correctly
+        # answer an Auto request with a fixed rung when the source will not fit
+        # the measured bandwidth or the device's capabilities.
+        playback_info["adaptive_quality"] = (
+            detect_quality_label(new_info)
+            if str(target_label).strip().lower() in ("auto", "original")
+            else target_label
+        )
 
         return True
 
@@ -8254,24 +8285,9 @@ def track_progress(
                         downshift_retry_count = 0
                         downshift_retry_exhausted = False
                     else:
-                        recipe = plan.get("effective_recipe") or {}
-
-                        try:
-                            current_bitrate = int(
-                                recipe.get("bitrate_kbps") or 0
-                            )
-                        except (TypeError, ValueError):
-                            current_bitrate = 0
-
-                        # Silo's API requires a bandwidth estimate. This is a
-                        # conservative planning hint derived from the selected
-                        # recipe, not a measurement of live network throughput.
-                        estimated_bandwidth = max(
-                            100,
-                            int(current_bitrate * 0.60)
-                            if current_bitrate > 0
-                            else 1500,
-                        )
+                        # Fixed-rung requests need no bandwidth estimate.
+                        # The client only sends a cached, real measurement for Auto.
+                        estimated_bandwidth = None
 
                         try:
                             source_url_before_replan = str(
@@ -8449,7 +8465,7 @@ def track_progress(
                     )
 
                     if target_label is None:
-                        # Already at the source/original ceiling. There is
+                        # Already at the Auto/source ceiling. There is
                         # nothing higher to request until a future downshift.
                         last_up_replan_at = now
                         healthy_since = now
@@ -8484,23 +8500,9 @@ def track_progress(
                             )
                         )
 
-                        recipe = plan.get("effective_recipe") or {}
-
-                        try:
-                            current_bitrate = int(
-                                recipe.get("bitrate_kbps") or 0
-                            )
-                        except (TypeError, ValueError):
-                            current_bitrate = 0
-
-                        # This is a planning hint from the selected recipe,
-                        # not measured network throughput.
-                        estimated_bandwidth = max(
-                            1500,
-                            int(current_bitrate * 1.35)
-                            if current_bitrate > 0
-                            else 8000,
-                        )
+                        # Fixed-rung requests need no bandwidth estimate.
+                        # The client only sends a cached, real measurement for Auto.
+                        estimated_bandwidth = None
 
                         try:
                             source_url_before_replan = str(
@@ -8510,8 +8512,9 @@ def track_progress(
                             source_url_before_replan = ""
                         replan_started_at = time.time()
 
-                        # Never send "auto" for an adaptive quality recovery.
-                        # Silo expects the label of the exact ladder rung wanted.
+                        # Fixed rungs use their exact server-published label.
+                        # Auto is the virtual source-quality ceiling; the client
+                        # adds a cached measured bandwidth to that replan when available.
                         new_info = client.replan_playback(
                             playback_info,
                             position,
@@ -8550,22 +8553,55 @@ def track_progress(
                             healthy_since = 0.0
                             post_switch_grace_until = now + 15.0
 
-                            # The higher rung is now a probe. It must actually
-                            # advance and then remain healthy for the full
-                            # confirmation interval before replacing the current
-                            # trusted quality.
-                            probe_quality = target_label
-
-                            log(
-                                "Adaptive quality probe started: %s -> %s; "
-                                "target must remain healthy for %.0fs before "
-                                "becoming trusted"
-                                % (
-                                    current_label,
-                                    target_label,
-                                    quality_confirmation_threshold,
-                                )
+                            # Auto may resolve to a fixed rung instead of the
+                            # source. Only call it an upward probe if the server's
+                            # effective result is actually above the current rung.
+                            active_label = (
+                                playback_info.get("adaptive_quality") or target_label
                             )
+                            rung_labels = [
+                                entry["label"] for entry in quality_ladder(new_plan)
+                            ]
+                            try:
+                                current_index = rung_labels.index(current_label)
+                            except ValueError:
+                                current_index = len(rung_labels) - 1
+                            try:
+                                active_index = rung_labels.index(active_label)
+                            except ValueError:
+                                active_index = 0
+                            is_upward_probe = (
+                                active_label == "auto" or active_index < current_index
+                            )
+
+                            if is_upward_probe:
+                                # It must advance and remain healthy for the full
+                                # confirmation interval before replacing trusted quality.
+                                probe_quality = active_label
+                                log(
+                                    "Adaptive quality probe started: %s -> %s "
+                                    "(requested %s); target must remain healthy "
+                                    "for %.0fs before becoming trusted"
+                                    % (
+                                        current_label,
+                                        active_label,
+                                        target_label,
+                                        quality_confirmation_threshold,
+                                    )
+                                )
+                            else:
+                                # Auto retained or selected a non-higher rung. It
+                                # is an accepted server decision, not an upshift probe.
+                                known_good_quality = active_label
+                                known_good_since = now
+                                probe_quality = None
+                                healthy_since = now
+                                log(
+                                    "Auto resolved to %s rather than a higher source "
+                                    "quality; keeping the server-selected rung."
+                                    % active_label,
+                                    xbmc.LOGDEBUG,
+                                )
 
                             log(
                                 "Adaptive upshift complete: %s -> %s "
