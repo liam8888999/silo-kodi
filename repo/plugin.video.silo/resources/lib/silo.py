@@ -1972,6 +1972,7 @@ class SiloClient:
             "session_id": data.get("session_id") or session_id,
             "playback_plan": new_plan,
             "playback_attempt_id": playback_attempt_id,
+            "quality_preference": quality_preference,
             "plan_attempt_id": plan_attempt_id,
             "attempted_plan_keys": attempted_plan_keys,
             "attempt_count": attempt_count,
