@@ -340,7 +340,10 @@ class SiloClient:
         return self.base + url if url.startswith("/") else url
 
     # Build authentication/client headers required by Silo API endpoints.
-    def _headers(self):
+    # send_profile=False leaves out X-Profile-Id/X-Profile-Token, which the
+    # PIN check must not send: the server refuses a request naming a locked
+    # profile without its token, so that request would never reach the check.
+    def _headers(self, send_profile=True):
         # Kodi's settings store is authoritative. Read the live values
         # directly instead of relying on a potentially stale in-memory cfg.
         device_id = _setting("device_id")
@@ -366,11 +369,11 @@ class SiloClient:
             h["Authorization"] = "Bearer " + token
             self.cfg["token"] = token
 
-        if profile_id:
+        if profile_id and send_profile:
             h["X-Profile-Id"] = str(profile_id)
             self.cfg["profile_id"] = str(profile_id)
 
-        if profile_token:
+        if profile_token and send_profile:
             h["X-Profile-Token"] = str(profile_token)
             self.cfg["profile_token"] = str(profile_token)
 
@@ -403,7 +406,7 @@ class SiloClient:
         )
 
     # Send an authenticated API request and handle access-token/profile-token retries.
-    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True, extra_headers=None, stream=False):
+    def _send(self, method, path, params=None, body=None, need_profile=True, retry=True, timeout=30, log_not_found=True, extra_headers=None, stream=False, send_profile=True):
         if not self.base:
             self._prompt_account()
 
@@ -438,7 +441,7 @@ class SiloClient:
             self.select_profile()
 
         try:
-            headers = self._headers()
+            headers = self._headers(send_profile=send_profile)
             if extra_headers:
                 headers.update(extra_headers)
 
@@ -486,10 +489,12 @@ class SiloClient:
                 log_not_found,
                 extra_headers,
                 stream,
+                send_profile,
             )
 
-        # A locked profile may need a fresh profile-verification token.
-        if r.status_code == 403 and retry and "profile_verification" in r.text:
+        # A locked profile may need a fresh profile-verification token. Never
+        # answer a refused PIN check with another PIN prompt: that loops.
+        if r.status_code == 403 and retry and send_profile and "profile_verification" in r.text:
             self.cfg.pop("profile_token", None)
             self.verify_profile(self.cfg.get("profile_id"))
             return self._send(
@@ -993,11 +998,14 @@ class SiloClient:
         if not pin:
             raise SiloError("PIN required")
 
+        # Each check counts toward the server's five-attempt lockout, so it is
+        # sent once, without the profile headers it does not need.
         data = self._json(
             "POST",
             "/api/v2/profiles/%s/verify-pin" % profile_id,
             body={"pin": pin},
             need_profile=False,
+            send_profile=False,
         )
 
         if not data or not data.get("valid"):
