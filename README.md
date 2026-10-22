@@ -10,7 +10,7 @@ Silo acts as the media server, while this add-on provides a Kodi interface for a
 
 join for help or feedback
 
-https://discord.gg/fNrAH8BG6
+https://discord.gg/dyae2tv7Qs
 
 ---
 
