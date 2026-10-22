@@ -19,6 +19,11 @@ the number of HTTP round trips for large libraries.
 Endpoints used by this addon:
     POST /api/v2/auth/login
     POST /api/v2/auth/refresh
+    GET  /api/v2/auth/providers
+    GET  /api/v2/auth/device/capability
+    POST /api/v2/auth/device/start
+    POST /api/v2/auth/device/poll
+    POST /api/v2/auth/device/cancel
     GET  /api/v2/profiles
     POST /api/v2/profiles/{id}/verify-pin
     GET  /api/v2/user/libraries
@@ -35,6 +40,7 @@ Endpoints used by this addon:
 
 # Standard library modules used for configuration, UUID generation and URL handling.
 import base64
+import datetime
 import json
 import re
 import uuid
@@ -62,6 +68,12 @@ ACCESS_TOKEN_REFRESH_MARGIN = 60
 # Silo rotates refresh tokens on successful exchanges, so serialize refreshes
 # across SiloClient instances in this Kodi process.
 _REFRESH_LOCK = threading.Lock()
+
+# How the saved account signed in, kept in the hidden auth_method setting so a
+# later forced re-login uses the same method instead of asking for a password
+# the account may not have.
+AUTH_METHOD_PASSWORD = "password"
+AUTH_METHOD_DEVICE = "device"
 
 
 # Central logging helper so every log line identifies this addon.
@@ -182,11 +194,25 @@ def _set_setting(key, value):
     ADDON.setSetting(key, "" if value is None else str(value))
 
 
+def _parse_server_time(value):
+    """Return a Silo UTC timestamp such as 2026-01-01T00:00:00.000Z as epoch seconds."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.timestamp()
+
+
 def _clear_account_settings():
     """Clear editable login/profile settings and authentication state."""
     for key in (
         "server",
         "username",
+        "auth_method",
         "device_id",
         "token",
         "refresh_token",
@@ -535,9 +561,13 @@ class SiloClient:
 
     # Ask for the server and username the first time the addon is configured.
     def _prompt_account(self):
-        dlg = xbmcgui.Dialog()
+        self._prompt_server()
+        self._prompt_username()
 
-        server = dlg.input(
+    # Ask for the server URL. Code sign-in needs only this; password sign-in
+    # goes on to _prompt_username().
+    def _prompt_server(self):
+        server = xbmcgui.Dialog().input(
             "Silo server URL (e.g. http://host:8090)",
             defaultt="http://",
         )
@@ -545,7 +575,14 @@ class SiloClient:
         if not server:
             raise SiloError("Login cancelled")
 
-        user = dlg.input(
+        server = server.rstrip("/")
+        ADDON.setSetting("server", server)
+        self.cfg["server"] = server
+        save_config(self.cfg)
+
+    def _prompt_username(self):
+        server = self.base
+        user = xbmcgui.Dialog().input(
             "Silo username",
             defaultt="",
         )
@@ -556,10 +593,8 @@ class SiloClient:
         # A '#' is optional. Without it, retain the normal profile-selection
         # dialog. With it, use the part before '#' as the account username and
         # the part after '#' as the profile name.
-        server = server.rstrip("/")
         user = user.strip()
 
-        ADDON.setSetting("server", server)
         ADDON.setSetting("username", user)
 
         if "#" in user:
@@ -608,6 +643,15 @@ class SiloClient:
     # This deliberately does NOT call _send(), because _send() calls login()
     # when a token is missing. Calling _send() here would recurse forever.
     def login(self, show_loading=False):
+        # An account that signed in with a code may have no password, so a
+        # forced re-login (for example after the server ended the session)
+        # asks for a new code instead.
+        if _setting("auth_method") == AUTH_METHOD_DEVICE:
+            if not self.base:
+                self._prompt_server()
+            self.login_with_device_code(show_loading=show_loading)
+            return
+
         if not self.base or not self.cfg.get("username"):
             self._prompt_account()
 
@@ -662,6 +706,239 @@ class SiloClient:
                 _hide_login_loading()
             raise
 
+        _set_setting("auth_method", AUTH_METHOD_PASSWORD)
+
+    # Headers for requests made before the addon has a session.
+    def _client_headers(self):
+        return {
+            "Accept": "application/json",
+            "X-Device-ID": _setting("device_id") or self.cfg["device_id"],
+            "X-Client-Name": "plugin.video.silo",
+            "X-Client-Version": ADDON_VERSION,
+            "X-Client-Platform": "kodi",
+        }
+
+    # Fetch an unauthenticated JSON document, or None when the server does
+    # not answer it (an older server without the endpoint, or a network error).
+    def _get_public_json(self, path):
+        try:
+            r = self.session.get(
+                self.base + path,
+                headers=self._client_headers(),
+                timeout=15,
+            )
+        except requests.RequestException as e:
+            log("GET %s unavailable: %s" % (path, e), xbmc.LOGWARNING)
+            return None
+
+        if not r.ok:
+            log("GET %s -> HTTP %s" % (path, r.status_code), xbmc.LOGDEBUG)
+            return None
+
+        try:
+            return r.json()
+        except ValueError:
+            return None
+
+    # Decide how to sign in to the server in self.base. Offers the choice
+    # only when the server supports both methods.
+    def _choose_sign_in_method(self):
+        capability = self._get_public_json("/api/v2/auth/device/capability") or {}
+        providers = self._get_public_json("/api/v2/auth/providers")
+
+        device_ok = capability.get("state") == "available"
+        # Servers that predate password_login always accept passwords.
+        password_ok = (providers or {}).get("password_login", True) is not False
+
+        if device_ok and password_ok:
+            idx = xbmcgui.Dialog().select(
+                "Sign in to Silo",
+                [
+                    "Sign in with a code",
+                    "Sign in with username and password",
+                ],
+            )
+            if idx < 0:
+                raise SiloError("Login cancelled")
+            return AUTH_METHOD_DEVICE if idx == 0 else AUTH_METHOD_PASSWORD
+
+        if device_ok:
+            return AUTH_METHOD_DEVICE
+        if password_ok:
+            return AUTH_METHOD_PASSWORD
+
+        raise SiloError(
+            "This server does not accept passwords and does not support code sign-in"
+        )
+
+    # Sign in by showing a code that the person approves on the server's
+    # /activate page or in a Silo phone app. Kodi never handles a password.
+    #
+    # Like login(), this deliberately does NOT call _send().
+    def login_with_device_code(self, show_loading=False):
+        _hide_login_loading()
+
+        while True:
+            outcome = self._run_device_code_attempt()
+
+            if outcome == "expired":
+                again = xbmcgui.Dialog().yesno(
+                    "Sign in to Silo",
+                    "The code expired before it was used. Get a new code?",
+                )
+                if again:
+                    continue
+                raise SiloError("Login cancelled")
+
+            break
+
+        if show_loading:
+            _show_login_loading()
+
+    # Run one code from start to approval. Returns "approved" or "expired";
+    # raises SiloError for every other ending.
+    def _run_device_code_attempt(self):
+        friendly_name = str(xbmc.getInfoLabel("System.FriendlyName") or "").strip()
+        device_name = "Kodi on %s" % friendly_name if friendly_name else "Kodi"
+
+        try:
+            r = self.session.post(
+                self.base + "/api/v2/auth/device/start",
+                headers=self._client_headers(),
+                json={"device_name": device_name, "device_platform": "Kodi"},
+                timeout=20,
+            )
+        except requests.RequestException as e:
+            raise SiloError("Cannot reach server: %s" % e)
+
+        if not r.ok:
+            raise SiloError("Code sign-in failed - " + self._problem(r))
+
+        start = r.json()
+        device_code = start["device_code"]
+        # The wire form is 4821-7730; people read it as 4821 7730.
+        user_code = str(start.get("user_code") or "").replace("-", " ")
+        verification_uri = start.get("verification_uri") or (self.base + "/activate")
+        interval = max(1, int(start.get("interval") or 5))
+        deadline = _parse_server_time(start.get("expires_at"))
+        if deadline is None:
+            deadline = time.time() + int(start.get("expires_in") or 900)
+
+        instructions = (
+            "On your phone or computer, open\n[B]%s[/B]\nand enter the code [B]%s[/B]"
+            % (verification_uri, user_code)
+        )
+        opened_instructions = (
+            "Code [B]%s[/B] was entered.\nFinish signing in on your phone or computer."
+            % user_code
+        )
+
+        progress = xbmcgui.DialogProgress()
+        progress.create("Sign in to Silo", instructions)
+        monitor = xbmc.Monitor()
+        message = instructions
+        total = max(1.0, deadline - time.time())
+        next_poll = time.time() + interval
+
+        try:
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return "expired"
+
+                progress.update(int(100 * remaining / total), message)
+
+                if progress.iscanceled() or monitor.waitForAbort(0.5):
+                    self._cancel_device_code(device_code)
+                    raise SiloError("Login cancelled")
+
+                if time.time() < next_poll:
+                    continue
+
+                try:
+                    r = self.session.post(
+                        self.base + "/api/v2/auth/device/poll",
+                        headers=self._client_headers(),
+                        json={"device_code": device_code},
+                        timeout=20,
+                    )
+                except requests.RequestException as e:
+                    # Keep the code on screen through a network blip.
+                    log("Device sign-in poll unavailable: %s" % e, xbmc.LOGWARNING)
+                    next_poll = time.time() + interval
+                    continue
+
+                if r.status_code == 429 or r.status_code >= 500:
+                    wait = interval
+                    try:
+                        wait = max(interval, int(r.headers.get("Retry-After") or interval))
+                    except ValueError:
+                        pass
+                    next_poll = time.time() + wait
+                    continue
+
+                if r.status_code == 404:
+                    # The server no longer knows this request.
+                    return "expired"
+
+                if not r.ok:
+                    raise SiloError("Code sign-in failed - " + self._problem(r))
+
+                poll = r.json()
+                status = poll.get("status")
+                interval = max(1, int(poll.get("poll_after") or interval))
+                next_poll = time.time() + interval
+
+                if status == "pending":
+                    # An approver looking the code up can move its expiry later.
+                    moved = _parse_server_time(poll.get("expires_at"))
+                    if moved is not None and moved > deadline:
+                        total += moved - deadline
+                        deadline = moved
+                    if poll.get("opened"):
+                        message = opened_instructions
+                    continue
+
+                if status == "approved":
+                    tokens = poll.get("tokens") or {}
+                    self._store_tokens(tokens)
+                    self._remember_device_sign_in(tokens.get("user") or {})
+                    return "approved"
+
+                if status == "expired":
+                    return "expired"
+
+                if status == "denied":
+                    raise SiloError("The sign-in request was declined")
+
+                # canceled or consumed: this code can no longer sign in.
+                raise SiloError("The sign-in request is no longer valid (%s)" % status)
+        finally:
+            progress.close()
+
+    # Record who signed in with the code, so the Settings page shows the
+    # account and a later re-login asks for a code again.
+    def _remember_device_sign_in(self, user):
+        username = str(user.get("username") or "").strip()
+        if username:
+            ADDON.setSetting("username", username)
+            self.cfg["username"] = username
+        self.cfg.pop("profile_name", None)
+        self._requested_profile_name = ""
+        _set_setting("auth_method", AUTH_METHOD_DEVICE)
+
+    # Withdraw a code the person backed out of, so it can't be approved later.
+    def _cancel_device_code(self, device_code):
+        try:
+            self.session.post(
+                self.base + "/api/v2/auth/device/cancel",
+                headers=self._client_headers(),
+                json={"device_code": device_code},
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            log("Device sign-in cancel unavailable: %s" % e, xbmc.LOGWARNING)
+
     # Complete interactive login used by the Kodi Login button.
     #
     # This intentionally performs the whole initial-login sequence in one
@@ -688,14 +965,20 @@ class SiloClient:
 
         self._caps = None
         self._requested_profile_name = ""
-        for key in ("token", "refresh_token", "profile_id", "profile_token"):
+        for key in ("token", "refresh_token", "profile_id", "profile_token", "auth_method"):
             _set_setting(key, "")
         save_config(self.cfg)
 
         try:
-            # login() now asks for server URL, username and password from
-            # scratch because no account fields were retained above.
-            self.login(show_loading=True)
+            # Ask for the server first, then sign in with a code or with a
+            # username and password, whichever the server offers.
+            self._prompt_server()
+
+            if self._choose_sign_in_method() == AUTH_METHOD_DEVICE:
+                self.login_with_device_code(show_loading=True)
+            else:
+                self._prompt_username()
+                self.login(show_loading=True)
 
             # Keep the spinner active when the account can select its
             # profile automatically. select_profile() pauses it only when Kodi
@@ -721,7 +1004,7 @@ class SiloClient:
 
             self._caps = None
             self._requested_profile_name = ""
-            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+            for key in ("token", "refresh_token", "profile_id", "profile_token", "auth_method"):
                 _set_setting(key, "")
             save_config(self.cfg)
             raise
@@ -859,6 +1142,7 @@ class SiloClient:
         for key in (
             "server",
             "username",
+            "auth_method",
             "token",
             "refresh_token",
             "profile_id",
