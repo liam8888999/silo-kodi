@@ -5383,7 +5383,7 @@ def _start_watch_party_guest_playback(
     return info.get("session_id")
 
 
-def list_your_stuff(client):
+def list_your_stuff(client, return_items=False):
     """Display the personal destinations shown under Silo's web Your Stuff menu."""
     entries = (
         ("Favorites", "favorites", "DefaultFavorites.png"),
@@ -5391,26 +5391,20 @@ def list_your_stuff(client):
         ("History", "history", "DefaultRecentlyWatched.png"),
     )
 
+    batch = []
     for title, source, icon in entries:
         item = xbmcgui.ListItem(label=title)
         item.setArt({"icon": icon})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="personal_list", source=source),
-            item,
-            True,
-        )
+        batch.append((build_url(action="personal_list", source=source), item, True))
 
     collections_item = xbmcgui.ListItem(label="Collections")
     collections_item.setArt({"icon": "DefaultFolder.png"})
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="collections"),
-        collections_item,
-        True,
-    )
+    batch.append((build_url(action="collections"), collections_item, True))
 
+    if return_items:
+        return batch
     xbmcplugin.setContent(HANDLE, "files")
+    xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -5546,7 +5540,7 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
 
 
 
-def list_collections(client):
+def list_collections(client, return_items=False):
     """Display the profile's visible personal Collections."""
     collections, groups = client.collections()
 
@@ -5555,6 +5549,7 @@ def list_collections(client):
 
     xbmcplugin.setPluginCategory(HANDLE, "Collections")
     xbmcplugin.setContent(HANDLE, "files")
+    batch = []
 
     for collection in collections or []:
         collection_id = collection.get("id")
@@ -5578,17 +5573,11 @@ def list_collections(client):
             },
         )
 
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="collection",
-                collection_id=collection_id,
-                title=name,
-            ),
-            item,
-            True,
-        )
+        batch.append((build_url(action="collection", collection_id=collection_id, title=name), item, True))
 
+    if return_items:
+        return batch
+    xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -6067,12 +6056,14 @@ def _sort_merged_home_items(items, detail_map, group_key):
     items[:] = dated + undated
 
 
-def list_home_section_group(client, group_key):
+def list_home_section_group(client, group_key, return_items=False):
     """Load and combine all Home sections represented by one category folder."""
     try:
         sections = client.home_sections(image_size="medium")
     except SiloError as exc:
         log("Unable to load Home sections for grouped view: %s" % exc, xbmc.LOGWARNING)
+        if return_items:
+            return []
         notify("Home section unavailable")
         xbmcplugin.setPluginCategory(HANDLE, "Home")
         xbmcplugin.setContent(HANDLE, "videos")
@@ -6158,7 +6149,7 @@ def list_home_section_group(client, group_key):
             combined.append(candidate)
 
     title = _home_section_group_title(matching[0])
-    _render_catalog_items(
+    return _render_catalog_items(
         client,
         {
             "title": title,
@@ -6179,9 +6170,10 @@ def list_home_section_group(client, group_key):
         },
         section_title=title,
         merged_group_key=str(group_key or ""),
+        return_items=return_items,
     )
 
-def list_home_section(client, section_id):
+def list_home_section(client, section_id, return_items=False):
     """Display one profile-wide Silo Home section with resilient source metadata."""
     try:
         data = client.home_section_items(
@@ -6194,6 +6186,8 @@ def list_home_section(client, section_id):
             % (section_id, exc),
             xbmc.LOGWARNING,
         )
+        if return_items:
+            return []
         notify("Home section unavailable")
         xbmcplugin.setPluginCategory(HANDLE, "Home")
         xbmcplugin.setContent(HANDLE, "videos")
@@ -6253,9 +6247,9 @@ def list_home_section(client, section_id):
             }
         )
 
-    _render_catalog_items(client, normalized)
+    return _render_catalog_items(client, normalized, return_items=return_items)
 
-def list_libraries(client):
+def list_libraries(client, return_items=False):
     """Display the accessible Silo libraries inside the Libraries folder."""
     libraries = client.libraries()
 
@@ -6294,9 +6288,10 @@ def list_libraries(client):
             )
         )
 
+    if return_items:
+        return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -6346,7 +6341,7 @@ def add_home_section_folder(section):
     )
 
 
-def _render_catalog_items(client, data, section_title=None, merged_group_key=None):
+def _render_catalog_items(client, data, section_title=None, merged_group_key=None, return_items=False):
     """Display a profile-wide Silo Home section using the shared catalog renderer."""
     data = data or {}
     section_title = section_title or data.get("title") or data.get("section_type") or "Section"
@@ -6371,6 +6366,8 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
             items.append(catalog_item)
 
     if not items:
+        if return_items:
+            return []
         xbmcplugin.setPluginCategory(HANDLE, section_title)
         xbmcplugin.setContent(HANDLE, "videos")
         xbmcplugin.endOfDirectory(HANDLE)
@@ -6536,9 +6533,10 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         else:
             batch.append((build_url(action="search", query=title, page=1), item, False))
 
+    if return_items:
+        return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-
     xbmcplugin.endOfDirectory(HANDLE)
 
 
