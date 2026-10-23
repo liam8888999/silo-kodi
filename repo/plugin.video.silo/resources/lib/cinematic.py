@@ -1406,8 +1406,14 @@ class CinematicWindow(xbmcgui.WindowXML):
             user_data.get("duration"),
             overlay.get("duration_seconds"),
             overlay.get("duration"),
-            _value(item, "runtime_minutes", "runtime", default=0) * 60,
         )
+        if duration <= 0:
+            runtime_minutes = _positive_number(
+                item.get("runtime_minutes"),
+                item.get("runtime"),
+            )
+            if runtime_minutes > 0:
+                duration = runtime_minutes * 60
         if duration <= 0:
             try:
                 duration = max(0.0, float(_value(item, "runtime_minutes", "runtime", default=0) or 0) * 60)
