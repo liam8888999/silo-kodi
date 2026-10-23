@@ -46,7 +46,7 @@
       <left>340</left><top>25</top><width>100</width><height>48</height><label>HOME</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>110</onleft><onright>111</onright></control>
     <control type="image" id="161">
       <left>445</left><top>25</top><width>128</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
@@ -56,7 +56,7 @@
       <left>445</left><top>25</top><width>128</width><height>48</height><label>LIBRARIES</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>110</onleft><onright>112</onright></control>
     <control type="image" id="162">
       <left>578</left><top>25</top><width>98</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
@@ -66,7 +66,7 @@
       <left>578</left><top>25</top><width>98</width><height>48</height><label>SEARCH</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>111</onleft><onright>113</onright></control>
     <control type="image" id="163">
       <left>681</left><top>25</top><width>132</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
@@ -76,7 +76,7 @@
       <left>681</left><top>25</top><width>132</width><height>48</height><label>YOUR STUFF</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>112</onleft><onright>114</onright></control>
     <control type="image" id="164">
       <left>818</left><top>25</top><width>135</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
@@ -86,7 +86,7 @@
       <left>818</left><top>25</top><width>135</width><height>48</height><label>COLLECTIONS</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>113</onleft><onright>115</onright></control>
     <control type="image" id="165">
       <left>958</left><top>25</top><width>105</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
@@ -96,7 +96,7 @@
       <left>958</left><top>25</top><width>105</width><height>48</height><label>SETTINGS</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>114</onleft><onright>116</onright></control>
     <control type="image" id="166">
       <left>1068</left><top>25</top><width>104</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
@@ -106,12 +106,12 @@
       <left>1068</left><top>25</top><width>104</width><height>48</height><label>PROFILE</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>115</onleft><onright>117</onright></control>
     <control type="button" id="117">
       <left>1177</left><top>25</top><width>94</width><height>48</height><label>LOG OUT</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
-    </control>
+    <onleft>116</onleft><onright>117</onright></control>
     <control type="label" id="130">
       <left>88</left><top>132</top><width>740</width><height>104</height>
       <font>font_MainMenu</font><textcolor>FFEDEDED</textcolor><label>Silo</label><aligny>bottom</aligny>
