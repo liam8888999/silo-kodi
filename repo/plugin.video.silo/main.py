@@ -9152,6 +9152,153 @@ def kodi_requested_resume():
     return value == "true"
 
 
+
+def cinematic_cards_from_directory(batch):
+    """Keep existing Kodi directory URLs and rich ListItems; only change presentation."""
+    cards = []
+    for entry in batch or []:
+        if not isinstance(entry, (tuple, list)) or len(entry) < 3:
+            continue
+        url, item, is_folder = entry
+        if item is None:
+            continue
+        query = str(url or "").partition("?")[2]
+        params = dict(parse_qsl(query, keep_blank_values=True)) if query else {}
+        action = params.pop("action", "")
+        if not action:
+            continue
+        art = {}
+        for key in ("poster", "thumb", "fanart", "clearlogo", "icon"):
+            try:
+                value = item.getArt(key)
+            except Exception:
+                value = ""
+            if value:
+                art[key] = value
+        try:
+            title = item.getLabel() or "Untitled"
+            tag = item.getVideoInfoTag()
+            overview = tag.getPlot() or ""
+            media_type = tag.getMediaType() or ""
+            year = tag.getYear()
+            duration = tag.getDuration()
+        except Exception:
+            title, overview, media_type, year, duration = "Untitled", "", "", "", ""
+        media_type = {"movie":"movie", "tvshow":"series", "episode":"episode", "season":"season"}.get(media_type, media_type)
+        cards.append({
+            "title": str(title), "name": str(title), "overview": str(overview or ""),
+            "type": media_type or ("directory" if is_folder else "video"),
+            "year": year, "duration_seconds": duration,
+            "poster_url": art.get("poster") or art.get("thumb") or art.get("icon") or "",
+            "backdrop_url": art.get("fanart") or "", "logo_url": art.get("clearlogo") or "",
+            "_cinematic_source": item, "_cinematic_url": str(url),
+            "_cinematic_folder": bool(is_folder), "_cinematic_action": action,
+            "_cinematic_payload": params,
+        })
+    return cards
+
+
+def cinematic_load_directory(client, action, params=None):
+    """Get content from the same functions used by the regular Kodi directory UI."""
+    p = dict(params or {})
+    if action == "libraries":
+        batch, title = list_libraries(client, return_items=True), "LIBRARIES"
+    elif action == "library":
+        batch, title = list_library(client, p.get("library_id"), p.get("cursor"), return_items=True), p.get("title") or "LIBRARY"
+    elif action == "library_letter":
+        batch = list_library_letter(client, p.get("library_id"), p.get("letter"), p.get("page"), p.get("expected_count"), return_items=True)
+        title = p.get("letter") or "LIBRARY"
+    elif action == "your_stuff":
+        batch, title = list_your_stuff(client, return_items=True), "YOUR STUFF"
+    elif action == "collections":
+        batch, title = list_collections(client, return_items=True), "COLLECTIONS"
+    elif action == "personal_list":
+        source = p.get("source")
+        batch = _list_personal_catalog(client, source, p.get("cursor"), p.get("collection_id"), return_items=True)
+        title = {"favorites":"FAVORITES", "watchlist":"WATCHLIST", "history":"HISTORY", "user_collection":"COLLECTION"}.get(source, "YOUR STUFF")
+    elif action == "collection":
+        batch = list_collection(client, p.get("collection_id"), p.get("title"), p.get("cursor"), return_items=True)
+        title = p.get("title") or "COLLECTION"
+    elif action == "home_section":
+        batch, title = list_home_section(client, p.get("section_id"), return_items=True), p.get("title") or "HOME"
+    elif action == "home_section_group":
+        batch, title = list_home_section_group(client, p.get("group_key"), return_items=True), p.get("title") or "HOME"
+    elif action == "search":
+        batch = list_search_results(client, p.get("query"), p.get("page"), return_items=True)
+        title = "SEARCH · " + str(p.get("query") or "")
+    elif action == "person":
+        batch = list_person_media(client, p.get("person_id"), p.get("person_name"), p.get("cursor"), return_items=True)
+        title = p.get("person_name") or "PERSON"
+    elif action == "seasons":
+        batch = list_seasons(client, p.get("series_id"), p.get("library_id"), p.get("page"), return_items=True)
+        title = p.get("title") or "SEASONS"
+    elif action == "season":
+        batch = list_episodes(client, p.get("series_id"), p.get("season_number"), p.get("library_id"), p.get("page"), return_items=True)
+        title = p.get("title") or "EPISODES"
+    else:
+        batch, title = [], str(action or "SILO").replace("_", " ").upper()
+    cards = cinematic_cards_from_directory(batch)
+    log("Silo Cinematic: main directory %s produced %d card(s)" % (action, len(cards)), xbmc.LOGINFO)
+    return [(title, cards, "poster")]
+
+
+def cinematic_root_rows(client):
+    """Use main root's existing Home-section list and expand each section to posters."""
+    if not client.cfg.get("token"):
+        entries = []
+        login = xbmcgui.ListItem(label="Login")
+        login.setArt({"icon":"DefaultVideo.png"})
+        settings = xbmcgui.ListItem(label="Settings")
+        settings.setArt({"icon":"DefaultFolder.png"})
+        return [("WELCOME TO SILO", cinematic_cards_from_directory([
+            (build_url(action="login"), login, False),
+            (build_url(action="settings"), settings, False),
+        ]), "poster")]
+    try:
+        sections = client.home_sections(image_size="medium") or []
+    except SiloError as exc:
+        log("Silo Cinematic: main Home sections failed: %s" % exc, xbmc.LOGWARNING)
+        sections = []
+    grouped = {}
+    ordered = []
+    for section in sections:
+        sid = section.get("id") or section.get("section_id")
+        if not sid:
+            continue
+        try:
+            if section.get("total_count") is not None and int(section.get("total_count")) <= 0:
+                continue
+        except (TypeError, ValueError):
+            pass
+        key = _home_section_group_key(section) if ADDON.getSettingBool("combine_home_sections") else "unique:" + str(sid)
+        if key not in grouped:
+            grouped[key] = []
+            ordered.append(key)
+        grouped[key].append(section)
+    rows = []
+    for key in ordered:
+        sections_in_group = grouped[key]
+        title = _home_section_group_title(sections_in_group[0])
+        cards = []
+        for section in sections_in_group:
+            sid = section.get("id") or section.get("section_id")
+            data = list_home_section(client, sid, return_items=True) or []
+            cards.extend(cinematic_cards_from_directory(data))
+        if not cards:
+            continue
+        if len(sections_in_group) > 1:
+            route = build_url(action="home_section_group", group_key=key, title=title)
+        else:
+            route = build_url(action="home_section", section_id=sections_in_group[0].get("id") or sections_in_group[0].get("section_id"), title=title)
+        view_all = xbmcgui.ListItem(label="View all")
+        view_all.setArt({"icon":"DefaultFolder.png"})
+        cards.append(cinematic_cards_from_directory([(route, view_all, True)])[0])
+        section_type = str(sections_in_group[0].get("section_type") or "").lower()
+        rows.append((title, cards, "wide" if section_type in ("continue_watching", "next_up") else "poster"))
+        if len(rows) >= 10:
+            break
+    return rows
+
 def router(client):
     """Route Kodi's current plugin request to the appropriate addon action."""
     query = sys.argv[2]
