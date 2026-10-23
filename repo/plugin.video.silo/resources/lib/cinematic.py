@@ -723,7 +723,11 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _home_rows(self):
         """Load Silo's home rails, with a useful fallback when the server has none."""
         if callable(self.root_loader):
-            rows = self.root_loader(self.client) or []
+            try:
+                rows = self.root_loader(self.client) or []
+            except Exception as exc:
+                xbmc.log("[plugin.video.silo] Cinematic home rows failed: %s" % exc, xbmc.LOGWARNING)
+                rows = []
             # An empty home response should never leave the user staring at a
             # hero backdrop with no content or way to continue navigating.
             if rows:
