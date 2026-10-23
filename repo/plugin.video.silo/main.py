@@ -9170,6 +9170,22 @@ def router(client):
 
     action = params.get("action")
 
+    # The cinematic UI is deliberately optional. It opens only for the add-on's
+    # root entry point; every existing action continues through the established
+    # Kodi directory and playback handlers.
+    if ADDON.getSettingBool("theater_interface") and action in (None, "root"):
+        from resources.lib.theater import TheaterWindow
+
+        window = TheaterWindow(
+            client,
+            BASE_URL,
+            ADDON.getAddonInfo("path"),
+        )
+        window.doModal()
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
+        return
+
     # Track whether the dedicated Watch Party lobby is the currently rendered
     # plugin directory. Normal navigation, including Kodi's '..', clears it.
     window = _watch_party_window()
@@ -9330,6 +9346,13 @@ def router(client):
             resume_available=str(params.get("resume_available", "")).strip().lower()
             in ("1", "true", "yes"),
         )
+        # The custom window closes before playback so Kodi's player has focus.
+        # After the existing progress monitor finishes, reopen the theater UI.
+        if (
+            str(params.get("theater_return", "")).strip().lower() in ("1", "true", "yes")
+            and ADDON.getSettingBool("theater_interface")
+        ):
+            xbmc.executebuiltin("Container.Update(%s)" % BASE_URL)
         return
 
     if action == "switch_profile":
