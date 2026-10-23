@@ -208,16 +208,14 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
         self._show_rows(rows)
         self._update_hero_from_focus()
 
-        if not any(items for _title, items in rows):
-            try:
-                self.setFocusId(NAV_HOME)
-            except Exception:
-                pass
-        else:
-            try:
-                self.setFocusId(ROW_CONTROLS[0])
-            except Exception:
-                pass
+        first_populated_row = next(
+            (control_id for control_id in ROW_CONTROLS if self._row_items.get(control_id)),
+            None,
+        )
+        try:
+            self.setFocusId(first_populated_row if first_populated_row is not None else NAV_HOME)
+        except Exception:
+            pass
 
     def _show_rows(self, rows):
         self._row_items = {}
@@ -492,7 +490,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
                 duration_seconds=_value(item, "duration_seconds", default=""),
                 file_id=self._single_file_id(item),
             ))
-        title = self.params.get("title") or "EPISODES"
+        title = "EPISODES  ·  " + str(self.params.get("title")) if self.params.get("title") else "EPISODES"
         return [(title, cards), ("", []), ("", [])]
 
     def _single_file_id(self, item):
