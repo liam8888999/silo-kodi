@@ -1389,17 +1389,34 @@ class CinematicWindow(xbmcgui.WindowXML):
                 source.setProperty("Silo.Cinematic.Watched", "true" if watched else "")
                 source.setProperty("Silo.Cinematic.Progress", "")
                 resume = tag.getResumePoint()
+                progress_state = (
+                    item.get("_cinematic_progress")
+                    if isinstance(item.get("_cinematic_progress"), dict)
+                    else {}
+                )
                 position = _positive_number(
                     resume.timeInSeconds() if resume else 0,
+                    progress_state.get("position_seconds"),
+                    progress_state.get("position"),
                     item.get("position_seconds"),
                     source.getProperty("Silo.PositionSeconds"),
                 )
                 duration = _positive_number(
                     resume.totalTimeInSeconds() if resume else 0,
+                    progress_state.get("duration_seconds"),
+                    progress_state.get("duration"),
                     item.get("duration_seconds"),
                     source.getProperty("Silo.DurationSeconds"),
                     tag.getDuration(),
                 )
+                if duration <= 0:
+                    try:
+                        duration = max(
+                            0.0,
+                            float(_value(item, "runtime_minutes", "runtime", default=0) or 0) * 60,
+                        )
+                    except (TypeError, ValueError):
+                        duration = 0.0
                 if duration > 0 and 0 < position < duration and not watched:
                     tag.setPlaycount(0)
                     tag.setResumePoint(position, duration)
@@ -1776,8 +1793,8 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._play(payload, start_over=True)
 
     def _play(self, payload, start_over=False):
-        # Resume and file/version choices are handled by main.py's shared play()
-        # function. Only the UI-specific resume prompt is signalled here.
+        # File/version selection and the native Kodi resume prompt are handled
+        # entirely by main.py's shared playback pipeline.
         params = {"action": "play", "cinematic_return": 1}
         for key in ("content_id", "library_id", "file_id", "duration_seconds", "cached_resume_position", "title"):
             value = payload.get(key)
@@ -1786,8 +1803,6 @@ class CinematicWindow(xbmcgui.WindowXML):
         if start_over:
             params["resume_choice"] = "0"
             params["resume_available"] = "1"
-        else:
-            params["cinematic_resume_prompt"] = "1"
         if not params.get("content_id"):
             self._error("This item does not have a playable Silo content ID.")
             return

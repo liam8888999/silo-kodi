@@ -7525,7 +7525,6 @@ def play(
     duration_seconds=None,
     resume=False,
     resume_available=False,
-    resume_prompt=False,
     explicit_resume_choice=None,
     cached_resume_position=None,
     display_title=None,
@@ -7602,59 +7601,6 @@ def play(
             "Using Kodi cached resume position %.3fs for content %s"
             % (kodi_cached_resume, content_id)
         )
-
-    if resume_prompt:
-        # A WindowXML card does not go through Kodi's native container resume
-        # prompt. Recreate that choice here, inside the established playback
-        # pipeline, using the exact source configured by the normal add-on.
-        if use_kodi_resume_cache:
-            prompt_progress = {
-                "completed": False,
-                "position_seconds": kodi_cached_resume,
-                "duration_seconds": duration_seconds or get_runtime_seconds(detail or {}),
-            }
-        else:
-            prompt_progress = latest_progress or {}
-
-        prompt_position, prompt_duration = get_progress_position(prompt_progress)
-        if prompt_duration <= 0:
-            prompt_duration = max(
-                0.0,
-                float(duration_seconds or 0),
-                get_runtime_seconds(detail or {}),
-            )
-        prompt_completed = bool(prompt_progress.get("completed", False))
-        if not prompt_completed and prompt_position > 0 and prompt_duration > 0:
-            seconds = int(prompt_position)
-            hours, remainder = divmod(seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            timestamp = (
-                "%02d:%02d:%02d" % (hours, minutes, seconds)
-                if hours else "%02d:%02d" % (minutes, seconds)
-            )
-            title = str(display_title or content_id)
-            choices = [
-                "Resume from %s" % timestamp,
-                "Start from beginning",
-            ]
-            choice = xbmcgui.Dialog().select(
-                "Resume playback — %s" % title,
-                choices,
-            )
-            if choice < 0:
-                log("Playback cancelled from cinematic resume chooser for %s" % content_id)
-                return
-            resume = choice == 0
-            explicit_resume_choice = resume
-            # We've now handled the user choice. Prevent the fallback auto-resume
-            # branch from undoing an explicit Start over selection.
-            resume_available = True
-        else:
-            # No usable resume point: play from the beginning, and explicitly
-            # suppress a stale bookmark from either Kodi or an earlier API result.
-            resume = False
-            explicit_resume_choice = False
-            resume_available = True
 
     # Silo starts the transport at zero in both modes. This is important:
     # Resume is implemented by Kodi seeking the resolved item to the fresh
@@ -9869,8 +9815,6 @@ def router(client):
                 else kodi_requested_resume()
             ),
             resume_available=str(params.get("resume_available", "")).strip().lower()
-            in ("1", "true", "yes"),
-            resume_prompt=str(params.get("cinematic_resume_prompt", "")).strip().lower()
             in ("1", "true", "yes"),
             explicit_resume_choice=explicit_resume_choice,
             cached_resume_position=params.get("cached_resume_position"),
