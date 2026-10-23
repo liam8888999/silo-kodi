@@ -9835,17 +9835,9 @@ def router(client):
             cached_resume_position=params.get("cached_resume_position"),
             display_title=params.get("title"),
         )
-        # The cinematic WindowXML closes to let Kodi take over playback.
-        # Once play() and its progress monitor have fully returned, reopen the
-        # skin directly; refreshing the background plugin container caused
-        # intermittent flashes and left Kodi's directory in front of the skin.
-        if (
-            str(params.get("cinematic_return", "")).strip().lower() in ("1", "true", "yes")
-            and ADDON.getSettingBool("cinematic_interface")
-        ):
-            xbmc.executebuiltin("RunScript(%s)" % os.path.join(
-                ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py"
-            ))
+        # The modal cinematic window stays open beneath Kodi's fullscreen
+        # player, so it is already present when playback ends. Do not launch a
+        # second runner here; that duplicates the skin and steals focus.
         return
 
     if action == "switch_profile":
