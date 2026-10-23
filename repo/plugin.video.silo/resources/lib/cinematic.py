@@ -270,6 +270,8 @@ class CinematicWindow(xbmcgui.WindowXML):
             rows = self._search_rows()
         elif self.screen == "person":
             rows = self._person_rows()
+        elif self.screen == "directory":
+            rows = self._directory_rows(self.params.get("route_action"), self.params)
         else:
             rows = [("Silo", [])]
 
@@ -766,6 +768,7 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _item_click(self, action, payload):
         if not action:
             return
+        payload = dict(payload or {})
         if action == "login":
             self.client.login_full()
             self.screen, self.params, self.stack = "home", {}, []
@@ -780,29 +783,43 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._push("libraries")
         elif action in ("library", "library_page"):
             self._push("library", payload)
+        elif action == "library_letter":
+            self._push("directory", dict(payload, route_action="library_letter"))
+        elif action in ("home_section", "home_section_group"):
+            self._push("directory", dict(payload, route_action=action))
+        elif action in ("seasons", "personal_list"):
+            self._push("directory", dict(payload, route_action=action))
         elif action == "series":
             self._push("series", payload)
         elif action == "details":
             self._push("details", payload)
         elif action == "season":
-            self._push("season", payload)
-        elif action == "personal":
-            self._push("personal", payload)
-        elif action == "personal_page":
+            if payload.get("series_id") and payload.get("season_number") is not None:
+                self._push("directory", dict(payload, route_action="season"))
+            else:
+                self._push("season", payload)
+        elif action in ("personal", "personal_page"):
             self._push("personal", payload)
         elif action == "collections":
             self._push("collections")
         elif action in ("collection", "collection_page"):
             self._push("collection", payload)
         elif action == "search":
-            query = str(xbmcgui.Dialog().input("Search Silo") or "").strip()
-            if query:
-                self._push("search", {"query": query})
+            if payload.get("query"):
+                self._push("directory", dict(payload, route_action="search"))
+            else:
+                query = str(xbmcgui.Dialog().input("Search Silo") or "").strip()
+                if query:
+                    self._push("search", {"query": query})
         elif action == "person":
-            self._push("person", payload)
-        elif action == "person_page":
-            self._push("person", payload)
-        elif action in ("play", "start_over"):
+            if payload.get("person_id"):
+                self._push("directory", dict(payload, route_action="person"))
+            else:
+                self._push("person", payload)
+        elif action == "play":
+            self._play(payload)
+        elif action == "start_over":
+            payload["resume_available"] = 0
             self._play(payload)
 
     def _play(self, payload):
