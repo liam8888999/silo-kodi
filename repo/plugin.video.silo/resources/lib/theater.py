@@ -208,8 +208,6 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             rows = [("Silo", [])]
 
         self._show_rows(rows)
-        if self.screen not in ("details", "series"):
-            self._update_hero_from_focus()
 
         first_populated_row = next(
             (control_id for control_id in ROW_CONTROLS if self._row_items.get(control_id)),
@@ -219,6 +217,9 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             self.setFocusId(first_populated_row if first_populated_row is not None else NAV_HOME)
         except Exception:
             pass
+
+        if self.screen not in ("details", "series"):
+            self._update_hero_from_focus()
 
     def _show_rows(self, rows):
         self._row_items = {}
