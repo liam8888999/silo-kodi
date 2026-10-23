@@ -9612,6 +9612,15 @@ def cinematic_root_rows(client):
             if str(payload.get("action") or card.get("_cinematic_action") or "") == "play":
                 payload["content_id"] = card.get("play_content_id") or content_id
                 payload["resume_available"] = int(has_usable_resume(progress))
+                if has_usable_resume(progress):
+                    resume_position, resume_duration = get_progress_position(progress)
+                    payload["cached_resume_position"] = resume_position
+                    if resume_duration > 0:
+                        payload["duration_seconds"] = resume_duration
+                else:
+                    # Do not carry a stale cached bookmark from catalog metadata
+                    # when Silo's latest progress state says it is not resumable.
+                    payload.pop("cached_resume_position", None)
                 if payload.get("library_id") in (None, ""):
                     payload["library_id"] = (
                         card.get("library_id")
