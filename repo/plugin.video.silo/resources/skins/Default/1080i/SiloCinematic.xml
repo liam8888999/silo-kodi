@@ -252,7 +252,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -345,7 +345,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -455,7 +455,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -538,7 +538,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -682,7 +682,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -775,7 +775,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -885,7 +885,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -968,7 +968,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1112,7 +1112,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1205,7 +1205,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1315,7 +1315,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1398,7 +1398,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1542,7 +1542,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1635,7 +1635,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1745,7 +1745,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1828,7 +1828,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -1972,7 +1972,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2065,7 +2065,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2175,7 +2175,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2258,7 +2258,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2402,7 +2402,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2495,7 +2495,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2605,7 +2605,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2688,7 +2688,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2832,7 +2832,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -2925,7 +2925,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3035,7 +3035,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3118,7 +3118,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3262,7 +3262,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3355,7 +3355,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3465,7 +3465,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3548,7 +3548,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3692,7 +3692,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3785,7 +3785,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3895,7 +3895,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -3978,7 +3978,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4122,7 +4122,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4215,7 +4215,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4325,7 +4325,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4408,7 +4408,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4552,7 +4552,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4645,7 +4645,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4755,7 +4755,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4838,7 +4838,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -4982,7 +4982,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -5075,7 +5075,7 @@
                 <top>184</top>
                 <width>328</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -5185,7 +5185,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -5268,7 +5268,7 @@
                 <top>246</top>
                 <width>144</width>
                 <height>6</height>
-                <info>ListItem.PercentPlayed</info>
+                <info>ListItem.Property(silo.progress)</info>
                 <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
                 <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
                 <lefttexture/>
@@ -5994,7 +5994,7 @@
               <top>372</top>
               <width>228</width>
               <height>6</height>
-              <info>ListItem.PercentPlayed</info>
+              <info>ListItem.Property(silo.progress)</info>
               <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
               <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
               <lefttexture/>
@@ -6077,7 +6077,7 @@
               <top>372</top>
               <width>228</width>
               <height>6</height>
-              <info>ListItem.PercentPlayed</info>
+              <info>ListItem.Property(silo.progress)</info>
               <texturebg colordiffuse="33FFFFFF">white.png</texturebg>
               <midtexture colordiffuse="FFEDEDED">white.png</midtexture>
               <lefttexture/>
@@ -6570,6 +6570,137 @@
         <ondown>644</ondown>
         <onleft>644</onleft>
         <onright>644</onright>
+      </control>
+    </control>
+    <control type="group" id="900">
+      <left>0</left>
+      <top>0</top>
+      <width>1920</width>
+      <height>1080</height>
+      <visible>!String.IsEmpty(Window.Property(silo.resume.prompt))</visible>
+      <control type="image">
+        <left>0</left>
+        <top>0</top>
+        <width>1920</width>
+        <height>1080</height>
+        <texture colordiffuse="D9000000">white.png</texture>
+      </control>
+      <control type="image">
+        <left>520</left>
+        <top>340</top>
+        <width>880</width>
+        <height>400</height>
+        <texture border="24">panel.png</texture>
+      </control>
+      <control type="label">
+        <left>580</left>
+        <top>378</top>
+        <width>760</width>
+        <height>60</height>
+        <font>font36_title</font>
+        <textcolor>FFEDEDED</textcolor>
+        <align>center</align>
+        <aligny>center</aligny>
+        <label>Resume playback?</label>
+      </control>
+      <control type="label">
+        <left>580</left>
+        <top>442</top>
+        <width>760</width>
+        <height>42</height>
+        <font>font25_title</font>
+        <textcolor>BFEDEDED</textcolor>
+        <align>center</align>
+        <aligny>center</aligny>
+        <label>$INFO[Window.Property(silo.resume.title)]</label>
+      </control>
+      <control type="label">
+        <left>580</left>
+        <top>488</top>
+        <width>760</width>
+        <height>38</height>
+        <font>font27</font>
+        <textcolor>BFEDEDED</textcolor>
+        <align>center</align>
+        <aligny>center</aligny>
+        <label>$INFO[Window.Property(silo.resume.time)]</label>
+      </control>
+      <control type="button" id="901">
+        <left>590</left>
+        <top>570</top>
+        <width>360</width>
+        <height>76</height>
+        <label>Resume</label>
+        <font>font25_title</font>
+        <textcolor>FF000000</textcolor>
+        <focusedcolor>FF000000</focusedcolor>
+        <align>center</align>
+        <aligny>center</aligny>
+        <texturefocus colordiffuse="FFEDEDED" border="24">round16.png</texturefocus>
+        <texturenofocus colordiffuse="99EDEDED" border="24">round16.png</texturenofocus>
+        <onleft>901</onleft>
+        <onright>902</onright>
+        <onup>901</onup>
+        <ondown>901</ondown>
+      </control>
+      <control type="button" id="902">
+        <left>970</left>
+        <top>570</top>
+        <width>360</width>
+        <height>76</height>
+        <label>Play from beginning</label>
+        <font>font25_title</font>
+        <textcolor>FF000000</textcolor>
+        <focusedcolor>FF000000</focusedcolor>
+        <align>center</align>
+        <aligny>center</aligny>
+        <texturefocus colordiffuse="FFEDEDED" border="24">round16.png</texturefocus>
+        <texturenofocus colordiffuse="99EDEDED" border="24">round16.png</texturenofocus>
+        <onleft>901</onleft>
+        <onright>902</onright>
+        <onup>902</onup>
+        <ondown>902</ondown>
+      </control>
+    </control>
+    <control type="group" id="910">
+      <left>0</left>
+      <top>0</top>
+      <width>1920</width>
+      <height>1080</height>
+      <visible>String.IsEqual(Window.Property(silo.loading),true)</visible>
+      <control type="image">
+        <left>0</left>
+        <top>0</top>
+        <width>1920</width>
+        <height>1080</height>
+        <texture>white.png</texture>
+      </control>
+      <control type="image">
+        <left>690</left>
+        <top>340</top>
+        <width>540</width>
+        <height>180</height>
+        <aspectratio>keep</aspectratio>
+        <texture>brand_light.png</texture>
+      </control>
+      <control type="label">
+        <left>500</left>
+        <top>540</top>
+        <width>920</width>
+        <height>64</height>
+        <font>font30_title</font>
+        <textcolor>FFEDEDED</textcolor>
+        <align>center</align>
+        <aligny>center</aligny>
+        <label>Loading your Silo library…</label>
+      </control>
+      <control type="image">
+        <left>928</left>
+        <top>630</top>
+        <width>64</width>
+        <height>64</height>
+        <texture colordiffuse="FFEDEDED">ring_circle.png</texture>
+        <animation effect="rotate" start="0" end="360" time="900" loop="true" condition="true">Conditional</animation>
       </control>
     </control>
   </controls>
