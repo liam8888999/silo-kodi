@@ -6316,7 +6316,7 @@
             <onup>212</onup>
             <ondown>212</ondown>
             <onleft>211</onleft>
-            <onright>203</onright>
+            <onright>204</onright>
           </control>
           <control type="label">
             <left>0</left>
