@@ -922,7 +922,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         except Exception:
             pass
 
-        def _update_hero_from_focus(self):
+    def _update_hero_from_focus(self):
         """Update the feature area when focus changes within a poster list."""
         try:
             focus_id = self.getFocusId()
