@@ -27,7 +27,6 @@ NAV_COLLECTIONS = 114
 NAV_SETTINGS = 115
 NAV_PROFILE = 116
 NAV_LOGOUT = 117
-NAV_WATCH_PARTY = 118
 HERO_TITLE = 130
 HERO_META = 131
 HERO_PLOT = 132
@@ -147,7 +146,7 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
 
         nav_ids = (
             NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-            NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT, NAV_WATCH_PARTY,
+            NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
         )
         if focus_id in nav_ids and action_id == 4:
             self._focus_first_content()
@@ -222,11 +221,6 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
             self._push("your_stuff")
         elif control_id == NAV_COLLECTIONS:
             self._push("collections")
-        elif control_id == NAV_WATCH_PARTY:
-            url = self.base_url.rstrip("/") + "/?" + urlencode({"action": "watch_party_join"})
-            self.close()
-            xbmc.sleep(80)
-            xbmc.executebuiltin("Container.Update(%s)" % url)
         elif control_id == NAV_SETTINGS:
             ADDON.openSettings()
             if not ADDON.getSettingBool("cinematic_interface"):
