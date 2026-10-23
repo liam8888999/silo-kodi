@@ -9,7 +9,7 @@
       <texture colordiffuse="FF040D0F">white.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="100">
-      <left>620</left><top>0</top><width>1300</width><height>520</height>
+      <left>960</left><top>0</top><width>960</width><height>520</height>
       <texture diffuse="mask_hero.png" background="true">white.png</texture><aspectratio>scale</aspectratio><fadetime>400</fadetime>
     </control>
     <control type="image" id="101">
@@ -17,7 +17,7 @@
       <texture>scrim_top.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="106">
-      <left>0</left><top>0</top><width>1320</width><height>520</height>
+      <left>0</left><top>0</top><width>1120</width><height>520</height>
       <texture>hero_left_scrim.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="105">
@@ -113,61 +113,61 @@
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>116</onleft><onright>117</onright></control>
     <control type="label" id="130">
-      <left>88</left><top>132</top><width>740</width><height>104</height>
+      <left>88</left><top>105</top><width>740</width><height>104</height>
       <font>font_MainMenu</font><textcolor>FFEDEDED</textcolor><label>Silo</label><aligny>bottom</aligny>
       <visible>String.IsEmpty(Window.Property(silo.cinematic.hero.logo))</visible>
     </control>
     <control type="image" id="133">
-      <left>88</left><top>132</top><width>740</width><height>104</height>
+      <left>88</left><top>105</top><width>740</width><height>104</height>
       <texture></texture><aspectratio align="left" aligny="bottom">keep</aspectratio><fadetime>200</fadetime>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.logo))</visible>
     </control>
     <control type="label" id="131">
-      <left>88</left><top>258</top><width>980</width><height>34</height>
+      <left>88</left><top>230</top><width>820</width><height>34</height>
       <font>font12</font><textcolor>BFEDEDED</textcolor><label></label><aligny>center</aligny>
     </control>
     <control type="image" id="135">
-      <left>88</left><top>258</top><width>72</width><height>36</height>
+      <left>88</left><top>230</top><width>72</width><height>36</height>
       <texture border="12">pill_idle.png</texture><aspectratio>stretch</aspectratio>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge1))</visible>
     </control>
     <control type="label" id="134">
-      <left>90</left><top>258</top><width>68</width><height>36</height>
+      <left>90</left><top>230</top><width>68</width><height>36</height>
       <font>font_flag</font><textcolor>FFEDEDED</textcolor><label>$INFO[Window.Property(silo.cinematic.hero.badge1)]</label><align>center</align><aligny>center</aligny>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge1))</visible>
     </control>
     <control type="image" id="145">
-      <left>172</left><top>258</top><width>140</width><height>36</height>
+      <left>172</left><top>230</top><width>140</width><height>36</height>
       <texture border="12">pill_idle.png</texture><aspectratio>stretch</aspectratio>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge2))</visible>
     </control>
     <control type="label" id="146">
-      <left>174</left><top>258</top><width>136</width><height>36</height>
+      <left>174</left><top>230</top><width>136</width><height>36</height>
       <font>font_flag</font><textcolor>FFEDEDED</textcolor><label>$INFO[Window.Property(silo.cinematic.hero.badge2)]</label><align>center</align><aligny>center</aligny>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge2))</visible>
     </control>
     <control type="image" id="147">
-      <left>324</left><top>258</top><width>160</width><height>36</height>
+      <left>324</left><top>230</top><width>160</width><height>36</height>
       <texture border="12">pill_idle.png</texture><aspectratio>stretch</aspectratio>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge3))</visible>
     </control>
     <control type="label" id="148">
-      <left>326</left><top>258</top><width>156</width><height>36</height>
+      <left>326</left><top>230</top><width>156</width><height>36</height>
       <font>font_flag</font><textcolor>FFEDEDED</textcolor><label>$INFO[Window.Property(silo.cinematic.hero.badge3)]</label><align>center</align><aligny>center</aligny>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge3))</visible>
     </control>
     <control type="image" id="149">
-      <left>496</left><top>258</top><width>100</width><height>36</height>
+      <left>496</left><top>230</top><width>100</width><height>36</height>
       <texture border="12">pill_idle.png</texture><aspectratio>stretch</aspectratio>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge4))</visible>
     </control>
     <control type="label" id="150">
-      <left>498</left><top>258</top><width>96</width><height>36</height>
+      <left>498</left><top>230</top><width>96</width><height>36</height>
       <font>font_flag</font><textcolor>FFEDEDED</textcolor><label>$INFO[Window.Property(silo.cinematic.hero.badge4)]</label><align>center</align><aligny>center</aligny>
       <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.badge4))</visible>
     </control>
     <control type="textbox" id="132">
-      <left>88</left><top>306</top><width>780</width><height>132</height>
+      <left>88</left><top>278</top><width>800</width><height>230</height>
       <font>font13</font><textcolor>B3EDEDED</textcolor><label></label><autoscroll time="3000" delay="7000" repeat="5000">true</autoscroll>
     </control>
     <control type="label" id="800">
