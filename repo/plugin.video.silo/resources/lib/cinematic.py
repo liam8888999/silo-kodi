@@ -302,6 +302,9 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         self._grid_items = []
         self._view_mode = "rails"
         self.setProperty("silo.cinematic.view", "rails")
+        self.getControl(GRID_HEADING).setVisible(False)
+        self.getControl(GRID_CONTROL).setVisible(False)
+        self.getControl(GRID_EMPTY).setVisible(False)
 
         for index in range(MAX_ROWS):
             group_id, header_id, icon_id, wide_id, poster_id = slot_ids(index)
@@ -346,6 +349,8 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         self._grid_items = []
         self._view_mode = "grid"
         self.setProperty("silo.cinematic.view", "grid")
+        for index in range(MAX_ROWS):
+            self.getControl(slot_ids(index)[0]).setVisible(False)
         for row in rows or []:
             if row:
                 self._grid_items.extend(list(row[1] if len(row) > 1 else []))
