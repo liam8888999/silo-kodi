@@ -133,7 +133,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
         try:
             if hasattr(self, "getControl"):
                 self.getControl(HERO_TITLE).setLabel("Something went wrong")
-                self.getControl(HERO_PLOT).setLabel(message[:240])
+                self.getControl(HERO_PLOT).setText(message[:240])
         except Exception:
             pass
 
@@ -523,7 +523,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
                 continue
             cards.append(self._with_action(
                 item, action,
-                content_id=content_id, library_id=_value(item, "library_id", default=""),
+                content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id), library_id=_value(item, "library_id", default=""),
                 title=_display_title(item),
             ))
         if next_cursor:
@@ -564,7 +564,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             action = "series" if media_type == "series" else "play" if _playable(item) else ""
             if action:
                 cards.append(self._with_action(
-                    item, action, content_id=content_id,
+                    item, action, content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
                     library_id=_value(item, "library_id", default=""),
                     title=_display_title(item),
                 ))
