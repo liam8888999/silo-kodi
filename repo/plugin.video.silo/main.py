@@ -9331,7 +9331,7 @@ def router(client):
 
         from resources.lib.cinematic import CinematicWindow
 
-        CinematicWindow.configure(client, BASE_URL)
+        CinematicWindow.configure(client, BASE_URL, cinematic_root_rows, cinematic_load_directory)
         window = CinematicWindow(
             "SiloCinematic.xml",
             ADDON.getAddonInfo("path"),
