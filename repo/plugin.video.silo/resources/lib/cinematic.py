@@ -359,17 +359,14 @@ class CinematicWindow(xbmcgui.WindowXML):
         message = str(exc or "Unable to open this screen.")
         self._last_error = message
         xbmc.log("[plugin.video.silo] Silo Cinematic UI: %s" % message, xbmc.LOGWARNING)
+        # The Theater-derived XML reads these window properties directly; it
+        # doesn't contain the old standalone hero control IDs.
+        self.setProperty("silo.hero.title", "Something went wrong")
+        self.setProperty("silo.hero.synopsis", message[:240])
         try:
             xbmcgui.Dialog().notification("Silo", message[:180], xbmcgui.NOTIFICATION_ERROR, 4500)
         except Exception:
             pass
-        try:
-            if hasattr(self, "getControl"):
-                self.getControl(HERO_TITLE).setLabel("Something went wrong")
-                self.getControl(HERO_PLOT).setText(message[:240])
-        except Exception:
-            pass
-
     def _push(self, screen, params=None):
         self.stack.append({
             "screen": self.screen,
@@ -505,11 +502,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "rails"
         self.setProperty("silo.cinematic.view", "rails")
-        self.getControl(GRID_HEADING).setPosition(88, 520)
-        self.getControl(GRID_CONTROL).setPosition(62, 562)
-        self.getControl(GRID_EMPTY).setPosition(90, 610)
-        # Kodi's WindowXML does not expose skin scrollbar controls to Python.
-        self.getControl(GRID_HEADING).setVisible(False)
+        # The Theater XML owns grid placement; 500 is its real grid control.
         self.getControl(GRID_CONTROL).setVisible(False)
         self.getControl(GRID_EMPTY).setVisible(False)
 
@@ -1265,6 +1258,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.setProperty("silo.hero.badge%d" % (index + 1), str(value or ""))
 
     def _set_hero(self, item):
+        """Publish item metadata to the property-driven Theater skin."""
         if not isinstance(item, dict):
             return
         title = _display_title(item)
@@ -1273,135 +1267,36 @@ class CinematicWindow(xbmcgui.WindowXML):
         backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url", "poster_url", "poster")
         plot = str(_value(item, "overview", "plot", "description", default=""))
         details = self._detail_text(item)
-        synopsis = "\n".join(part for part in (plot, details) if part)
+        synopsis = "\\n".join(part for part in (plot, details) if part)
         meta = self._hero_meta(item)
+        badge_values = self._hero_badge_list(item)
         badges = self._hero_badges(item)
-        self._set_theater_hero_properties(
-            title, meta, synopsis, backdrop, logo, self._hero_badge_list(item)
-        )
         self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, synopsis
-        self._hero_badge_values = self._hero_badge_list(item)
+        self._hero_badge_values = badge_values
+        self._set_theater_hero_properties(title, meta, synopsis, backdrop, logo, badge_values)
         self.setProperty("silo.cinematic.hero.logo", self._hero_logo)
         self.setProperty("silo.cinematic.hero.type", media_type)
         self.setProperty("silo.cinematic.hero.badges", badges)
         self.setProperty("silo.cinematic.hero.details", details)
-        for slot, badge in enumerate(self._hero_badge_list(item), 1):
-            self.setProperty("silo.cinematic.hero.badge%d" % slot, badge)
-        for slot in range(len(self._hero_badge_list(item)) + 1, 5):
-            self.setProperty("silo.cinematic.hero.badge%d" % slot, "")
-        try:
-            self.getControl(HERO_TITLE).setLabel(title)
-            self.getControl(HERO_META).setLabel(meta)
-            self._set_hero_synopsis(synopsis[:2400])
-            self.getControl(100).setImage(backdrop or "")
-            self.getControl(HERO_LOGO).setImage(logo or "")
-            self._set_hero_visible(True)
-        except Exception:
-            pass
+        self.setProperty("silo.cinematic.hero.title", title)
+        self.setProperty("silo.cinematic.hero.meta", meta)
+        self.setProperty("silo.cinematic.hero.overview", plot)
+        self.setProperty("silo.cinematic.hero.backdrop", backdrop or "")
+        self.setProperty("silo.cinematic.hero.poster", self._art(item, "poster_url", "poster", "thumb", "image", "icon"))
     def _set_hero_synopsis(self, text):
-        """Set real multiline text and restart scrolling after each selection change."""
-        try:
-            control = self.getControl(HERO_PLOT)
-            control.setText(str(text or ""))
-            try:
-                control.scroll(0)
-            except Exception:
-                pass
-            try:
-                # A new SetText() can leave skin-defined scrolling stopped;
-                # explicitly re-arm it for the new description.
-                control.autoScroll(7000, 3000, 5000)
-            except Exception:
-                pass
-        except Exception as exc:
-            xbmc.log("[plugin.video.silo] Silo Cinematic synopsis update failed: %s" % exc, xbmc.LOGDEBUG)
-
+        """Set the synopsis consumed by the property-driven home skin."""
+        value = str(text or "")[:2400]
+        self._hero_overview = value
+        self.setProperty("silo.hero.synopsis", value)
     def _set_hero_visible(self, visible):
-        """Keep the hero composition separate from browse grids and search."""
-        for control_id in (100, 105, 106):
-            try:
-                self.getControl(control_id).setVisible(bool(visible))
-            except Exception:
-                pass
-
-        # Keep the hero styling consistent, but compact it on nested pages so
-        # a real multi-row grid fits below it. Home keeps the full-height layout.
-        compact = self.screen != "home"
-        shift = (34 if compact else 52) if visible and not str(self._hero_overview or "").strip() else 0
-        positions = {
-            HERO_TITLE: (88, (62 if compact else 105) + shift),
-            HERO_LOGO: (88, (62 if compact else 105) + shift),
-            HERO_META: (88, (154 if compact else 230) + shift),
-            HERO_PLOT: (88, 202 if compact else 278),
-        }
-        sizes = {HERO_TITLE: (700, 82 if compact else 104),
-                 HERO_LOGO: (700, 82 if compact else 104),
-                 HERO_META: (810, 32 if compact else 34),
-                 HERO_PLOT: (800, 132 if compact else 230)}
-        background_layout = {
-            100: ((960, 0), (960, 360)) if compact else ((960, 0), (960, 520)),
-            105: ((0, 250), (1920, 115)) if compact else ((0, 300), (1920, 220)),
-            106: ((0, 0), (1120, 365)) if compact else ((0, 0), (1120, 520)),
-        }
-        for control_id, (position, size) in background_layout.items():
-            try:
-                control = self.getControl(control_id)
-                control.setPosition(*position)
-                control.setWidth(size[0])
-                control.setHeight(size[1])
-            except Exception:
-                pass
-        for control_id, position in positions.items():
-            try:
-                control = self.getControl(control_id)
-                control.setPosition(*position)
-                control.setWidth(sizes[control_id][0])
-                control.setHeight(sizes[control_id][1])
-            except Exception:
-                pass
-
-        states = {
-            HERO_TITLE: bool(visible) and not bool(self._hero_logo),
-            HERO_LOGO: bool(visible) and bool(self._hero_logo),
-            HERO_META: bool(visible),
-            HERO_PLOT: bool(visible) and bool(self._hero_overview),
-        }
-        for control_id, state in states.items():
-            try:
-                self.getControl(control_id).setVisible(state)
-            except Exception:
-                pass
-        self._layout_hero_badges(bool(visible), shift)
-
+        """The Theater skin's hero is controlled by the screen layout, not control IDs."""
+        self.setProperty("silo.hero.visible", "true" if visible else "")
     def _layout_hero_badges(self, visible, shift=0):
-        """Lay out separate quality chips, then place metadata immediately after them."""
-        compact = self.screen != "home"
-        left = 88
-        top = (154 if compact else 230) + shift
-        for index, (image_id, label_id) in enumerate(zip(HERO_BADGE_IMAGES, HERO_BADGE_LABELS)):
-            badge = self._hero_badge_values[index] if index < len(self._hero_badge_values) else ""
-            width = max(56, min(176, 24 + len(badge) * 11))
-            for control_id in (image_id, label_id):
-                try:
-                    control = self.getControl(control_id)
-                    control.setPosition(left, top)
-                    control.setWidth(width)
-                    control.setVisible(bool(visible) and bool(badge))
-                    if control_id == label_id:
-                        control.setLabel(badge)
-                except Exception:
-                    pass
-            self.setProperty("silo.cinematic.hero.badge%d" % (index + 1), badge)
-            if badge:
-                left += width + 12
-        try:
-            meta = self.getControl(HERO_META)
-            meta.setPosition(left, top)
-            # Keep badges and metadata inside the left text column, clear of the hero art.
-            meta.setWidth(max(100, (900 if compact else 860) - left))
-        except Exception:
-            pass
-
+        """Publish badge properties; the skin owns their geometry and visibility."""
+        values = self._hero_badge_values if visible else []
+        for index in range(4):
+            value = values[index] if index < len(values) else ""
+            self.setProperty("silo.hero.badge%d" % (index + 1), str(value or ""))
     def _update_hero_from_focus(self):
         """Update the feature area when focus changes within a poster list."""
         try:
@@ -1424,27 +1319,23 @@ class CinematicWindow(xbmcgui.WindowXML):
             xbmc.log("[plugin.video.silo] Silo Cinematic: focus hero update failed: %s" % exc, xbmc.LOGDEBUG)
 
     def _update_hero_from_item(self, item):
-        """Update the hero area from one converted main.py directory card."""
+        """Update the Theater property contract from one Kodi directory card."""
         try:
             title = str(item.get("title") or item.get("name") or "Silo")
             meta = self._hero_meta(item)
             overview = str(_value(item, "overview", "plot", "description", default="") or "")
             details = self._detail_text(item)
-            synopsis = "\n".join(part for part in (overview, details) if part)
+            synopsis = "\\n".join(part for part in (overview, details) if part)
             poster = self._art(item, "poster_url", "poster", "thumb", "image", "icon")
             backdrop = self._art(item, "backdrop_url", "backdrop", "fanart", "poster_url", "poster")
             logo = self._art(item, "logo_url", "logo", "clearlogo")
+            badge_values = self._hero_badge_list(item)
             badges = self._hero_badges(item)
-            self._set_theater_hero_properties(
-                title, meta, synopsis, backdrop or poster, logo, self._hero_badge_list(item)
-            )
             self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, synopsis
-            self._hero_badge_values = self._hero_badge_list(item)
-            self.getControl(HERO_TITLE).setLabel(title)
-            self.getControl(HERO_META).setLabel(meta)
-            self._set_hero_synopsis(synopsis[:2400])
-            self.getControl(HERO_LOGO).setImage(logo or "")
-            self.getControl(100).setImage(backdrop or poster or "")
+            self._hero_badge_values = badge_values
+            self._set_theater_hero_properties(
+                title, meta, synopsis, backdrop or poster, logo, badge_values
+            )
             self.setProperty("silo.cinematic.hero.title", title)
             self.setProperty("silo.cinematic.hero.meta", meta)
             self.setProperty("silo.cinematic.hero.overview", overview)
@@ -1453,10 +1344,5 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.setProperty("silo.cinematic.hero.poster", poster or "")
             self.setProperty("silo.cinematic.hero.logo", logo or "")
             self.setProperty("silo.cinematic.hero.badges", badges)
-            for slot, badge in enumerate(self._hero_badge_list(item), 1):
-                self.setProperty("silo.cinematic.hero.badge%d" % slot, badge)
-            for slot in range(len(self._hero_badge_list(item)) + 1, 5):
-                self.setProperty("silo.cinematic.hero.badge%d" % slot, "")
-            self._set_hero_visible(True)
         except Exception as exc:
             xbmc.log("[plugin.video.silo] Silo Cinematic: hero artwork update failed: %s" % exc, xbmc.LOGDEBUG)
