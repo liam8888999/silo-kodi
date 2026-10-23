@@ -9645,16 +9645,6 @@ def router(client):
         action in (None, "root") or action in cinematic_directory_actions
     ):
         log("Silo Cinematic: routing %s into the in-addon window runner" % (action or "root"))
-        # Keep Kodi from showing the plugin's empty directory while the modal
-        # WindowXML skin is starting or returning from playback. A temporary
-        # loading item is preferable to ending the directory with zero rows.
-        loading_item = xbmcgui.ListItem(label="Loading Silo…")
-        loading_item.setArt({"icon": "DefaultFolder.png", "thumb": ""})
-        xbmcplugin.addDirectoryItem(
-            HANDLE, BASE_URL, loading_item, isFolder=False
-        )
-        xbmcplugin.setContent(HANDLE, "files")
-        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
         runner_path = os.path.join(
             ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py"
         )
@@ -9665,10 +9655,30 @@ def router(client):
             command = "RunScript(%s,%s,%s)" % (
                 runner_path, action, urlencode(route_params)
             )
-        # RunScript is queued after the directory is completed, so wait for
-        # the modal skin's first render to avoid an empty-container transition.
-        xbmcgui.Window(10000).clearProperty("Silo.Cinematic.WindowReady")
+
+        # Launch the modal skin first and keep this plugin directory request
+        # alive until its first render is visible. Ending an empty directory
+        # first makes Kodi flash its stock "empty folder" view behind the skin.
+        window = xbmcgui.Window(10000)
+        window.clearProperty("Silo.Cinematic.WindowReady")
         xbmc.executebuiltin(command)
+        monitor = xbmc.Monitor()
+        ready = False
+        for _ in range(300):
+            if window.getProperty("Silo.Cinematic.WindowReady") == "true":
+                ready = True
+                break
+            if monitor.abortRequested():
+                break
+            xbmc.sleep(50)
+        if not ready:
+            log(
+                "Silo Cinematic: window did not signal readiness before timeout; "
+                "finishing the directory request to avoid a stuck spinner",
+                xbmc.LOGWARNING,
+            )
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
         return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered
