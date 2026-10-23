@@ -23,7 +23,7 @@ https://liam8888999.github.io/silo-kodi/
 ## ✨ Features
 
 * 🎬 Browse movies and TV shows through Silo
-* Optional cinematic interface with a featured-artwork header, horizontal poster rails, and remote-friendly navigation (enable it in Silo add-on Settings → Interface)
+* **Silo Cinematic**: an optional cinematic interface with featured artwork, horizontal poster rails, and remote-friendly navigation (enable it in Silo add-on Settings → Interface)
 * 📺 Browse TV series and episodes
 * ▶️ Play media directly through Kodi
 * 🔌 Connect to a Silo Server instance
