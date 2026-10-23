@@ -22,10 +22,10 @@
       <height>1080</height>
       <visible>String.IsEqual(Window.Property(silo.tab),home)</visible>
       <control type="image">
-        <left>691</left>
+        <left>741</left>
         <top>0</top>
-        <width>1229</width>
-        <height>756</height>
+        <width>1179</width>
+        <height>690</height>
         <aspectratio>scale</aspectratio>
         <fadetime>400</fadetime>
         <texture diffuse="mask_hero.png" background="true">$INFO[Window.Property(silo.hero.backdrop)]</texture>
@@ -45,8 +45,8 @@
         <control type="image">
           <left>88</left>
           <top>180</top>
-          <width>880</width>
-          <height>150</height>
+          <width>760</width>
+          <height>118</height>
           <aspectratio align="left" aligny="bottom">keep</aspectratio>
           <fadetime>200</fadetime>
           <texture background="true">$INFO[Window.Property(silo.hero.logo)]</texture>
@@ -55,8 +55,8 @@
         <control type="textbox">
           <left>88</left>
           <top>180</top>
-          <width>880</width>
-          <height>150</height>
+          <width>760</width>
+          <height>118</height>
           <font>font_MainMenu</font>
           <textcolor>FFEDEDED</textcolor>
           <align>left</align>
@@ -66,17 +66,17 @@
         </control>
         <control type="image" id="411">
           <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <texture border="8">badge.png</texture>
           <visible>!String.IsEmpty(Window.Property(silo.hero.badge1))</visible>
         </control>
         <control type="label" id="421">
           <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <font>font_flag</font>
           <textcolor>FFEDEDED</textcolor>
           <align>center</align>
@@ -84,18 +84,18 @@
           <label>$INFO[Window.Property(silo.hero.badge1)]</label>
         </control>
         <control type="image" id="412">
-          <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <left>164</left>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <texture border="8">badge.png</texture>
           <visible>!String.IsEmpty(Window.Property(silo.hero.badge2))</visible>
         </control>
         <control type="label" id="422">
-          <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <left>164</left>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <font>font_flag</font>
           <textcolor>FFEDEDED</textcolor>
           <align>center</align>
@@ -103,18 +103,18 @@
           <label>$INFO[Window.Property(silo.hero.badge2)]</label>
         </control>
         <control type="image" id="413">
-          <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <left>240</left>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <texture border="8">badge.png</texture>
           <visible>!String.IsEmpty(Window.Property(silo.hero.badge3))</visible>
         </control>
         <control type="label" id="423">
-          <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <left>240</left>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <font>font_flag</font>
           <textcolor>FFEDEDED</textcolor>
           <align>center</align>
@@ -122,18 +122,18 @@
           <label>$INFO[Window.Property(silo.hero.badge3)]</label>
         </control>
         <control type="image" id="414">
-          <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <left>316</left>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <texture border="8">badge.png</texture>
           <visible>!String.IsEmpty(Window.Property(silo.hero.badge4))</visible>
         </control>
         <control type="label" id="424">
-          <left>88</left>
-          <top>346</top>
-          <width>60</width>
-          <height>36</height>
+          <left>316</left>
+          <top>310</top>
+          <width>70</width>
+          <height>30</height>
           <font>font_flag</font>
           <textcolor>FFEDEDED</textcolor>
           <align>center</align>
@@ -142,22 +142,25 @@
         </control>
         <control type="label" id="430">
           <left>88</left>
-          <top>346</top>
-          <width>880</width>
-          <height>36</height>
+          <top>350</top>
+          <width>900</width>
+          <height>30</height>
           <font>font12</font>
           <textcolor>BFEDEDED</textcolor>
           <align>left</align>
+          <scroll>true</scroll>
           <aligny>center</aligny>
           <label>$INFO[Window.Property(silo.hero.meta)]</label>
         </control>
         <control type="textbox">
           <left>88</left>
-          <top>396</top>
-          <width>780</width>
-          <height>84</height>
+          <top>390</top>
+          <width>900</width>
+          <height>134</height>
           <font>font27</font>
           <textcolor>B3EDEDED</textcolor>
+          <scrolltime>180</scrolltime>
+          <autoscroll delay="3500" time="1200" repeat="6500">true</autoscroll>
           <label>$INFO[Window.Property(silo.hero.synopsis)]</label>
         </control>
       </control>
