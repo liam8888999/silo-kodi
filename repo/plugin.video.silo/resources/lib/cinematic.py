@@ -1469,7 +1469,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         elif action == "play":
             self._play(payload)
         elif action == "start_over":
-            payload["resume_available"] = 0
+            # Tell the existing playback handler to suppress any saved resume point.
+            payload["resume_available"] = 1
             self._play(payload)
 
     def _play(self, payload):
