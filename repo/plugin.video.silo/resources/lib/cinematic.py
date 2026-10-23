@@ -461,7 +461,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.getControl(GRID_HEADING).setPosition(88, 402)
         self.getControl(GRID_CONTROL).setPosition(62, 452)
         self.getControl(GRID_EMPTY).setPosition(90, 490)
-        self.getControl(803).setPosition(1854, 452)
+        # Kodi's WindowXML does not expose skin scrollbar controls to Python.
         self.getControl(GRID_HEADING).setVisible(False)
         self.getControl(GRID_CONTROL).setVisible(False)
         self.getControl(GRID_EMPTY).setVisible(False)
@@ -514,7 +514,6 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.getControl(GRID_HEADING).setPosition(88, 150)
         self.getControl(GRID_CONTROL).setPosition(62, 205)
         self.getControl(GRID_EMPTY).setPosition(90, 240)
-        self.getControl(803).setPosition(1854, 205)
         self.getControl(GRID_HEADING).setVisible(True)
         self.getControl(GRID_CONTROL).setVisible(True)
         for index in range(self._row_capacity):
