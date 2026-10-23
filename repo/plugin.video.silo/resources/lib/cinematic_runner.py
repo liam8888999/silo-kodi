@@ -72,6 +72,8 @@ try:
     # asynchronous loaders to use.
     bootstrap = {"module": None, "error": None}
     bootstrap_ready = threading.Event()
+    bootstrap_lock = threading.Lock()
+    bootstrap_started = {"value": False}
 
     def import_backend():
         try:
@@ -89,7 +91,21 @@ try:
         finally:
             bootstrap_ready.set()
 
+    def ensure_backend_started():
+        # Start this only from the Home loader after the modal window has
+        # rendered its first frame, not while the runner is still preparing.
+        with bootstrap_lock:
+            if bootstrap_started["value"]:
+                return
+            bootstrap_started["value"] = True
+            threading.Thread(
+                target=import_backend,
+                name="SiloCinematicBackendImport",
+                daemon=True,
+            ).start()
+
     def get_backend():
+        ensure_backend_started()
         if not bootstrap_ready.wait(120):
             raise RuntimeError("Silo backend initialization timed out.")
         if bootstrap["error"] is not None:
@@ -100,6 +116,9 @@ try:
         return module
 
     def load_home(_client):
+        # Give Kodi's GUI a short opportunity to paint the just-opened
+        # WindowXML before loading the large main.py module in parallel.
+        xbmc.sleep(100)
         module = get_backend()
         rows = module.cinematic_root_rows(client) or []
 
@@ -140,12 +159,6 @@ try:
         initial_screen=initial_screen,
         initial_params=initial_params,
     )
-
-    threading.Thread(
-        target=import_backend,
-        name="SiloCinematicBackendImport",
-        daemon=True,
-    ).start()
 
     while True:
         xbmc.log(
