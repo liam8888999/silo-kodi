@@ -19,6 +19,7 @@
   <category label="Connection">
     <setting id="server" type="text" label="Server address" default="" enable="false" />
     <setting id="username" type="text" label="Username" default="" enable="false" />
+    <setting id="auth_method" type="text" label="Sign-in method" default="" visible="false" />
     <setting id="device_id" type="text" label="Device ID" default="" visible="true" enable="false" />
     <setting id="token" type="text" label="Access token" default="" visible="false" />
     <setting id="refresh_token" type="text" label="Refresh token" default="" visible="false" />
