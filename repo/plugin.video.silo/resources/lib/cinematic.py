@@ -1937,13 +1937,16 @@ class CinematicWindow(xbmcgui.WindowXML):
             url += "/"
         url += "?" + urlencode(params)
 
-        # Close the custom window before opening VideoNav. Kodi must own the
-        # subsequent item selection for its native resume chooser to run.
+        # Kodi only runs its native resume-selection logic for an item
+        # selected by a native container. Open the plugin URL that returns a
+        # single real ListItem, then let that container's normal Select action
+        # invoke the shared action=play URL. The selection is triggered by the
+        # router once the listing is ready, so this is not a second user step.
         try:
             self.close()
         except Exception:
             pass
-        xbmc.executebuiltin("ActivateWindow(Videos,%s)" % url)
+        xbmc.executebuiltin("ActivateWindow(Videos,%s,return)" % url)
 
     def _hero_meta(self, item):
         media_type = _item_type(item)
