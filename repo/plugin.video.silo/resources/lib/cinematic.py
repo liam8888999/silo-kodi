@@ -5,6 +5,7 @@ main playback route remain authoritative for authentication, versions, resume
 positions and playback progress.
 """
 import json
+import threading
 from urllib.parse import urlencode
 
 import xbmc
@@ -26,11 +27,26 @@ NAV_COLLECTIONS = 114
 NAV_SETTINGS = 115
 NAV_PROFILE = 116
 NAV_LOGOUT = 117
+NAV_WATCH_PARTY = 118
 HERO_TITLE = 130
 HERO_META = 131
 HERO_PLOT = 132
-ROW_LABELS = (200, 210, 220)
-ROW_CONTROLS = (201, 211, 221)
+HERO_LOGO = 133
+HERO_BADGES = 134
+MAX_ROWS = 12
+SLOT_BASE = 3000
+ROWS_TOP = 455
+WIDE_PITCH = 170
+POSTER_PITCH = 230
+SCREEN_HEIGHT = 1080
+GRID_HEADING = 800
+GRID_CONTROL = 801
+GRID_EMPTY = 802
+
+
+def slot_ids(index):
+    base = SLOT_BASE + 10 * index
+    return base, base + 1, base + 2, base + 3, base + 4
 
 
 def _value(item, *keys, default=""):
@@ -73,11 +89,7 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
 
     def __init__(self, xml_filename, script_path, default_skin="Default", default_res="1080i"):
         xbmcgui.WindowXMLDialog.__init__(
-            self,
-            str(xml_filename),
-            str(script_path),
-            str(default_skin),
-            str(default_res),
+            self, str(xml_filename), str(script_path), str(default_skin), str(default_res)
         )
         self.client = type(self)._launch_client
         self.base_url = str(type(self)._launch_base_url or "plugin://plugin.video.silo/")
@@ -85,7 +97,12 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         self.screen = "home"
         self.params = {}
         self.stack = []
+        self._rows = []
         self._row_items = {}
+        self._grid_items = []
+        self._view_mode = "rails"
+        self._row_index = 0
+        self._hero_timer = None
         self._last_error = ""
 
     def onInit(self):
@@ -105,35 +122,61 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
 
     def onAction(self, action):
         action_id = action.getId()
-        # Back, Previous Menu, and remote Stop should unwind the UI stack first.
+        focus_id = self.getFocusId()
         if action_id in (9, 10, 92, 216, 247, 257, 61448):
             if self.stack:
-                self.screen, self.params = self.stack.pop()
+                snapshot = self.stack.pop()
+                self.screen = snapshot.get("screen", "home")
+                self.params = dict(snapshot.get("params") or {})
+                self._row_index = int(snapshot.get("row_index") or 0)
                 self._render()
+                self._restore_snapshot(snapshot)
             else:
                 self.close()
             return
 
-        # Keep the title and backdrop in sync with the currently focused poster.
+        if self._view_mode == "rails":
+            row = self._row_of(focus_id)
+            if row is not None:
+                if action_id == 3 and row > 0:
+                    self._focus_row(row - 1)
+                    return
+                if action_id == 4 and row + 1 < len(self._rows):
+                    self._focus_row(row + 1)
+                    return
+
+        nav_ids = (
+            NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
+            NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT, NAV_WATCH_PARTY,
+        )
+        if focus_id in nav_ids and action_id == 4:
+            self._focus_first_content()
+            return
         if action_id in (1, 2, 3, 4, 5, 6, 7, 8):
-            self._update_hero_from_focus()
+            self._schedule_hero_update()
 
     def onClick(self, control_id):
         try:
-            if control_id in (NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                              NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT):
+            if control_id in (
+                NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
+                NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT, NAV_WATCH_PARTY,
+            ):
                 self._nav_click(control_id)
                 return
-            if control_id in ROW_CONTROLS:
+            if control_id == GRID_CONTROL:
+                selected = self.getControl(GRID_CONTROL).getSelectedItem()
+            elif self._row_of(control_id) is not None:
                 selected = self.getControl(control_id).getSelectedItem()
-                if selected is not None:
-                    action = selected.getProperty("Silo.Cinematic.Action")
-                    raw_payload = selected.getProperty("Silo.Cinematic.Payload")
-                    try:
-                        payload = json.loads(raw_payload) if raw_payload else {}
-                    except (TypeError, ValueError):
-                        payload = {}
-                    self._item_click(action, payload)
+            else:
+                selected = None
+            if selected is not None:
+                action = selected.getProperty("Silo.Cinematic.Action")
+                raw_payload = selected.getProperty("Silo.Cinematic.Payload")
+                try:
+                    payload = json.loads(raw_payload) if raw_payload else {}
+                except (TypeError, ValueError):
+                    payload = {}
+                self._item_click(action, payload)
         except Exception as exc:
             self._error(exc)
 
@@ -153,15 +196,21 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
             pass
 
     def _push(self, screen, params=None):
-        self.stack.append((self.screen, dict(self.params)))
+        self.stack.append({
+            "screen": self.screen,
+            "params": dict(self.params),
+            "row_index": self._row_index,
+            "focus_snapshot": self._focus_snapshot(),
+        })
         self.screen = screen
         self.params = dict(params or {})
+        self._row_index = 0
         self._render()
 
     def _nav_click(self, control_id):
         if control_id == NAV_HOME:
             self.stack = []
-            self.screen, self.params = "home", {}
+            self.screen, self.params, self._row_index = "home", {}, 0
             self._render()
         elif control_id == NAV_LIBRARIES:
             self._push("libraries")
@@ -173,9 +222,13 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
             self._push("your_stuff")
         elif control_id == NAV_COLLECTIONS:
             self._push("collections")
+        elif control_id == NAV_WATCH_PARTY:
+            url = self.base_url.rstrip("/") + "/?" + urlencode({"action": "watch_party_join"})
+            self.close()
+            xbmc.sleep(80)
+            xbmc.executebuiltin("Container.Update(%s)" % url)
         elif control_id == NAV_SETTINGS:
             ADDON.openSettings()
-            # The window setting can be toggled while this dialog is open.
             if not ADDON.getSettingBool("cinematic_interface"):
                 self.close()
             else:
@@ -184,8 +237,7 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
             self.client.select_profile()
             self._render()
         elif control_id == NAV_LOGOUT:
-            answer = xbmcgui.Dialog().yesno("Silo", "Log out of this Silo account?")
-            if answer:
+            if xbmcgui.Dialog().yesno("Silo", "Log out of this Silo account?"):
                 self.client.logout()
                 self.screen, self.params, self.stack = "home", {}, []
                 self._render()
@@ -194,7 +246,6 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         if not ADDON.getSettingBool("cinematic_interface"):
             self.close()
             return
-
         if self.screen == "home":
             rows = self._home_rows()
         elif self.screen == "libraries":
@@ -222,51 +273,245 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         else:
             rows = [("Silo", [])]
 
-        self._show_rows(rows)
+        self._set_active_nav()
+        if self.screen in ("home", "series", "details"):
+            self._show_rails(rows)
+            if self._rows:
+                self._row_index = min(max(0, self._row_index), len(self._rows) - 1)
+                self._layout_rows()
+                self.setFocusId(self._focus_control_for_row(self._row_index))
+                if self.screen not in ("details", "series"):
+                    self._update_hero_from_focus()
+            else:
+                self.setFocusId(self._active_nav_control())
+        else:
+            self._show_grid(rows)
+            if self._grid_items:
+                self.setFocusId(GRID_CONTROL)
+                self._update_hero_from_focus()
+            else:
+                self.setFocusId(self._active_nav_control())
 
-        first_populated_row = next(
-            (control_id for control_id in ROW_CONTROLS if self._row_items.get(control_id)),
-            None,
-        )
+    def _show_rails(self, rows):
+        """Dynamic poster and wide-art rails with the active row anchored near the top."""
+        normalized = []
+        for row in rows or []:
+            if not row:
+                continue
+            title = row[0] if len(row) else ""
+            items = row[1] if len(row) > 1 else []
+            style = str(row[2] if len(row) > 2 else "poster").lower()
+            if title and items:
+                normalized.append((str(title), list(items), style if style == "wide" else "poster"))
+        self._rows = normalized[:MAX_ROWS]
+        self._row_items = {}
+        self._grid_items = []
+        self._view_mode = "rails"
+        self.setProperty("silo.cinematic.view", "rails")
+
+        for index in range(MAX_ROWS):
+            group_id, header_id, icon_id, wide_id, poster_id = slot_ids(index)
+            group = self.getControl(group_id)
+            header = self.getControl(header_id)
+            icon = self.getControl(icon_id)
+            wide_list = self.getControl(wide_id)
+            poster_list = self.getControl(poster_id)
+            if index >= len(self._rows):
+                group.setVisible(False)
+                wide_list.reset()
+                poster_list.reset()
+                wide_list.setVisible(False)
+                poster_list.setVisible(False)
+                continue
+            title, items, style = self._rows[index]
+            header.setLabel(title)
+            header.setPosition(145 if style == "wide" else 88, 0)
+            icon.setVisible(style == "wide")
+            if style == "wide":
+                poster_list.reset()
+                poster_list.setVisible(False)
+                listing, control_id = wide_list, wide_id
+            else:
+                wide_list.reset()
+                wide_list.setVisible(False)
+                listing, control_id = poster_list, poster_id
+            listing.reset()
+            listing.setVisible(True)
+            self._row_items[control_id] = items
+            for item in items:
+                display_item = dict(item or {})
+                display_item["_cinematic_wide"] = style == "wide"
+                listing.addItem(self._make_list_item(display_item))
+        self._row_index = min(max(0, self._row_index), max(0, len(self._rows) - 1))
+        self._layout_rows()
+
+    def _show_grid(self, rows):
+        """Poster grid used by library, collection, personal-list and search screens."""
+        self._rows = []
+        self._row_items = {}
+        self._grid_items = []
+        self._view_mode = "grid"
+        self.setProperty("silo.cinematic.view", "grid")
+        for row in rows or []:
+            if row:
+                self._grid_items.extend(list(row[1] if len(row) > 1 else []))
+        labels = {
+            "libraries": "YOUR LIBRARIES",
+            "library": self.params.get("title") or "LIBRARY",
+            "season": self.params.get("title") or "EPISODES",
+            "your_stuff": "YOUR STUFF",
+            "personal": self.params.get("title") or "YOUR STUFF",
+            "collections": "COLLECTIONS",
+            "collection": self.params.get("title") or "COLLECTION",
+            "search": "SEARCH RESULTS  ·  " + str(self.params.get("query") or ""),
+            "person": self.params.get("title") or "PERSON",
+        }
+        heading = labels.get(self.screen, next((str(row[0]) for row in rows if row and row[0]), "SILO"))
+        self.getControl(GRID_HEADING).setLabel(heading)
+        grid = self.getControl(GRID_CONTROL)
+        grid.reset()
+        self._row_items[GRID_CONTROL] = self._grid_items
+        for item in self._grid_items:
+            grid.addItem(self._make_list_item(item))
+        self.getControl(GRID_EMPTY).setVisible(not self._grid_items)
+
+    def _layout_rows(self):
+        top = ROWS_TOP
+        for index in range(MAX_ROWS):
+            group = self.getControl(slot_ids(index)[0])
+            if index >= len(self._rows) or index < self._row_index or top >= SCREEN_HEIGHT:
+                group.setVisible(False)
+                continue
+            group.setPosition(0, top)
+            group.setVisible(True)
+            top += WIDE_PITCH if self._rows[index][2] == "wide" else POSTER_PITCH
+
+    def _focus_control_for_row(self, index):
+        return slot_ids(index)[3] if self._rows[index][2] == "wide" else slot_ids(index)[4]
+
+    def _row_of(self, control_id):
+        for index, row in enumerate(self._rows):
+            if control_id in (slot_ids(index)[3], slot_ids(index)[4]):
+                return index
+        return None
+
+    def _focus_row(self, index):
+        if not self._rows:
+            return
+        self._row_index = min(max(0, int(index)), len(self._rows) - 1)
+        self._layout_rows()
+        self.setFocusId(self._focus_control_for_row(self._row_index))
+        self._schedule_hero_update()
+
+    def _focus_first_content(self):
+        if self._view_mode == "grid":
+            if self._grid_items:
+                self.setFocusId(GRID_CONTROL)
+        elif self._rows:
+            self._focus_row(0)
+
+    def _focus_snapshot(self):
         try:
-            self.setFocusId(first_populated_row if first_populated_row is not None else NAV_HOME)
+            focus_id = self.getFocusId()
+            if focus_id == GRID_CONTROL:
+                return ("grid", 0, self.getControl(GRID_CONTROL).getSelectedPosition())
+            row = self._row_of(focus_id)
+            if row is not None:
+                return ("rails", row, self.getControl(focus_id).getSelectedPosition())
+            return ("nav", focus_id, 0)
+        except Exception:
+            return ("nav", self._active_nav_control(), 0)
+
+    def _restore_snapshot(self, snapshot):
+        try:
+            mode, index, position = snapshot.get("focus_snapshot", ("nav", self._active_nav_control(), 0))
+            if mode == "grid" and self._view_mode == "grid" and self._grid_items:
+                self.getControl(GRID_CONTROL).selectItem(min(position, len(self._grid_items) - 1))
+                self.setFocusId(GRID_CONTROL)
+            elif mode == "rails" and self._view_mode == "rails" and self._rows:
+                index = min(index, len(self._rows) - 1)
+                self._row_index = index
+                self._layout_rows()
+                control_id = self._focus_control_for_row(index)
+                items = self._row_items.get(control_id) or []
+                if items:
+                    self.getControl(control_id).selectItem(min(position, len(items) - 1))
+                self.setFocusId(control_id)
+            else:
+                self.setFocusId(self._active_nav_control())
         except Exception:
             pass
 
-        if self.screen not in ("details", "series"):
-            self._update_hero_from_focus()
+    def _schedule_hero_update(self):
+        if self._hero_timer is not None:
+            try:
+                self._hero_timer.cancel()
+            except Exception:
+                pass
+        self._hero_timer = threading.Timer(0.15, self._update_hero_from_focus)
+        self._hero_timer.daemon = True
+        self._hero_timer.start()
 
-    def _show_rows(self, rows):
-        self._row_items = {}
-        for index, control_id in enumerate(ROW_CONTROLS):
-            label_id = ROW_LABELS[index]
-            row_title, items = rows[index] if index < len(rows) else ("", [])
-            label = self.getControl(label_id)
-            listing = self.getControl(control_id)
-            label.setLabel(str(row_title or ""))
-            label.setVisible(bool(row_title))
-            listing.reset()
-            listing.setVisible(bool(row_title))
-            self._row_items[control_id] = list(items or [])
+    def _active_nav_control(self):
+        return {
+            "home": NAV_HOME, "libraries": NAV_LIBRARIES, "search": NAV_SEARCH,
+            "your_stuff": NAV_YOUR_STUFF, "collections": NAV_COLLECTIONS,
+        }.get(self._active_nav(), NAV_HOME)
 
-            for item in (items or []):
-                li = self._make_list_item(item)
-                listing.addItem(li)
+    def _active_nav(self):
+        current = self.screen
+        if current in ("details", "series", "season", "library"):
+            current = self.stack[-1].get("screen") if self.stack else "libraries"
+        if current in ("libraries", "library", "series", "season", "person"):
+            if current == "person" and self.stack and self.stack[-1].get("screen") == "search":
+                return "search"
+            return "libraries"
+        if current in ("personal", "your_stuff"):
+            return "your_stuff"
+        if current in ("collections", "collection"):
+            return "collections"
+        if current == "search":
+            return "search"
+        return "home"
+
+    def _set_active_nav(self):
+        self.setProperty("silo.cinematic.activeTab", self._active_nav())
 
     def _make_list_item(self, item):
-        title = _display_title(item)
-        subtitle = str(_value(item, "year", "overview", "plot", default=""))
+        media_type = _item_type(item)
+        wide = bool(item.get("_cinematic_wide"))
+        raw_title = _display_title(item)
+        if wide and media_type == "episode" and _value(item, "series_title", "series_name"):
+            title = str(_value(item, "series_title", "series_name"))
+            episode_name = raw_title
+            code = ""
+            try:
+                season_number = _value(item, "season_number")
+                episode_number = _value(item, "episode_number")
+                if season_number is not None and episode_number is not None:
+                    code = "S%02dE%02d" % (int(season_number), int(episode_number))
+            except (TypeError, ValueError):
+                code = ""
+            subtitle = " · ".join(part for part in (code, episode_name) if part)
+        else:
+            title = raw_title
+            subtitle = str(_value(item, "year", "subtitle", default=""))
+            if media_type == "episode":
+                try:
+                    subtitle = "S%02dE%02d · %s" % (
+                        int(_value(item, "season_number")), int(_value(item, "episode_number")), title
+                    )
+                    title = str(_value(item, "series_title", "series_name", default=title))
+                except (TypeError, ValueError):
+                    pass
+
         list_item = xbmcgui.ListItem(label=title, label2=subtitle)
         poster = self._art(item, "poster_url", "poster", "image", "thumbnail", "still_url", "still")
-        backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url")
+        backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url", "still_url", "still")
         logo = self._art(item, "logo_url", "logo")
+        if wide:
+            poster = backdrop or poster
         art = {}
-        action = item.get("_cinematic_action", "")
-        if not poster and action in ("play", "start_over"):
-            # Use Kodi's familiar video tile for action cards on the details screen.
-            poster = "DefaultVideo.png"
-        elif not poster and _item_type(item) == "menu":
-            poster = "DefaultFolder.png"
         if poster:
             art.update({"poster": poster, "thumb": poster, "icon": poster})
         if backdrop:
@@ -279,12 +524,52 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         action = item.get("_cinematic_action", "")
         payload = item.get("_cinematic_payload", {})
         list_item.setProperty("Silo.Cinematic.Action", str(action))
-        list_item.setProperty(
-            "Silo.Cinematic.Payload",
-            json.dumps(payload, separators=(",", ":"), ensure_ascii=True),
-        )
-        list_item.setProperty("Silo.Cinematic.Overview", str(_value(item, "overview", "plot")))
-        list_item.setProperty("Silo.Cinematic.Type", _item_type(item))
+        list_item.setProperty("Silo.Cinematic.Payload", json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+        list_item.setProperty("Silo.Cinematic.Type", media_type)
+        list_item.setProperty("Silo.Cinematic.HeroTitle", title)
+        list_item.setProperty("Silo.Cinematic.Overview", str(_value(item, "overview", "plot", "description")))
+        list_item.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
+        list_item.setProperty("Silo.Cinematic.Badges", self._hero_badges(item))
+        list_item.setProperty("Silo.Cinematic.Wide", "true" if wide else "")
+
+        user_state = item.get("user_state") if isinstance(item.get("user_state"), dict) else {}
+        user_data = item.get("user_data") if isinstance(item.get("user_data"), dict) else {}
+        state = user_state or user_data
+        played = bool(state.get("played"))
+        position = _value(item, "position_seconds", default=state.get("position_seconds", 0))
+        duration = _value(item, "duration_seconds", default=state.get("duration_seconds", 0))
+        try:
+            position = max(0.0, float(position or 0))
+        except (TypeError, ValueError):
+            position = 0.0
+        try:
+            duration = max(0.0, float(duration or 0))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if duration <= 0:
+            try:
+                duration = max(0.0, float(_value(item, "runtime_minutes", "runtime", default=0) or 0) * 60)
+            except (TypeError, ValueError):
+                duration = 0.0
+        try:
+            tag = list_item.getVideoInfoTag()
+            tag.setTitle(title)
+            tag.setMediaType({
+                "movie": "movie", "series": "tvshow", "season": "season",
+                "episode": "episode", "video": "video",
+            }.get(media_type, "video"))
+            if duration > 0:
+                tag.setDuration(int(round(duration)))
+            if played:
+                tag.setPlaycount(1)
+                list_item.setProperty("Silo.Cinematic.Watched", "true")
+            else:
+                tag.setPlaycount(0)
+                if position > 0 and duration > 0 and position < duration:
+                    tag.setResumePoint(position, duration)
+                    list_item.setProperty("Silo.Cinematic.Progress", str(int(position * 100.0 / duration)))
+        except Exception:
+            pass
         return list_item
 
     def _art(self, item, *keys):
@@ -313,14 +598,10 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
 
     def _home_rows(self):
         if not self.client.cfg.get("token"):
-            return [
-                ("WELCOME TO SILO", [
-                    self._menu_item("Sign in to Silo", "login"),
-                    self._menu_item("Open settings", "settings"),
-                ]),
-                ("", []),
-                ("", []),
-            ]
+            return [("WELCOME TO SILO", [
+                self._menu_item("Sign in to Silo", "login"),
+                self._menu_item("Open settings", "settings"),
+            ], "poster")]
 
         try:
             sections = self.client.home_sections(image_size="medium")
@@ -330,21 +611,10 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
             xbmc.log("[plugin.video.silo] Home sections unavailable: %s" % exc, xbmc.LOGWARNING)
             sections = []
 
-        def priority(section):
-            name = str(_value(section, "title", "name", default="")).lower()
-            if "continue" in name:
-                return 0
-            if "recently added" in name:
-                return 1
-            if "recommended" in name or "for you" in name:
-                return 2
-            return 3
-
-        sections = sorted(sections, key=priority)
         rows = []
+        # Keep the server's home ordering intact. Continue Watching / Next Up
+        # use landscape art, while other sections use poster cards.
         for section in sections:
-            if len(rows) >= 3:
-                break
             section_id = _value(section, "id", "section_id")
             title = str(_value(section, "title", "name", default="Silo"))
             items = []
@@ -354,15 +624,9 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
                         section_id, image_size="medium", limit=200
                     ) or {}
                 except SiloError as exc:
-                    xbmc.log(
-                        "[plugin.video.silo] Home section %s unavailable: %s"
-                        % (section_id, exc),
-                        xbmc.LOGDEBUG,
-                    )
+                    xbmc.log("[plugin.video.silo] Home section %s unavailable: %s" % (section_id, exc), xbmc.LOGDEBUG)
                     response = {}
-                items = response.get("items") or []
-                if not items:
-                    items = response.get("results") or []
+                items = response.get("items") or response.get("results") or []
             if not items:
                 items = section.get("items") or []
             cards = []
@@ -370,33 +634,34 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
                 if not isinstance(item, dict):
                     continue
                 media_type = _item_type(item)
-                if media_type in ("movie", "episode", "video"):
-                    action = "details"
-                elif media_type == "series":
-                    action = "series"
-                elif media_type == "season":
-                    action = "season"
-                else:
+                content_id = _content_id(item)
+                if not content_id:
+                    continue
+                action = "details" if media_type in ("movie", "episode", "video") else "series" if media_type == "series" else "season" if media_type == "season" else ""
+                if not action:
                     continue
                 payload = {
-                    "content_id": (_value(item, "play_content_id", "content_id", "id") if action == "play" else _content_id(item)),
-                    "library_id": _value(item, "library_id", default=""),
+                    "content_id": content_id,
+                    "library_id": _value(item, "library_id", "source_library_id", default=""),
                     "title": _display_title(item),
+                    "type": media_type,
+                    "overview": _value(item, "overview", "plot", default=""),
+                    "backdrop_url": _value(item, "backdrop_url", "backdrop", default=""),
                 }
                 if action == "season":
-                    payload.update({
-                        "series_id": _value(item, "series_id"),
-                        "season_number": _value(item, "season_number"),
-                    })
+                    payload.update({"series_id": _value(item, "series_id"), "season_number": _value(item, "season_number")})
                 cards.append(self._with_action(item, action, **payload))
-            if cards:
-                rows.append((title, cards))
-        while len(rows) < 3:
-            if not rows:
-                rows.append(("SILO", [self._menu_item("Browse libraries", "libraries")]))
-            else:
-                rows.append(("", []))
-        return rows[:3]
+            if not cards:
+                continue
+            section_type = str(_value(section, "section_type", "type", default="")).lower()
+            title_key = title.lower()
+            wide = section_type in ("continue_watching", "in_progress", "next_up") or "continue watching" in title_key or title_key == "next up"
+            rows.append((title, cards, "wide" if wide else "poster"))
+            if len(rows) >= MAX_ROWS:
+                break
+        if not rows:
+            rows.append(("SILO", [self._menu_item("Browse libraries", "libraries")], "poster"))
+        return rows
 
     def _libraries_rows(self):
         items = self.client.libraries()
@@ -659,23 +924,18 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
                 continue
             action = "series" if media_type == "series" else "details" if _playable(item) else ""
             if action:
-                cards.append(self._with_action(
-                    item, action, content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
-                    library_id=_value(item, "library_id", default=""),
-                    title=_display_title(item),
-                ))
+                cards.append(self._with_action(item, action, content_id=content_id,
+                    library_id=_value(item, "library_id", default=""), title=_display_title(item)))
         people = []
         try:
             for person in self.client.search_people(query, limit=20):
                 person_id = _value(person, "id", "person_id")
                 if person_id:
-                    people.append(self._with_action(
-                        dict(person, title=_display_title(person), type="person"),
-                        "person", person_id=person_id, title=_display_title(person)
-                    ))
+                    person_copy = dict(person, title="[Person] " + _display_title(person), type="person")
+                    people.append(self._with_action(person_copy, "person", person_id=person_id, title=_display_title(person)))
         except SiloError as exc:
             xbmc.log("[plugin.video.silo] People search unavailable: %s" % exc, xbmc.LOGDEBUG)
-        return [("PEOPLE", people), ("RESULTS  ·  " + str(query), cards), ("", [])]
+        return [("SEARCH RESULTS  ·  " + str(query), people + cards, "poster")]
 
     def _person_rows(self):
         items, next_cursor = self.client.person_catalog_page(
@@ -758,40 +1018,106 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         xbmc.sleep(100)
         xbmc.executebuiltin("PlayMedia(%s)" % url)
 
+    def _hero_meta(self, item):
+        media_type = _item_type(item)
+        labels = {"movie": "MOVIE", "series": "TV SERIES", "episode": "EPISODE", "season": "SEASON", "video": "VIDEO"}
+        parts = [labels.get(media_type, media_type.replace("_", " ").upper())]
+        year = _value(item, "year", "release_year")
+        if year:
+            parts.append(str(year))
+        if media_type == "episode":
+            try:
+                parts.append("S%02dE%02d" % (int(_value(item, "season_number")), int(_value(item, "episode_number"))))
+            except (TypeError, ValueError):
+                pass
+        try:
+            runtime = int(float(_value(item, "runtime_minutes", "runtime", default=0) or 0))
+        except (TypeError, ValueError):
+            runtime = 0
+        if runtime > 0:
+            parts.append("%dh" % (runtime // 60) if runtime >= 60 and runtime % 60 == 0 else "%dh %dm" % divmod(runtime, 60) if runtime >= 60 else "%d min" % runtime)
+        rating = ""
+        ratings = item.get("ratings") if isinstance(item.get("ratings"), list) else []
+        for entry in ratings:
+            if isinstance(entry, dict) and entry.get("display"):
+                rating = str(entry["display"])
+                break
+        if not rating:
+            for key in ("rating_imdb", "rating_tmdb", "rating"):
+                val = item.get(key)
+                if isinstance(val, (int, float)) and val:
+                    rating = ("IMDb " if key == "rating_imdb" else "TMDb " if key == "rating_tmdb" else "") + ("%.1f" % val)
+                    break
+        if rating:
+            parts.append(rating)
+        return "   ·   ".join(part for part in parts if part)
+
+    def _hero_badges(self, item):
+        summary = item.get("overlay_summary") if isinstance(item.get("overlay_summary"), dict) else {}
+        badges = []
+        resolution = str(_value(summary, "resolution", default=_value(item, "resolution"))).lower()
+        if resolution in ("4k", "uhd") or resolution.startswith("2160"):
+            badges.append("4K")
+        elif resolution.startswith(("720", "1080")):
+            badges.append("HD")
+        hdr = str(_value(summary, "hdr", default=_value(item, "hdr"))).strip().lower()
+        if hdr and hdr not in ("false", "0", "none", "sdr"):
+            badges.append("DOLBY VISION" if "dolby" in hdr or hdr in ("dv", "true_dv") else "HDR")
+        audio = str(_value(summary, "audio", default=_value(item, "codec_audio"))).strip()
+        if audio:
+            badges.append(audio.upper())
+        rating = str(_value(item, "content_rating", "official_rating")).strip()
+        if rating:
+            badges.append(rating.upper())
+        return "     ·     ".join(dict.fromkeys(badges))
+
     def _set_hero(self, item):
         if not isinstance(item, dict):
             return
         title = _display_title(item)
-        media_type = _item_type(item).replace("_", " ").title()
-        year = _value(item, "year", "release_year")
-        runtime = _value(item, "runtime_minutes", "runtime")
-        meta = "  ·  ".join(str(value) for value in (media_type, year, runtime) if value not in (None, ""))
-        plot = str(_value(item, "overview", "plot", "description", default=""))
+        media_type = _item_type(item)
+        logo = self._art(item, "logo_url", "logo")
         backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url", "poster_url", "poster")
+        plot = str(_value(item, "overview", "plot", "description", default=""))
+        meta = self._hero_meta(item)
+        badges = self._hero_badges(item)
+        self.setProperty("silo.cinematic.hero.logo", logo or "")
+        self.setProperty("silo.cinematic.hero.type", media_type)
+        self.setProperty("silo.cinematic.hero.badges", badges)
         try:
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_PLOT).setText(plot[:360])
+            self.getControl(HERO_BADGES).setLabel(badges)
+            self.getControl(HERO_PLOT).setText(plot[:500])
             self.getControl(100).setImage(backdrop or "")
+            self.getControl(HERO_LOGO).setImage(logo or "")
         except Exception:
             pass
 
     def _update_hero_from_focus(self):
-        # Detail and series screens keep their selected title in the hero while
-        # focus moves through Play/Resume, Start over, or season choices.
         if self.screen in ("details", "series"):
             return
         try:
-            focused_id = self.getFocusId()
-            if focused_id not in ROW_CONTROLS:
-                return
-            item = self.getControl(focused_id).getSelectedItem()
+            focus_id = self.getFocusId()
+            if self._view_mode == "grid" and focus_id == GRID_CONTROL:
+                item = self.getControl(GRID_CONTROL).getSelectedItem()
+            else:
+                row = self._row_of(focus_id)
+                item = self.getControl(focus_id).getSelectedItem() if row is not None else None
             if item is None:
                 return
-            self.getControl(HERO_TITLE).setLabel(item.getLabel())
-            self.getControl(HERO_META).setLabel(item.getProperty("Silo.Cinematic.Type").replace("_", " ").title())
-            self.getControl(HERO_PLOT).setText(item.getProperty("Silo.Cinematic.Overview")[:360])
-            backdrop = item.getArt("fanart") or item.getArt("poster") or item.getArt("thumb")
-            self.getControl(100).setImage(backdrop or "")
+            title = item.getProperty("Silo.Cinematic.HeroTitle") or item.getLabel()
+            logo = item.getArt("clearlogo") or ""
+            backdrop = item.getArt("fanart") or item.getArt("poster") or item.getArt("thumb") or ""
+            self.setProperty("silo.cinematic.hero.logo", logo)
+            self.setProperty("silo.cinematic.hero.type", item.getProperty("Silo.Cinematic.Type"))
+            self.setProperty("silo.cinematic.hero.badges", item.getProperty("Silo.Cinematic.Badges"))
+            self.getControl(HERO_TITLE).setLabel(title)
+            self.getControl(HERO_META).setLabel(item.getProperty("Silo.Cinematic.Meta"))
+            self.getControl(HERO_BADGES).setLabel(item.getProperty("Silo.Cinematic.Badges"))
+            self.getControl(HERO_PLOT).setText(item.getProperty("Silo.Cinematic.Overview")[:500])
+            self.getControl(100).setImage(backdrop)
+            self.getControl(HERO_LOGO).setImage(logo)
         except Exception:
             pass
+
