@@ -7753,6 +7753,10 @@ def play(
         resolved_item,
     )
 
+    # Give Kodi the fullscreen player immediately after resolving the item;
+    # track_progress raises it again once isPlaying() confirms startup.
+    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+
     session_id = info.get("session_id")
 
     if session_id:
