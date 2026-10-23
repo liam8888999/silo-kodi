@@ -283,7 +283,20 @@ class CinematicWindow(xbmcgui.WindowXML):
         if focus_id in nav_ids and action_id == 4:
             self._focus_first_content()
             return
-        if action_id in (1, 2, 3, 4, 5, 6, 7, 8):
+        if action_id in (1, 2, 3, 4, 5, 6, 7, 8, 107):
+            # ACTION_MOUSE_MOVE (107) lets the featured panel follow the item
+            # currently under the pointer, as well as D-pad/keyboard selection.
+            self._schedule_hero_update()
+
+    def onFocus(self, control_id):
+        """Refresh featured details when mouse or keyboard focus enters a control."""
+        if (
+            control_id in (
+                GRID_CONTROL, NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
+                NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+            )
+            or self._row_of(control_id) is not None
+        ):
             self._schedule_hero_update()
 
     def onClick(self, control_id):
@@ -413,7 +426,9 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.close()
                 return
 
-        show_hero = self.screen in ("home", "series", "details")
+        # Keep the same featured information panel on every screen. The current
+        # selection in a browse grid replaces the hero data just like a home rail.
+        show_hero = True
         self._set_hero_visible(show_hero)
         self._set_active_nav()
         # Start on an always-visible control. Poster rails can be hidden or
@@ -467,9 +482,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "rails"
         self.setProperty("silo.cinematic.view", "rails")
-        self.getControl(GRID_HEADING).setPosition(88, 126)
-        self.getControl(GRID_CONTROL).setPosition(62, 176)
-        self.getControl(GRID_EMPTY).setPosition(90, 226)
+        self.getControl(GRID_HEADING).setPosition(88, 520)
+        self.getControl(GRID_CONTROL).setPosition(62, 562)
+        self.getControl(GRID_EMPTY).setPosition(90, 610)
         # Kodi's WindowXML does not expose skin scrollbar controls to Python.
         self.getControl(GRID_HEADING).setVisible(False)
         self.getControl(GRID_CONTROL).setVisible(False)
@@ -521,8 +536,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "grid"
         self.setProperty("silo.cinematic.view", "grid")
-        # Browsing screens use a compact layout; reserve the tall hero only for
-        # Home, series and detail screens so results begin directly below the nav.
+        # Reserve the same hero-and-metadata area on every screen. Browse
+        # results begin below the synopsis rather than sitting beside or behind it.
         self.getControl(GRID_HEADING).setPosition(88, 150)
         self.getControl(GRID_CONTROL).setPosition(62, 205)
         self.getControl(GRID_EMPTY).setPosition(90, 240)
@@ -1200,7 +1215,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.getControl(HERO_PLOT).setText("\\n".join(part for part in (plot, details) if part)[:1200])
             self.getControl(100).setImage(backdrop or "")
             self.getControl(HERO_LOGO).setImage(logo or "")
-            self._set_hero_visible(self.screen in ("home", "series", "details"))
+            self._set_hero_visible(True)
         except Exception:
             pass
 
@@ -1326,6 +1341,6 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.setProperty("silo.cinematic.hero.badge%d" % slot, badge)
             for slot in range(len(self._hero_badge_list(item)) + 1, 5):
                 self.setProperty("silo.cinematic.hero.badge%d" % slot, "")
-            self._set_hero_visible(self.screen in ("home", "series", "details"))
+            self._set_hero_visible(True)
         except Exception as exc:
             xbmc.log("[plugin.video.silo] Silo Cinematic: hero artwork update failed: %s" % exc, xbmc.LOGDEBUG)
