@@ -5379,18 +5379,6 @@ def _start_watch_party_guest_playback(
     """Start the host-selected item using the normal Silo Kodi playback path."""
     library_id = resolve_playback_library_id(client, content_id, library_id)
 
-    # The cinematic poster may have a newer/local resume point than the
-    # server's progress response. Keep it as a fallback so the actual resolved
-    # playback item can start where the visible card says it should.
-    try:
-        cinematic_position = max(0.0, float(cinematic_resume_position or 0.0))
-    except (TypeError, ValueError):
-        cinematic_position = 0.0
-    try:
-        cinematic_duration = max(0.0, float(cinematic_resume_duration or 0.0))
-    except (TypeError, ValueError):
-        cinematic_duration = 0.0
-
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
 
@@ -7605,6 +7593,18 @@ def play(
             kodi_cached_resume = get_kodi_cached_resume_position()
     else:
         kodi_cached_resume = 0.0
+
+    # The cinematic card's resume point is forwarded as a plugin parameter.
+    # Parse it here (not in unrelated routes such as Watch Party playback) so it
+    # is always defined before the final resolved-item resume logic uses it.
+    try:
+        cinematic_position = max(0.0, float(cinematic_resume_position or 0.0))
+    except (TypeError, ValueError):
+        cinematic_position = 0.0
+    try:
+        cinematic_duration = max(0.0, float(cinematic_resume_duration or 0.0))
+    except (TypeError, ValueError):
+        cinematic_duration = 0.0
 
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
