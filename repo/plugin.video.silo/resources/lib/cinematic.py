@@ -1269,13 +1269,84 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.tab", tab)
         self.setProperty("silo.query", str(self.params.get("query") or ""))
     def _make_list_item(self, item):
-        # The regular Silo directory renderer has already prepared this exact
-        # Kodi ListItem (signed artwork URLs, VideoInfoTag metadata, resume
-        # state, library IDs and other properties). Reuse it rather than
-        # rebuilding a second item and accidentally dropping skin metadata.
+        # Directory cards already arrive as fully prepared Kodi ListItems from
+        # main.py. Home cards arrive as plain dictionaries from the background
+        # loader, so build those through the same shared catalog ListItem
+        # pipeline here on the WindowXML/UI thread.
         source = item.get("_cinematic_source")
+        if source is None and _content_id(item) and _item_type(item) in (
+            "movie", "series", "season", "episode", "video"
+        ):
+            try:
+                import main as silo_main
+
+                catalog_item = dict(item)
+                detail = item.get("_cinematic_detail")
+                progress = item.get("_cinematic_progress")
+                source, media_type, content_id, built_title, display_progress = (
+                    silo_main.build_catalog_list_item(
+                        self.client,
+                        catalog_item,
+                        detail=detail if isinstance(detail, dict) else None,
+                        progress=progress if isinstance(progress, dict) else None,
+                        series_rollup=item.get("_cinematic_series_rollup") or None,
+                        season_rollup=item.get("_cinematic_season_rollup") or None,
+                    )
+                )
+
+                # Keep the cinematic card label/layout, while Kodi's VideoInfoTag
+                # receives all fields from the regular shared catalog pipeline.
+                card_type = _item_type(item)
+                card_title = _display_title(item)
+                card_subtitle = str(_value(item, "year", "subtitle", default=""))
+                if card_type == "episode":
+                    try:
+                        card_subtitle = "S%02dE%02d · %s" % (
+                            int(_value(item, "season_number")),
+                            int(_value(item, "episode_number")),
+                            card_title,
+                        )
+                        card_title = str(_value(item, "series_title", "series_name", default=card_title))
+                    except (TypeError, ValueError):
+                        pass
+                if hasattr(source, "setLabel"):
+                    source.setLabel(card_title)
+                if hasattr(source, "setLabel2"):
+                    source.setLabel2(card_subtitle)
+
+                detail_data = detail if isinstance(detail, dict) else {}
+                state = item.get("user_state") if isinstance(item.get("user_state"), dict) else {}
+                user_data = item.get("user_data") if isinstance(item.get("user_data"), dict) else {}
+                if not state:
+                    state = user_data
+                detail_state = detail_data.get("user_state") if isinstance(detail_data.get("user_state"), dict) else {}
+                detail_user_data = detail_data.get("user_data") if isinstance(detail_data.get("user_data"), dict) else {}
+                state = state or detail_state or detail_user_data
+                progress_state = progress if isinstance(progress, dict) else {}
+                played = (
+                    state.get("played") is True
+                    or item.get("played") is True
+                    or progress_state.get("completed") is True
+                )
+                source.setProperty("Silo.UserState.Played", "true" if played else "false")
+                source.setProperty("Silo.UserState.InWatchlist", "true" if state.get("in_watchlist") is True else "false")
+                source.setProperty("Silo.UserState.IsFavorite", "true" if state.get("is_favorite") is True else "false")
+                source.setProperty("IsPlayable", "true" if card_type in ("movie", "episode", "video") else "false")
+
+                payload = item.get("_cinematic_payload") if isinstance(item.get("_cinematic_payload"), dict) else {}
+                library_id = payload.get("library_id") or item.get("library_id") or item.get("_silo_home_source_library_id")
+                if library_id not in (None, ""):
+                    source.setProperty("Silo.LibraryID", str(library_id))
+                    source.setProperty("Silo.HomeOriginLibraryID", str(library_id))
+            except Exception as exc:
+                xbmc.log(
+                    "[plugin.video.silo] Shared Home-card ListItem pipeline failed: %s" % exc,
+                    xbmc.LOGWARNING,
+                )
+                source = None
+
         if source is not None:
-            title = str(item.get("title") or item.get("name") or "Untitled")
+            title = str(source.getLabel() or item.get("title") or item.get("name") or "Untitled")
             action = item.get("_cinematic_action", "")
             payload = item.get("_cinematic_payload", {})
             source.setProperty("Silo.Cinematic.Action", str(action))

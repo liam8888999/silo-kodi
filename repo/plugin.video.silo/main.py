@@ -2645,6 +2645,38 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
     display_progress = progress if progress is not None else catalog_progress(catalog_item)
     set_watch_state(item, display_progress, media_type)
 
+    # Keep viewer-specific actions (watchlist, favorites, watched state) on the
+    # shared ListItem too, rather than making each presentation infer them.
+    viewer_state = {}
+    for source in (catalog_item, detail if isinstance(detail, dict) else {}):
+        if not isinstance(source, dict):
+            continue
+        for key in ("user_state", "user_data"):
+            candidate = source.get(key)
+            if not isinstance(candidate, dict):
+                continue
+            for state_key, state_value in candidate.items():
+                if viewer_state.get(state_key) in (None, ""):
+                    viewer_state[state_key] = state_value
+
+    def state_flag(value):
+        return value is True or str(value or "").strip().lower() in ("true", "1", "yes")
+
+    played = (
+        state_flag(viewer_state.get("played"))
+        or state_flag(catalog_item.get("played"))
+        or state_flag((display_progress or {}).get("completed"))
+    )
+    item.setProperty("Silo.UserState.Played", "true" if played else "false")
+    item.setProperty(
+        "Silo.UserState.InWatchlist",
+        "true" if state_flag(viewer_state.get("in_watchlist")) else "false",
+    )
+    item.setProperty(
+        "Silo.UserState.IsFavorite",
+        "true" if state_flag(viewer_state.get("is_favorite")) else "false",
+    )
+
     if media_type == "series":
         set_container_watch_state(item, series_rollup)
     elif media_type == "season":
@@ -9412,6 +9444,11 @@ def cinematic_root_rows(client):
         section_by_id[str(sid)] = section
 
     cfg_snapshot = dict(client.cfg or {})
+    try:
+        libraries = client.libraries()
+    except SiloError as exc:
+        log("Silo Cinematic: unable to load libraries for Home cards: %s" % exc, xbmc.LOGDEBUG)
+        libraries = []
 
     def clean_art(value, worker):
         if isinstance(value, dict):
@@ -9433,6 +9470,9 @@ def cinematic_root_rows(client):
         try:
             worker = SiloClient()
             worker.cfg.update(cfg_snapshot)
+            source_library_id = _resolve_home_section_library_id(
+                worker, section, libraries=libraries
+            )
             data = worker.home_section_items(sid, image_size="medium") or {}
             section_data = data.get("section") if isinstance(data.get("section"), dict) else {}
             raw_items = data.get("items") or section_data.get("items") or []
@@ -9465,8 +9505,13 @@ def cinematic_root_rows(client):
                     library_id = (
                         item.get("library_id")
                         or item.get("_silo_home_source_library_id")
+                        or source_library_id
                         or ""
                     )
+                    item["_silo_home_source_section_id"] = str(sid)
+                    if library_id:
+                        item["_silo_home_source_library_id"] = str(library_id)
+                        item.setdefault("library_id", str(library_id))
                     if media_type in PLAYABLE:
                         action = "play"
                         payload = {
@@ -9519,6 +9564,94 @@ def cinematic_root_rows(client):
             for future in futures:
                 sid, cards = future.result()
                 loaded[sid] = cards
+
+    # Prepare Home cards with the same detail, resume/progress, and aggregate
+    # watch-state data used by the regular Kodi catalog renderer. Keep this as
+    # plain dictionaries here; the WindowXML thread creates Kodi ListItems.
+    all_cards = [
+        card
+        for cards in loaded.values()
+        for card in cards
+        if isinstance(card, dict)
+    ]
+    catalog_items_by_id = {}
+    for card in all_cards:
+        content_id = get_content_id(card)
+        if content_id:
+            catalog_items_by_id.setdefault(str(content_id), card)
+
+    catalog_items = list(catalog_items_by_id.values())
+    try:
+        detail_map = fetch_detail_metadata(client, catalog_items, None) if catalog_items else {}
+    except Exception as exc:
+        log("Silo Cinematic: Home detail enrichment failed: %s" % exc, xbmc.LOGWARNING)
+        detail_map = {}
+
+    if catalog_items:
+        try:
+            progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
+                client,
+                catalog_items,
+                detail_map,
+                library_id=None,
+            )
+        except Exception as exc:
+            log("Silo Cinematic: Home watch-state enrichment failed: %s" % exc, xbmc.LOGWARNING)
+            progress_map, series_watch_map, season_watch_map = {}, {}, {}
+    else:
+        progress_map, series_watch_map, season_watch_map = {}, {}, {}
+
+    for card in all_cards:
+        content_id = get_content_id(card)
+        if not content_id:
+            continue
+        content_key = str(content_id)
+        detail = detail_map.get(content_key)
+        if isinstance(detail, dict):
+            card["_cinematic_detail"] = detail
+            # Fill gaps used by the cinematic hero from the exact same detail
+            # response the standard ListItem builder applies to Kodi InfoTags.
+            for field, value in detail.items():
+                if card.get(field) in (None, "", [], {}):
+                    card[field] = value
+
+        progress = (
+            progress_map.get(content_key)
+            or catalog_progress(detail)
+            or catalog_progress(card)
+        )
+        card["_cinematic_progress"] = progress or {}
+        card["_cinematic_series_rollup"] = series_watch_map.get(content_key) or {}
+        card["_cinematic_season_rollup"] = (
+            season_watch_map.get(content_key)
+            or season_watch_map.get("%s:%s" % (
+                card.get("series_id"), card.get("season_number")
+            ))
+            or {}
+        )
+
+        payload = card.get("_cinematic_payload")
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            if str(payload.get("action") or card.get("_cinematic_action") or "") == "play":
+                payload["content_id"] = card.get("play_content_id") or content_id
+                payload["resume_available"] = int(has_usable_resume(progress))
+                if payload.get("library_id") in (None, ""):
+                    payload["library_id"] = (
+                        card.get("library_id")
+                        or card.get("_silo_home_source_library_id")
+                        or ""
+                    )
+                if payload.get("duration_seconds") in (None, ""):
+                    duration = (
+                        (progress or {}).get("duration_seconds")
+                        or card.get("duration_seconds")
+                        or card.get("runtime_seconds")
+                        or ""
+                    )
+                    if duration not in (None, ""):
+                        payload["duration_seconds"] = duration
+            card["_cinematic_payload"] = payload
 
     rows = []
     for key in ordered:
