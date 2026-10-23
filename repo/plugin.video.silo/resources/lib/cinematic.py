@@ -1166,7 +1166,12 @@ class CinematicWindow(xbmcgui.WindowXML):
             try:
                 tag = source.getVideoInfoTag()
                 playcount = int(tag.getPlaycount() or 0)
-                source.setProperty("Silo.Cinematic.Watched", "true" if playcount > 0 else "")
+                state_played = str(source.getProperty("Silo.UserState.Played") or "").lower() == "true"
+                watched = playcount > 0 or state_played
+                if watched and playcount <= 0:
+                    tag.setPlaycount(1)
+                source.setProperty("Silo.Cinematic.Watched", "true" if watched else "")
+                source.setProperty("Silo.Cinematic.Progress", "")
                 resume = tag.getResumePoint()
                 position = float(resume.timeInSeconds()) if resume else 0.0
                 duration = float(resume.totalTimeInSeconds()) if resume else 0.0
@@ -1174,9 +1179,10 @@ class CinematicWindow(xbmcgui.WindowXML):
                     position = float(item.get("position_seconds") or source.getProperty("Silo.PositionSeconds") or 0)
                 if duration <= 0:
                     duration = float(item.get("duration_seconds") or source.getProperty("Silo.DurationSeconds") or tag.getDuration() or 0)
-                if duration > 0 and position > 0 and playcount == 0:
+                if duration > 0 and 0 < position < duration and not watched:
+                    tag.setPlaycount(0)
                     tag.setResumePoint(position, duration)
-                    source.setProperty("Silo.Cinematic.Progress", str(max(1, min(100, int(position * 100.0 / duration)))))
+                    source.setProperty("Silo.Cinematic.Progress", str(max(1, min(99, int(position * 100.0 / duration)))))
             except Exception:
                 pass
             badge = (self._hero_badge_list(item) or [""])[0]
@@ -1247,7 +1253,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         user_data = item.get("user_data") if isinstance(item.get("user_data"), dict) else {}
         overlay = item.get("overlay_summary") if isinstance(item.get("overlay_summary"), dict) else {}
         state = user_state or user_data
-        played = state.get("played") is True
+        played = state.get("played") is True or item.get("played") is True
+        list_item.setProperty("Silo.UserState.Played", "true" if played else "false")
+        list_item.setProperty("Silo.UserState.InWatchlist", "true" if state.get("in_watchlist") is True else "false")
+        list_item.setProperty("Silo.UserState.IsFavorite", "true" if state.get("is_favorite") is True else "false")
+        list_item.setProperty("Silo.Cinematic.Watched", "true" if played else "")
+        list_item.setProperty("Silo.Cinematic.Progress", "")
         position = _value(item, "position_seconds", default=state.get("position_seconds", state.get("position", 0)))
         duration = _value(item, "duration_seconds", default=state.get("duration_seconds", state.get("duration", 0)))
         if not position:
@@ -1281,9 +1292,9 @@ class CinematicWindow(xbmcgui.WindowXML):
                 list_item.setProperty("Silo.Cinematic.Watched", "true")
             else:
                 tag.setPlaycount(0)
-                if position > 0 and duration > 0 and position < duration:
+                if position > 0 and duration > 0 and position < duration and not played:
                     tag.setResumePoint(position, duration)
-                    list_item.setProperty("Silo.Cinematic.Progress", str(int(position * 100.0 / duration)))
+                    list_item.setProperty("Silo.Cinematic.Progress", str(max(1, min(99, int(position * 100.0 / duration)))))
         except Exception:
             pass
         badge = (self._hero_badge_list(item) or [""])[0]
