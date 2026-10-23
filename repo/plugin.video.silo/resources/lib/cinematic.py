@@ -405,6 +405,25 @@ class CinematicWindow(xbmcgui.WindowXML):
                     payload = json.loads(raw_payload) if raw_payload else {}
                 except (TypeError, ValueError):
                     payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                try:
+                    tag = selected.getVideoInfoTag()
+                    resume_point = tag.getResumePoint()
+                    cached_position = float(resume_point.timeInSeconds()) if resume_point else 0.0
+                    cached_duration = float(resume_point.totalTimeInSeconds()) if resume_point else 0.0
+                    if cached_position > 0:
+                        payload.setdefault("cached_resume_position", cached_position)
+                    if cached_duration > 0:
+                        payload.setdefault("duration_seconds", cached_duration)
+                    if not payload.get("duration_seconds"):
+                        duration = float(tag.getDuration() or 0)
+                        if duration > 0:
+                            payload["duration_seconds"] = duration
+                    if not payload.get("title"):
+                        payload["title"] = str(selected.getLabel() or selected.getLabel2() or "")
+                except Exception:
+                    pass
                 self._item_click(action, payload)
         except Exception as exc:
             self._error(exc)
@@ -1680,18 +1699,23 @@ class CinematicWindow(xbmcgui.WindowXML):
             else:
                 self._push("person", payload)
         elif action == "play":
-            self._play(payload)
+            self._play(payload, start_over=False)
         elif action == "start_over":
-            # Tell the existing playback handler to suppress any saved resume point.
-            payload["resume_available"] = 1
-            self._play(payload)
+            self._play(payload, start_over=True)
 
-    def _play(self, payload):
+    def _play(self, payload, start_over=False):
+        # Resume and file/version choices are handled by main.py's shared play()
+        # function. Only the UI-specific resume prompt is signalled here.
         params = {"action": "play", "cinematic_return": 1}
-        for key in ("content_id", "library_id", "file_id", "duration_seconds", "resume_available"):
+        for key in ("content_id", "library_id", "file_id", "duration_seconds", "cached_resume_position", "title"):
             value = payload.get(key)
             if value not in (None, ""):
                 params[key] = value
+        if start_over:
+            params["resume_choice"] = "0"
+            params["resume_available"] = "1"
+        else:
+            params["cinematic_resume_prompt"] = "1"
         if not params.get("content_id"):
             self._error("This item does not have a playable Silo content ID.")
             return
