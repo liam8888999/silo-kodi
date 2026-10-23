@@ -9281,26 +9281,29 @@ def cinematic_load_directory(client, action, params=None):
 
 
 def cinematic_root_rows(client):
-    """Use main root's existing Home-section list and expand each section to posters."""
+    """Build cinematic Home rails using bounded parallel, lightweight section reads."""
     if not client.cfg.get("token"):
         entries = []
         login = xbmcgui.ListItem(label="Login")
-        login.setArt({"icon":"DefaultVideo.png"})
+        login.setArt({"icon": "DefaultVideo.png"})
         settings = xbmcgui.ListItem(label="Settings")
-        settings.setArt({"icon":"DefaultFolder.png"})
+        settings.setArt({"icon": "DefaultFolder.png"})
         return [("WELCOME TO SILO", cinematic_cards_from_directory([
             (build_url(action="login"), login, False),
             (build_url(action="settings"), settings, False),
         ]), "poster")]
+
     log("Silo Cinematic: loading Home section definitions")
     try:
         sections = client.home_sections(image_size="medium") or []
     except SiloError as exc:
         log("Silo Cinematic: main Home sections failed: %s" % exc, xbmc.LOGWARNING)
-        sections = []
+        return [("SILO", [], "poster")]
+
     log("Silo Cinematic: received %d Home section definitions" % len(sections))
     grouped = {}
     ordered = []
+    section_by_id = {}
     for section in sections:
         sid = section.get("id") or section.get("section_id")
         if not sid:
@@ -9315,32 +9318,73 @@ def cinematic_root_rows(client):
             grouped[key] = []
             ordered.append(key)
         grouped[key].append(section)
+        section_by_id[str(sid)] = section
+
+    # Each row is a single small Home API request. Do not invoke the full
+    # library-aware directory helper here: it can make an extra profile-wide
+    # section/list lookup per row and serially hold the WindowXML off-screen.
+    # Each worker gets its own requests.Session but the same authenticated config.
+    cfg_snapshot = dict(client.cfg or {})
+
+    def load_section(section):
+        sid = section.get("id") or section.get("section_id")
+        title = _home_section_group_title(section)
+        try:
+            worker = SiloClient()
+            worker.cfg.update(cfg_snapshot)
+            data = worker.home_section_items(sid, image_size="medium") or {}
+            section_data = data.get("section") if isinstance(data.get("section"), dict) else {}
+            raw_items = data.get("items") or section_data.get("items") or []
+            normalized = dict(data)
+            normalized["items"] = [dict(item) for item in raw_items if isinstance(item, dict)]
+            for field in ("title", "section_type", "item_limit", "total_count"):
+                if field not in normalized and field in section:
+                    normalized[field] = section[field]
+            batch = _render_catalog_items(
+                worker,
+                normalized,
+                section_title=title,
+                return_items=True,
+            ) or []
+            cards = cinematic_cards_from_directory(batch)
+            log("Silo Cinematic: section %s supplied %d card(s)" % (sid, len(cards)), xbmc.LOGINFO)
+            return str(sid), cards
+        except Exception as exc:
+            log("Silo Cinematic: section %s failed: %s" % (sid, exc), xbmc.LOGWARNING)
+            return str(sid), []
+
+    loaded = {}
+    unique_sections = list(section_by_id.values())
+    if unique_sections:
+        workers = min(5, len(unique_sections))
+        log("Silo Cinematic: loading %d Home rows with %d concurrent requests" % (
+            len(unique_sections), workers
+        ), xbmc.LOGINFO)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(load_section, section) for section in unique_sections]
+            # Reading results in server order does not serialize the requests;
+            # the futures execute concurrently and presentation order stays stable.
+            for future in futures:
+                sid, cards = future.result()
+                loaded[sid] = cards
+
     rows = []
     for key in ordered:
         sections_in_group = grouped[key]
         title = _home_section_group_title(sections_in_group[0])
         cards = []
         for section in sections_in_group:
-            sid = section.get("id") or section.get("section_id")
-            log("Silo Cinematic: loading section %s (%s)" % (sid, title))
-            data = list_home_section(client, sid, return_items=True) or []
-            section_cards = cinematic_cards_from_directory(data)
-            log("Silo Cinematic: section %s supplied %d card(s)" % (sid, len(section_cards)))
-            cards.extend(section_cards)
+            sid = str(section.get("id") or section.get("section_id") or "")
+            cards.extend(loaded.get(sid, []))
         if not cards:
             continue
-        if len(sections_in_group) > 1:
-            route = build_url(action="home_section_group", group_key=key, title=title)
-        else:
-            route = build_url(action="home_section", section_id=sections_in_group[0].get("id") or sections_in_group[0].get("section_id"), title=title)
         section_type = str(sections_in_group[0].get("section_type") or "").lower()
         rows.append((title, cards, "wide" if section_type in ("continue_watching", "next_up") else "poster"))
+
     log("Silo Cinematic: home rows ready (%d rail(s), %d cards)" % (
         len(rows), sum(len(row[1]) for row in rows)
     ))
     return rows
-
-
 def router(client):
     """Route Kodi's current plugin request to the appropriate addon action."""
     query = sys.argv[2]
