@@ -1261,6 +1261,12 @@ class SiloClient:
         # new plugin invocation can immediately reuse the selected profile.
         _set_setting("profile_id", self.cfg["profile_id"])
         _set_setting("profile_token", "")
+        # Keep the active profile's display name and avatar available to the
+        # cinematic skin without making another profile API request on render.
+        self.cfg["profile_display_name"] = str(chosen.get("name") or "")
+        self.cfg["profile_avatar"] = str(chosen.get("avatar_url") or "")
+        _set_setting("profile_display_name", self.cfg["profile_display_name"])
+        _set_setting("profile_avatar", self.cfg["profile_avatar"])
 
         # The selected profile ID is stored internally. The visible settings
         # page intentionally has no editable profile-name field.
@@ -1310,6 +1316,27 @@ class SiloClient:
         """Return the next API cursor, or None when the current page is final."""
         page = (data or {}).get("page") or {}
         return page.get("next_cursor") if page.get("has_more") else None
+
+    def set_watchlist(self, content_id, enabled):
+        """Update the active profile's watchlist through the Silo v2 API."""
+        if not content_id:
+            raise SiloError("No content ID was supplied for the watchlist.")
+        path = "/api/v2/watchlist/%s" % quote(str(content_id), safe="")
+        return self._json("PUT" if enabled else "DELETE", path)
+
+    def set_favorite(self, content_id, enabled):
+        """Update the active profile's favorites through the Silo v2 API."""
+        if not content_id:
+            raise SiloError("No content ID was supplied for favorites.")
+        path = "/api/v2/favorites/%s" % quote(str(content_id), safe="")
+        return self._json("PUT" if enabled else "DELETE", path)
+
+    def set_watched(self, content_id, enabled):
+        """Set or clear watched state for a catalog item."""
+        if not content_id:
+            raise SiloError("No content ID was supplied for watched state.")
+        path = "/api/v2/watched/%s" % quote(str(content_id), safe="")
+        return self._json("POST" if enabled else "DELETE", path)
 
     # Return every library visible to the current profile. API pagination is hidden from Kodi.
     def libraries(self):
