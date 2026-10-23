@@ -185,6 +185,7 @@
         <control type="image"><left>232</left><top>8</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
         <control type="label"><left>8</left><top>340</top><width>270</width><height>30</height><font>font27</font><textcolor>BFEDEDED</textcolor><label>$INFO[ListItem.Label]</label></control>
         <control type="label"><left>8</left><top>368</top><width>270</width><height>22</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
+        <control type="label"><left>8</left><top>394</top><width>270</width><height>70</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Overview)]</label><wrap>true</wrap><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Overview))</visible></control>
       </itemlayout>
       <focusedlayout width="286" height="390">
         <control type="image"><left>8</left><top>4</top><width>270</width><height>330</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
@@ -195,6 +196,7 @@
         <control type="image"><left>232</left><top>8</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
         <control type="label"><left>8</left><top>345</top><width>270</width><height>28</height><font>font27</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label><scroll>true</scroll></control>
         <control type="label"><left>8</left><top>372</top><width>270</width><height>18</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
+        <control type="textbox"><left>8</left><top>398</top><width>270</width><height>70</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Overview)]</label><autoscroll time="2500" delay="5000" repeat="4000">true</autoscroll><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Overview))</visible></control>
       </focusedlayout>
     </control>
     <control type="label" id="802">
@@ -239,7 +241,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -250,7 +252,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3004)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -299,7 +301,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -310,7 +312,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3014)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -359,7 +361,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -370,7 +372,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3024)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -419,7 +421,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -430,7 +432,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3034)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -479,7 +481,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -490,7 +492,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3044)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -539,7 +541,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -550,7 +552,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3054)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -599,7 +601,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -610,7 +612,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3064)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -659,7 +661,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -670,7 +672,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3074)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -719,7 +721,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -730,7 +732,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3084)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -779,7 +781,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -790,7 +792,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3094)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -839,7 +841,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -850,7 +852,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3104)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -899,7 +901,7 @@
         <orientation>horizontal</orientation><scrolltime tween="cubic" easing="out">200</scrolltime><focusposition>0</focusposition>
         <itemlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>28</left><top>276</top><width>152</width><height>6</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
@@ -910,7 +912,7 @@
         </itemlayout>
         <focusedlayout width="216" height="406">
           <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+          <control type="image"><left>16</left><top>28</top><width>176</width><height>264</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="image"><left>151</left><top>38</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
           <control type="image"><left>12</left><top>24</top><width>184</width><height>272</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(3114)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
           <control type="progress"><left>28</left><top>276</top><width>152</width><height>6</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="4DFFFFFF">white.png</texturebg><lefttexture></lefttexture><midtexture colordiffuse="FFEDEDED">white.png</midtexture><righttexture></righttexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
