@@ -140,6 +140,35 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.close()
             return
 
+
+        # Kodi ACTION_SHOW_INFO (11) mirrors Android TV's detail-page flow.
+        if action_id == 11:
+            selected = None
+            if self._view_mode == "rails":
+                row = self._row_of(focus_id)
+                if row is not None:
+                    items = self._row_items.get(focus_id) or []
+                    try:
+                        pos = self.getControl(focus_id).getSelectedPosition()
+                        selected = items[pos] if 0 <= pos < len(items) else None
+                    except Exception:
+                        selected = None
+            elif focus_id == GRID_CONTROL:
+                try:
+                    pos = self.getControl(GRID_CONTROL).getSelectedPosition()
+                    selected = self._grid_items[pos] if 0 <= pos < len(self._grid_items) else None
+                except Exception:
+                    selected = None
+            if selected:
+                action = selected.getProperty("Silo.Cinematic.Action")
+                raw = selected.getProperty("Silo.Cinematic.Payload")
+                try:
+                    payload = json.loads(raw) if raw else {}
+                except (TypeError, ValueError):
+                    payload = {}
+                if action not in ("play", "start_over", "settings", "search", "libraries"):
+                    self._item_click("details", payload)
+                    return
         if self._view_mode == "rails":
             row = self._row_of(focus_id)
             if row is not None:
@@ -220,7 +249,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         elif control_id == NAV_LIBRARIES:
             self._push("libraries")
         elif control_id == NAV_SEARCH:
-            query = str(xbmcgui.Dialog().input("Search Silo") or "").strip()
+            query = str(xbmcgui.Dialog().input("Search Silo", defaultt=self.params.get("query", "")) or "").strip()
             if query:
                 self._push("search", {"query": query})
         elif control_id == NAV_YOUR_STUFF:
