@@ -1160,74 +1160,75 @@ def set_art(list_item, client, poster=None, backdrop=None, logo=None, still=None
 
 
 def catalog_progress(item):
-    """Convert Silo's catalog-level viewer state into our common progress shape.
+    """Convert Silo catalog viewer state and resume fields into a stable progress record.
 
-    The Silo CatalogItem schema contains:
-        user_state.played
-        position_seconds
-        duration_seconds
-
-    Using these fields avoids a full /api/v2/progress download just to draw
-    watched/resume markers in the library. The detailed progress endpoint is
-    still queried fresh when the user actually starts playback.
+    Silo versions may put position/duration at the CatalogItem level or inside
+    user_state/user_data. Accept both so cinematic cards and the normal Kodi UI
+    agree without fetching a progress endpoint for every Home card.
     """
-    if not item:
+    if not isinstance(item, dict) or not item:
         return None
 
-    # Catalog listings expose viewer flags as user_state, while the
-    # series-season and season-episode endpoints expose the same watched
-    # state as user_data. Accept both shapes.
     user_state = item.get("user_state")
     user_data = item.get("user_data")
+    overlay = item.get("overlay_summary")
+    user_state = user_state if isinstance(user_state, dict) else {}
+    user_data = user_data if isinstance(user_data, dict) else {}
+    overlay = overlay if isinstance(overlay, dict) else {}
+    state = user_state or user_data
 
-    if not isinstance(user_state, dict) or not user_state:
-        user_state = user_data if isinstance(user_data, dict) else {}
+    def first_present(*values):
+        for value in values:
+            if value not in (None, ""):
+                return value
+        return 0
 
-    if not user_state:
-        return None
-
-    # Silo exposes the current resume position directly when available.
-    # Dedicated in-progress records are still preferred by the callers that
-    # need an exact position.
-    position = (
-        item.get("position_seconds")
-        if item.get("position_seconds") is not None
-        else user_data.get("position_seconds", 0)
-        if isinstance(user_data, dict)
-        else 0
+    position = first_present(
+        item.get("position_seconds"),
+        state.get("position_seconds"),
+        state.get("position"),
+        user_data.get("position_seconds"),
+        user_data.get("position"),
+        overlay.get("position_seconds"),
+        overlay.get("position"),
     )
-    duration = (
-        item.get("duration_seconds")
-        if item.get("duration_seconds") is not None
-        else user_data.get("duration_seconds", 0)
-        if isinstance(user_data, dict)
-        else 0
+    duration = first_present(
+        item.get("duration_seconds"),
+        state.get("duration_seconds"),
+        state.get("duration"),
+        user_data.get("duration_seconds"),
+        user_data.get("duration"),
+        overlay.get("duration_seconds"),
+        overlay.get("duration"),
     )
 
     try:
         position = max(0.0, float(position or 0))
     except (TypeError, ValueError):
         position = 0.0
-
     try:
         duration = max(0.0, float(duration or 0))
     except (TypeError, ValueError):
         duration = 0.0
 
-    # Catalog runtime is in minutes; progress duration is in seconds.
-    # Unwatched items may not have a progress duration, so use the catalog
-    # runtime as the Kodi duration in that case.
     if duration <= 0:
         duration = get_runtime_seconds(item)
 
+    played = (
+        state.get("played") is True
+        or user_data.get("played") is True
+        or item.get("played") is True
+    )
+    has_progress = position > 0 or duration > 0 or "played" in state or "played" in item
+    if not state and not has_progress:
+        return None
+
     return {
-        "completed": bool(user_state.get("played", False)),
+        "completed": bool(played),
         "position_seconds": position,
         "duration_seconds": duration,
-        "updated_at": item.get("progress_updated_at") or "",
+        "updated_at": item.get("progress_updated_at") or state.get("progress_updated_at") or "",
     }
-
-
 def set_catalog_metadata(list_item, item, client):
     """Apply metadata that Silo includes directly in CatalogItem responses.
 
