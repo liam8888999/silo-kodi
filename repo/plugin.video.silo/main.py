@@ -7493,6 +7493,10 @@ def play(
     duration_seconds=None,
     resume=False,
     resume_available=False,
+    resume_prompt=False,
+    explicit_resume_choice=None,
+    cached_resume_position=None,
+    display_title=None,
 ):
     """Play media using Kodi's native Resume/Start-over choice.
 
@@ -7515,11 +7519,16 @@ def play(
     )
 
     use_kodi_resume_cache = use_kodi_resume_cache_enabled()
-    kodi_cached_resume = (
-        get_kodi_cached_resume_position()
-        if use_kodi_resume_cache
-        else 0.0
-    )
+    if use_kodi_resume_cache:
+        if cached_resume_position not in (None, ""):
+            try:
+                kodi_cached_resume = max(0.0, float(cached_resume_position or 0))
+            except (TypeError, ValueError):
+                kodi_cached_resume = get_kodi_cached_resume_position()
+        else:
+            kodi_cached_resume = get_kodi_cached_resume_position()
+    else:
+        kodi_cached_resume = 0.0
 
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
@@ -7561,6 +7570,59 @@ def play(
             "Using Kodi cached resume position %.3fs for content %s"
             % (kodi_cached_resume, content_id)
         )
+
+    if resume_prompt:
+        # A WindowXML card does not go through Kodi's native container resume
+        # prompt. Recreate that choice here, inside the established playback
+        # pipeline, using the exact source configured by the normal add-on.
+        if use_kodi_resume_cache:
+            prompt_progress = {
+                "completed": False,
+                "position_seconds": kodi_cached_resume,
+                "duration_seconds": duration_seconds or get_runtime_seconds(detail or {}),
+            }
+        else:
+            prompt_progress = latest_progress or {}
+
+        prompt_position, prompt_duration = get_progress_position(prompt_progress)
+        if prompt_duration <= 0:
+            prompt_duration = max(
+                0.0,
+                float(duration_seconds or 0),
+                get_runtime_seconds(detail or {}),
+            )
+        prompt_completed = bool(prompt_progress.get("completed", False))
+        if not prompt_completed and prompt_position > 0 and prompt_duration > 0:
+            seconds = int(prompt_position)
+            hours, remainder = divmod(seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            timestamp = (
+                "%02d:%02d:%02d" % (hours, minutes, seconds)
+                if hours else "%02d:%02d" % (minutes, seconds)
+            )
+            title = str(display_title or content_id)
+            choices = [
+                "Resume from %s" % timestamp,
+                "Start from beginning",
+            ]
+            choice = xbmcgui.Dialog().select(
+                "Resume playback — %s" % title,
+                choices,
+            )
+            if choice < 0:
+                log("Playback cancelled from cinematic resume chooser for %s" % content_id)
+                return
+            resume = choice == 0
+            explicit_resume_choice = resume
+            # We've now handled the user choice. Prevent the fallback auto-resume
+            # branch from undoing an explicit Start over selection.
+            resume_available = True
+        else:
+            # No usable resume point: play from the beginning, and explicitly
+            # suppress a stale bookmark from either Kodi or an earlier API result.
+            resume = False
+            explicit_resume_choice = False
+            resume_available = True
 
     # Silo starts the transport at zero in both modes. This is important:
     # Resume is implemented by Kodi seeking the resolved item to the fresh
@@ -7664,7 +7726,10 @@ def play(
             )
 
     if use_kodi_resume_cache:
-        if kodi_cached_resume > 0:
+        if explicit_resume_choice is False:
+            # A cinematic Start over choice must never inherit Kodi's cached point.
+            kodi_cached_resume = 0.0
+        if kodi_cached_resume > 0 and explicit_resume_choice is not False:
             apply_fresh_resume_to_resolved_item(
                 resolved_item,
                 {
@@ -7674,11 +7739,14 @@ def play(
                 },
                 fallback_duration=duration_seconds,
             )
-        elif duration_seconds:
+        else:
             try:
-                resolved_item.getVideoInfoTag().setDuration(
-                    int(round(float(duration_seconds)))
-                )
+                tag = resolved_item.getVideoInfoTag()
+                tag.setPlaycount(0)
+                tag.setResumePoint(0.0, 0.0)
+                fallback = max(0.0, float(duration_seconds or 0))
+                if fallback > 0:
+                    tag.setDuration(int(round(fallback)))
             except (TypeError, ValueError):
                 pass
     else:
@@ -9646,15 +9714,28 @@ def router(client):
         return
 
     if action == "play":
+        explicit_resume_choice = None
+        raw_resume_choice = params.get("resume_choice")
+        if raw_resume_choice is not None and str(raw_resume_choice).strip() != "":
+            explicit_resume_choice = str(raw_resume_choice).strip().lower() in ("1", "true", "yes")
         play(
             client,
             params.get("content_id"),
             params.get("file_id"),
             params.get("library_id"),
             params.get("duration_seconds"),
-            resume=kodi_requested_resume(),
+            resume=(
+                explicit_resume_choice
+                if explicit_resume_choice is not None
+                else kodi_requested_resume()
+            ),
             resume_available=str(params.get("resume_available", "")).strip().lower()
             in ("1", "true", "yes"),
+            resume_prompt=str(params.get("cinematic_resume_prompt", "")).strip().lower()
+            in ("1", "true", "yes"),
+            explicit_resume_choice=explicit_resume_choice,
+            cached_resume_position=params.get("cached_resume_position"),
+            display_title=params.get("title"),
         )
         # The custom window closes before playback so Kodi's player has focus.
         # After the existing progress monitor finishes, reopen the Silo Cinematic UI.
