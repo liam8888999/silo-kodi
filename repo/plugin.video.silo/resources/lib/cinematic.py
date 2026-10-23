@@ -29,7 +29,6 @@ NAV_LIBRARIES = 211
 NAV_SEARCH = 201
 NAV_YOUR_STUFF = 212
 NAV_PROFILE = 230
-NAV_LOGOUT = 205
 NAV_SWITCH_SERVER = 643
 NAV_EDIT_HOME = 644
 HERO_TITLE = 130
@@ -362,7 +361,7 @@ class CinematicWindow(xbmcgui.WindowXML):
 
         nav_ids = (
             NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-            NAV_PROFILE, NAV_LOGOUT,
+            NAV_PROFILE,
         )
         if focus_id in nav_ids and action_id == 4:
             self._focus_first_content()
@@ -377,7 +376,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         if (
             control_id in (
                 GRID_CONTROL, NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_PROFILE, NAV_LOGOUT,
+                NAV_PROFILE,
             )
             or self._row_of(control_id) is not None
         ):
@@ -387,7 +386,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             if control_id in (
                 NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_PROFILE, NAV_LOGOUT,
+                NAV_PROFILE,
             ):
                 self._nav_click(control_id)
                 return
@@ -819,18 +818,6 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.setFocusId(610)
             except Exception:
                 pass
-        elif control_id == NAV_LOGOUT:
-            self._modal_action_active = True
-            try:
-                should_logout = xbmcgui.Dialog().yesno("Silo", "Log out of this Silo account?")
-            finally:
-                self._modal_action_active = False
-            if should_logout:
-                self.client.logout()
-                self.screen, self.params, self.stack = "home", {}, []
-                self._row_index = 0
-                self._initial_rows = None
-                self._refresh_current_screen(preserve_focus=False)
     def _update_profile_properties(self):
         cfg = getattr(self.client, "cfg", {}) or {}
         display_name = str(
@@ -1239,7 +1226,6 @@ class CinematicWindow(xbmcgui.WindowXML):
             NAV_SEARCH: "",
             NAV_YOUR_STUFF: "Your Stuff",
             NAV_PROFILE: "",
-            NAV_LOGOUT: "Log Out",
         }
         for control_id, label in labels.items():
             try:

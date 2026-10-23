@@ -6316,7 +6316,7 @@
             <onup>212</onup>
             <ondown>212</ondown>
             <onleft>211</onleft>
-            <onright>205</onright>
+            <onright>230</onright>
           </control>
           <control type="label">
             <left>0</left>
@@ -6329,50 +6329,6 @@
             <aligny>center</aligny>
             <label>Your Stuff</label>
             <visible>String.IsEqual(Window.Property(silo.tab),series) + !Control.HasFocus(212)</visible>
-          </control>
-        </control>
-        <control type="group" id="208">
-          <left>516</left>
-          <top>2</top>
-          <width>172</width>
-          <height>60</height>
-          <control type="image">
-            <left>0</left>
-            <top>0</top>
-            <width>172</width>
-            <height>60</height>
-            <texture border="30">pill60_selected.png</texture>
-            <visible>String.IsEqual(Window.Property(silo.tab),requests) + !Control.HasFocus(205)</visible>
-          </control>
-          <control type="button" id="205">
-            <left>0</left>
-            <top>0</top>
-            <width>172</width>
-            <height>60</height>
-            <label>Log Out</label>
-            <font>font25_title</font>
-            <textcolor>9EEDEDED</textcolor>
-            <focusedcolor>FF000000</focusedcolor>
-            <align>center</align>
-            <aligny>center</aligny>
-            <texturefocus colordiffuse="FFEDEDED" border="30">pill60.png</texturefocus>
-            <texturenofocus/>
-            <onup>205</onup>
-            <ondown>205</ondown>
-            <onleft>212</onleft>
-            <onright>230</onright>
-          </control>
-          <control type="label">
-            <left>0</left>
-            <top>0</top>
-            <width>172</width>
-            <height>60</height>
-            <font>font25_title</font>
-            <textcolor>FFEDEDED</textcolor>
-            <align>center</align>
-            <aligny>center</aligny>
-            <label>Log Out</label>
-            <visible>String.IsEqual(Window.Property(silo.tab),requests) + !Control.HasFocus(205)</visible>
           </control>
         </control>
       </control>
@@ -6396,7 +6352,7 @@
           <texturenofocus/>
           <onup>230</onup>
           <ondown>230</ondown>
-          <onleft>205</onleft>
+          <onleft>212</onleft>
           <onright>230</onright>
         </control>
         <control type="image">
@@ -6450,7 +6406,7 @@
       </control>
       <control type="button" id="610">
         <left>16</left>
-        <top>16</top>
+        <top>88</top>
         <width>448</width>
         <height>64</height>
         <label>Switch profile</label>
@@ -6462,15 +6418,15 @@
         <textoffsetx>24</textoffsetx>
         <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
         <texturenofocus/>
-        <onup>610</onup>
-        <ondown>613</ondown>
+        <onup>617</onup>
+        <ondown>616</ondown>
         <onleft>610</onleft>
         <onright>610</onright>
         <visible>String.IsEmpty(Window.Property(silo.profile_locked))</visible>
       </control>
       <control type="button" id="611">
         <left>16</left>
-        <top>304</top>
+        <top>232</top>
         <width>448</width>
         <height>64</height>
         <label>Settings</label>
@@ -6482,8 +6438,8 @@
         <textoffsetx>24</textoffsetx>
         <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
         <texturenofocus/>
-        <onup>610</onup>
-        <ondown>616</ondown>
+        <onup>616</onup>
+        <ondown>612</ondown>
         <onleft>611</onleft>
         <onright>611</onright>
       </control>
@@ -6501,14 +6457,14 @@
         <textoffsetx>24</textoffsetx>
         <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
         <texturenofocus/>
-        <onup>611</onup>
-        <ondown>617</ondown>
+        <onup>610</onup>
+        <ondown>611</ondown>
         <onleft>616</onleft>
         <onright>616</onright>
       </control>
       <control type="button" id="617">
         <left>16</left>
-        <top>232</top>
+        <top>16</top>
         <width>448</width>
         <height>64</height>
         <label>Switch server</label>
@@ -6520,8 +6476,8 @@
         <textoffsetx>24</textoffsetx>
         <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
         <texturenofocus/>
-        <onup>616</onup>
-        <ondown>612</ondown>
+        <onup>617</onup>
+        <ondown>610</ondown>
         <onleft>617</onleft>
         <onright>617</onright>
       </control>
@@ -6539,7 +6495,7 @@
         <textoffsetx>24</textoffsetx>
         <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
         <texturenofocus/>
-        <onup>617</onup>
+        <onup>611</onup>
         <ondown>612</ondown>
         <onleft>612</onleft>
         <onright>612</onright>
