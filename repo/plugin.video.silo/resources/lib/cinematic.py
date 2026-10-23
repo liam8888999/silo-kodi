@@ -1133,6 +1133,24 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.getControl(control_id).setVisible(bool(visible))
             except Exception:
                 pass
+
+        # Like the Silo TV clients, keep the hero title/metadata bottom-aligned
+        # when a title has no synopsis instead of leaving an empty description gap.
+        shift = 56 if visible and not str(self._hero_overview or "").strip() else 0
+        positions = {
+            HERO_TITLE: (82, 148 + shift),
+            HERO_LOGO: (82, 155 + shift),
+            HERO_META: (84, 292 + shift),
+            HERO_BADGES: (90, 329 + shift),
+            HERO_PLOT: (84, 372),
+            135: (76, 329 + shift),
+        }
+        for control_id, position in positions.items():
+            try:
+                self.getControl(control_id).setPosition(*position)
+            except Exception:
+                pass
+
         states = {
             HERO_TITLE: bool(visible) and not bool(self._hero_logo),
             HERO_LOGO: bool(visible) and bool(self._hero_logo),
