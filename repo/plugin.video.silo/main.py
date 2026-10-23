@@ -7727,9 +7727,18 @@ def play(
 
     if use_kodi_resume_cache:
         if explicit_resume_choice is False:
-            # A cinematic Start over choice must never inherit Kodi's cached point.
-            kodi_cached_resume = 0.0
-        if kodi_cached_resume > 0 and explicit_resume_choice is not False:
+            # Only the cinematic Start over action suppresses an existing
+            # bookmark here. Ordinary non-skinned calls keep their prior logic.
+            try:
+                tag = resolved_item.getVideoInfoTag()
+                tag.setPlaycount(0)
+                tag.setResumePoint(0.0, 0.0)
+                fallback = max(0.0, float(duration_seconds or 0))
+                if fallback > 0:
+                    tag.setDuration(int(round(fallback)))
+            except (TypeError, ValueError):
+                pass
+        elif kodi_cached_resume > 0:
             apply_fresh_resume_to_resolved_item(
                 resolved_item,
                 {
@@ -7739,14 +7748,11 @@ def play(
                 },
                 fallback_duration=duration_seconds,
             )
-        else:
+        elif duration_seconds:
             try:
-                tag = resolved_item.getVideoInfoTag()
-                tag.setPlaycount(0)
-                tag.setResumePoint(0.0, 0.0)
-                fallback = max(0.0, float(duration_seconds or 0))
-                if fallback > 0:
-                    tag.setDuration(int(round(fallback)))
+                resolved_item.getVideoInfoTag().setDuration(
+                    int(round(float(duration_seconds)))
+                )
             except (TypeError, ValueError):
                 pass
     else:
