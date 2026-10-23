@@ -60,10 +60,18 @@ from resources.lib.silo import (
 
 
 # Kodi supplies a numeric handle for the current plugin directory.
-HANDLE = int(sys.argv[1])
+try:
+    HANDLE = int(sys.argv[1])
+except (IndexError, TypeError, ValueError):
+    # The cinematic runner imports this module outside a plugin invocation.
+    HANDLE = -1
 
 # Base plugin URL supplied by Kodi.
-BASE_URL = sys.argv[0]
+BASE_URL = (
+    sys.argv[0]
+    if sys.argv and str(sys.argv[0]).startswith("plugin://")
+    else "plugin://plugin.video.silo/"
+)
 
 # Media types that this addon can send directly to Kodi's VideoPlayer.
 PLAYABLE = (
@@ -2353,11 +2361,14 @@ def build_person_list_item(client, person):
     return item
 
 
-def list_person_media(client, person_id, person_name="", cursor=None):
+def list_person_media(client, person_id, person_name="", cursor=None, return_items=False):
     """Display one paged set of Silo media associated with one person."""
     if not str(person_id or "").strip():
+        if return_items:
+            return []
         notify("Invalid person.")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     page_size = min(get_directory_page_size(), 100)
@@ -2374,8 +2385,11 @@ def list_person_media(client, person_id, person_name="", cursor=None):
             % (person_id, exc),
             xbmc.LOGERROR,
         )
+        if return_items:
+            return []
         notify("Unable to load person credits: %s" % str(exc)[:180])
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     log(
@@ -2383,11 +2397,13 @@ def list_person_media(client, person_id, person_name="", cursor=None):
         % (person_id, len(items), bool(next_cursor)),
     )
 
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        person_name or "Person",
-    )
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(
+            HANDLE,
+            person_name or "Person",
+        )
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
     # Use the same extended metadata pipeline as normal Search. This
     # preserves cast, crew, ratings, runtime, artwork, stream details,
@@ -2503,32 +2519,18 @@ def list_person_media(client, person_id, person_name="", cursor=None):
         else:
             continue
 
-    if batch:
-        xbmcplugin.addDirectoryItems(
-            HANDLE,
-            batch,
-            totalItems=len(batch) + (1 if next_cursor else 0),
-        )
-
     if next_cursor:
         next_item = xbmcgui.ListItem(label="Next Page")
         next_item.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="person",
-                person_id=str(person_id),
-                person_name=person_name or "",
-                cursor=next_cursor,
-            ),
-            next_item,
-            True,
-        )
-
+        batch.append((build_url(action="person", person_id=str(person_id), person_name=person_name or "", cursor=next_cursor), next_item, True))
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
     if not batch:
         notify("No Silo media found for this person.")
-
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
@@ -2645,13 +2647,17 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
     return item, media_type, content_id, title, display_progress
 
 
-def list_search_results(client, query, page=1):
+def list_search_results(client, query, page=1, return_items=False):
     """Display one page of Silo's server-side library-wide search results."""
     query = str(query or "").strip()
 
     if not query:
-        xbmcplugin.setContent(HANDLE, "files")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if return_items:
+            return []
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "files")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     try:
@@ -2689,7 +2695,10 @@ def list_search_results(client, query, page=1):
             )
             notify("Search failed: %s" % str(exc)[:180])
             people_future.cancel()
-            xbmcplugin.endOfDirectory(HANDLE)
+            if return_items:
+                return []
+            if not return_items:
+                xbmcplugin.endOfDirectory(HANDLE)
             return
 
         items = data.get("items") or []
@@ -2714,44 +2723,28 @@ def list_search_results(client, query, page=1):
         % (query, len(items), has_more)
     )
 
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        "Search: %s" % query,
-    )
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(
+            HANDLE,
+            "Search: %s" % query,
+        )
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
-    # People are shown before media so a matching actor/director
-    # can be selected directly from the normal Search directory.
+    # Preserve the normal Search order: people first, then media.
+    prefix_batch = []
     if page_number == 1 and people:
         for person in people:
             person_id = person.get("id")
             if person_id is None:
                 continue
             person_item = build_person_list_item(client, person)
-            xbmcplugin.addDirectoryItem(
-                HANDLE,
-                build_url(
-                    action="person",
-                    person_id=str(person_id),
-                    person_name=person.get("name") or "",
-                ),
-                person_item,
-                True,
-            )
+            prefix_batch.append((build_url(action="person", person_id=str(person_id), person_name=person.get("name") or ""), person_item, True))
 
     if page_number > 1:
         previous_item = xbmcgui.ListItem(label="Previous Page")
         previous_item.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="search",
-                query=query,
-                page=page_number - 1,
-            ),
-            previous_item,
-            True,
-        )
+        prefix_batch.append((build_url(action="search", query=query, page=page_number - 1), previous_item, True))
 
     # Match normal library/episode browsing: fetch all extended detail
     # metadata before Kodi receives the search result directory. This means
@@ -2798,7 +2791,7 @@ def list_search_results(client, query, page=1):
         + other_items
     )
 
-    batch = []
+    batch = list(prefix_batch)
 
     for catalog_item in ordered_items:
         content_id = get_content_id(catalog_item)
@@ -2873,31 +2866,18 @@ def list_search_results(client, query, page=1):
             )
             batch.append((url, item, False))
 
-    if batch:
-        xbmcplugin.addDirectoryItems(
-            HANDLE,
-            batch,
-            totalItems=len(ordered_items) + (1 if has_more else 0),
-        )
-
     if has_more:
         next_item = xbmcgui.ListItem(label="Next Page")
         next_item.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="search",
-                query=query,
-                page=page_number + 1,
-            ),
-            next_item,
-            True,
-        )
-
+        batch.append((build_url(action="search", query=query, page=page_number + 1), next_item, True))
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
     if not items and not people:
         notify("No results found for: %s" % query)
-
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
@@ -5383,7 +5363,7 @@ def _start_watch_party_guest_playback(
     return info.get("session_id")
 
 
-def list_your_stuff(client):
+def list_your_stuff(client, return_items=False):
     """Display the personal destinations shown under Silo's web Your Stuff menu."""
     entries = (
         ("Favorites", "favorites", "DefaultFavorites.png"),
@@ -5391,30 +5371,26 @@ def list_your_stuff(client):
         ("History", "history", "DefaultRecentlyWatched.png"),
     )
 
+    batch = []
     for title, source, icon in entries:
         item = xbmcgui.ListItem(label=title)
         item.setArt({"icon": icon})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(action="personal_list", source=source),
-            item,
-            True,
-        )
+        batch.append((build_url(action="personal_list", source=source), item, True))
 
     collections_item = xbmcgui.ListItem(label="Collections")
     collections_item.setArt({"icon": "DefaultFolder.png"})
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="collections"),
-        collections_item,
-        True,
-    )
+    batch.append((build_url(action="collections"), collections_item, True))
 
-    xbmcplugin.setContent(HANDLE, "files")
-    xbmcplugin.endOfDirectory(HANDLE)
+    if return_items:
+        return batch
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
+    xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
-def _list_personal_catalog(client, source, cursor=None, collection_id=None):
+def _list_personal_catalog(client, source, cursor=None, collection_id=None, return_items=False):
     """Display a Silo personal catalog source using the normal media pipeline."""
     if source not in ("favorites", "watchlist", "history", "user_collection"):
         raise SiloError("Unsupported personal catalog source.")
@@ -5426,16 +5402,18 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
         collection_id=collection_id,
     )
 
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        {
-            "favorites": "Favorites",
-            "watchlist": "Watchlist",
-            "history": "History",
-            "user_collection": "Collection",
-        }.get(source, "Your Stuff"),
-    )
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(
+            HANDLE,
+            {
+                "favorites": "Favorites",
+                "watchlist": "Watchlist",
+                "history": "History",
+                "user_collection": "Collection",
+            }.get(source, "Your Stuff"),
+        )
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
     # Keep personal-list cards in lockstep with Search and Library browsing:
     # full detail metadata first, then fresh in-progress positions, then the
@@ -5519,42 +5497,32 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None):
 
         batch.append((url, item, is_folder))
 
-    if batch:
-        xbmcplugin.addDirectoryItems(
-            HANDLE,
-            batch,
-            totalItems=len(batch) + (1 if next_cursor else 0),
-        )
-
     if next_cursor:
         next_item = xbmcgui.ListItem(label="More")
         next_item.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="personal_list",
-                source=source,
-                cursor=next_cursor,
-                collection_id=collection_id,
-            ),
-            next_item,
-            True,
-        )
-
-    xbmcplugin.endOfDirectory(HANDLE)
+        batch.append((build_url(action="personal_list", source=source, cursor=next_cursor, collection_id=collection_id), next_item, True))
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
 
-def list_collections(client):
+def list_collections(client, return_items=False):
     """Display the profile's visible personal Collections."""
     collections, groups = client.collections()
 
     # Keep the server's collection/group ordering, matching the web client.
     group_names = {str(group.get("id")): group.get("name") for group in groups or []}
 
-    xbmcplugin.setPluginCategory(HANDLE, "Collections")
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, "Collections")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
+    batch = []
 
     for collection in collections or []:
         collection_id = collection.get("id")
@@ -5578,21 +5546,16 @@ def list_collections(client):
             },
         )
 
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="collection",
-                collection_id=collection_id,
-                title=name,
-            ),
-            item,
-            True,
-        )
+        batch.append((build_url(action="collection", collection_id=collection_id, title=name), item, True))
 
-    xbmcplugin.endOfDirectory(HANDLE)
+    if return_items:
+        return batch
+    xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_collection(client, collection_id, title=None, cursor=None):
+def list_collection(client, collection_id, title=None, cursor=None, return_items=False):
     """Display the media contained in one personal Collection."""
     if not collection_id:
         raise SiloError("No collection ID was supplied.")
@@ -5602,6 +5565,7 @@ def list_collection(client, collection_id, title=None, cursor=None):
         "user_collection",
         cursor=cursor,
         collection_id=collection_id,
+        return_items=return_items,
     )
 
 
@@ -6067,16 +6031,21 @@ def _sort_merged_home_items(items, detail_map, group_key):
     items[:] = dated + undated
 
 
-def list_home_section_group(client, group_key):
+def list_home_section_group(client, group_key, return_items=False):
     """Load and combine all Home sections represented by one category folder."""
     try:
         sections = client.home_sections(image_size="medium")
     except SiloError as exc:
         log("Unable to load Home sections for grouped view: %s" % exc, xbmc.LOGWARNING)
+        if return_items:
+            return []
         notify("Home section unavailable")
-        xbmcplugin.setPluginCategory(HANDLE, "Home")
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, "Home")
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     matching = [
@@ -6087,9 +6056,12 @@ def list_home_section_group(client, group_key):
 
     if not matching:
         notify("Home section no longer exists")
-        xbmcplugin.setPluginCategory(HANDLE, "Home")
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, "Home")
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     try:
@@ -6158,7 +6130,7 @@ def list_home_section_group(client, group_key):
             combined.append(candidate)
 
     title = _home_section_group_title(matching[0])
-    _render_catalog_items(
+    return _render_catalog_items(
         client,
         {
             "title": title,
@@ -6179,9 +6151,10 @@ def list_home_section_group(client, group_key):
         },
         section_title=title,
         merged_group_key=str(group_key or ""),
+        return_items=return_items,
     )
 
-def list_home_section(client, section_id):
+def list_home_section(client, section_id, return_items=False):
     """Display one profile-wide Silo Home section with resilient source metadata."""
     try:
         data = client.home_section_items(
@@ -6194,10 +6167,15 @@ def list_home_section(client, section_id):
             % (section_id, exc),
             xbmc.LOGWARNING,
         )
+        if return_items:
+            return []
         notify("Home section unavailable")
-        xbmcplugin.setPluginCategory(HANDLE, "Home")
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, "Home")
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     section = data.get("section") if isinstance(data.get("section"), dict) else {}
@@ -6253,14 +6231,16 @@ def list_home_section(client, section_id):
             }
         )
 
-    _render_catalog_items(client, normalized)
+    return _render_catalog_items(client, normalized, return_items=return_items)
 
-def list_libraries(client):
+def list_libraries(client, return_items=False):
     """Display the accessible Silo libraries inside the Libraries folder."""
     libraries = client.libraries()
 
-    xbmcplugin.setPluginCategory(HANDLE, "Libraries")
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, "Libraries")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
 
     batch = []
 
@@ -6294,10 +6274,12 @@ def list_libraries(client):
             )
         )
 
+    if return_items:
+        return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 def add_home_section_folder(section):
@@ -6346,7 +6328,7 @@ def add_home_section_folder(section):
     )
 
 
-def _render_catalog_items(client, data, section_title=None, merged_group_key=None):
+def _render_catalog_items(client, data, section_title=None, merged_group_key=None, return_items=False):
     """Display a profile-wide Silo Home section using the shared catalog renderer."""
     data = data or {}
     section_title = section_title or data.get("title") or data.get("section_type") or "Section"
@@ -6371,76 +6353,75 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
             items.append(catalog_item)
 
     if not items:
-        xbmcplugin.setPluginCategory(HANDLE, section_title)
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if return_items:
+            return []
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, section_title)
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
-    xbmcplugin.setPluginCategory(HANDLE, section_title)
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, section_title)
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
-    try:
-        # Keep the normal detail prefetch for artwork, cast, crew, runtime and
-        # stream metadata. Its result is also reused by the card renderer.
-        detail_map = fetch_detail_metadata(client, items, None)
-
-        if merged_group_key == "recently added":
-            # For ordering, look up added_at from each source Home section,
-            # but only apply timestamps to the cards already present in this
-            # combined Home result. Do not replace or expand the Home card list.
-            source_sections = data.get("_silo_home_source_sections") or []
-            for source_section in source_sections:
-                section = source_section.get("section") or {}
-                source_items = source_section.get("items") or []
-                added_at_map = fetch_home_added_at_by_section(
-                    client,
-                    section,
-                    source_items,
-                )
-                for catalog_item in source_items:
-                    content_id = get_content_id(catalog_item)
-                    if content_id and str(content_id) in added_at_map:
-                        catalog_item["_silo_home_added_at"] = added_at_map[str(content_id)]
-    except Exception as exc:
-        log(
-            "Unable to prefetch Home detail metadata: %s"
-            % exc,
-            xbmc.LOGWARNING,
-        )
+    if return_items:
+        # Cinematic only needs the same directory's artwork, labels and click
+        # URLs to render cards. Avoid detail/progress lookups for every item,
+        # which otherwise keep the whole window blank while Home is assembled.
         detail_map = {}
+    else:
+        try:
+            detail_map = fetch_detail_metadata(client, items, None)
+
+            if merged_group_key == "recently added":
+                source_sections = data.get("_silo_home_source_sections") or []
+                for source_section in source_sections:
+                    section = source_section.get("section") or {}
+                    source_items = source_section.get("items") or []
+                    added_at_map = fetch_home_added_at_by_section(client, section, source_items)
+                    for catalog_item in source_items:
+                        content_id = get_content_id(catalog_item)
+                        if content_id and str(content_id) in added_at_map:
+                            catalog_item["_silo_home_added_at"] = added_at_map[str(content_id)]
+        except Exception as exc:
+            log("Unable to prefetch Home detail metadata: %s" % exc, xbmc.LOGWARNING)
+            detail_map = {}
 
     if merged_group_key:
-        _sort_merged_home_items(items, detail_map, str(merged_group_key))
+        if not return_items:
+            _sort_merged_home_items(items, detail_map, str(merged_group_key))
 
-        # Deduplicate only after the global merged sort. The first occurrence
-        # is therefore the card that appears highest on the combined page.
+        # Keep the first occurrence on the cinematic Home rail; normal Kodi
+        # directories retain the existing metadata-aware sort/merge behaviour.
         deduped = []
         seen = {}
         for catalog_item in items:
             content_id = get_content_id(catalog_item)
             key = str(content_id) if content_id else None
-
             if key and key in seen:
-                index = seen[key]
-                deduped[index] = _merge_home_catalog_items(
-                    deduped[index],
-                    catalog_item,
-                )
+                if not return_items:
+                    index = seen[key]
+                    deduped[index] = _merge_home_catalog_items(deduped[index], catalog_item)
                 continue
-
             if key:
                 seen[key] = len(deduped)
             deduped.append(catalog_item)
-
         items = deduped
 
 
-    progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
-        client,
-        items,
-        detail_map,
-        library_id=None,
-    )
+    if return_items:
+        progress_map, series_watch_map, season_watch_map = {}, {}, {}
+    else:
+        progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
+            client,
+            items,
+            detail_map,
+            library_id=None,
+        )
 
     batch = []
 
@@ -6536,15 +6517,17 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         else:
             batch.append((build_url(action="search", query=title, page=1), item, False))
 
+    if return_items:
+        return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-
-    xbmcplugin.endOfDirectory(HANDLE)
-
-
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
-def list_library(client, library_id, cursor=None):
+
+
+def list_library(client, library_id, cursor=None, return_items=False):
     """Display the compact A-Z index for one Silo library."""
     if not library_id:
         raise SiloError("No library ID was supplied.")
@@ -6558,9 +6541,12 @@ def list_library(client, library_id, cursor=None):
 
     counts = library_letter_counts(items)
 
-    xbmcplugin.setPluginCategory(HANDLE, "Library")
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, "Library")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
 
+    batch = []
     for group in LIBRARY_LETTER_GROUPS:
         count = counts.get(group, 0)
         if not count:
@@ -6572,22 +6558,16 @@ def list_library(client, library_id, cursor=None):
         item.setProperty("Silo.LibraryLetter", group)
         item.setProperty("Silo.LibraryLetterCount", str(count))
 
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="library_letter",
-                library_id=library_id,
-                letter=group,
-                page=1,
-                expected_count=count,
-            ),
-            item,
-            True,
-        )
+        batch.append((build_url(action="library_letter", library_id=library_id, letter=group, page=1, expected_count=count), item, True))
 
-    xbmcplugin.endOfDirectory(HANDLE)
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
-def list_library_letter(client, library_id, letter, page=None, expected_count=None):
+def list_library_letter(client, library_id, letter, page=None, expected_count=None, return_items=False):
     """Display one alphabet group using Silo's indexed prefix query when safe."""
     if not library_id:
         raise SiloError("No library ID was supplied.")
@@ -6667,15 +6647,19 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             page_number,
         )
 
-    xbmcplugin.setPluginCategory(HANDLE, letter)
-    xbmcplugin.setContent(HANDLE, "movies")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, letter)
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "movies")
 
-    add_previous_page(
-        library_id=library_id,
-        action="library_letter",
-        page=page_number,
-        letter=letter,
-    )
+    if not return_items:
+        if not return_items:
+            add_previous_page(
+                library_id=library_id,
+                action="library_letter",
+                page=page_number,
+                letter=letter,
+            )
 
     detail_map = fetch_detail_metadata(
         client,
@@ -6738,7 +6722,7 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             )
             batch.append((url, list_item, True))
 
-        if len(batch) >= 500:
+        if len(batch) >= 500 and not return_items:
             xbmcplugin.addDirectoryItems(
                 HANDLE,
                 batch,
@@ -6746,32 +6730,18 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             )
             batch = []
 
-    if batch:
-        xbmcplugin.addDirectoryItems(
-            HANDLE,
-            batch,
-            totalItems=len(grouped_items),
-        )
-
     if has_next:
         next_item = xbmcgui.ListItem(label="Next Page")
         next_item.setArt({"icon": "DefaultFolder.png"})
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="library_letter",
-                library_id=library_id,
-                letter=letter,
-                page=page_number + 1,
-                expected_count=expected_count,
-            ),
-            next_item,
-            True,
-        )
+        batch.append((build_url(action="library_letter", library_id=library_id, letter=letter, page=page_number + 1, expected_count=expected_count), next_item, True))
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(grouped_items))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
-    xbmcplugin.endOfDirectory(HANDLE)
-
-def list_seasons(client, series_id, library_id, page=None):
+def list_seasons(client, series_id, library_id, page=None, return_items=False):
     """Display all seasons belonging to a series.
 
     Library browsing already supplies the library ID because the user opened
@@ -6836,14 +6806,18 @@ def list_seasons(client, series_id, library_id, page=None):
         page,
     )
 
-    xbmcplugin.setContent(HANDLE, "seasons")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "seasons")
 
-    add_previous_page(
-        series_id=series_id,
-        library_id=resolved_library_id,
-        action="seasons",
-        page=page,
-    )
+    batch = []
+    if not return_items:
+        if not return_items:
+            add_previous_page(
+                series_id=series_id,
+                library_id=resolved_library_id,
+                action="seasons",
+                page=page,
+            )
 
     for season in page_items:
         season_number = season.get("season_number", season.get("number"))
@@ -6868,28 +6842,19 @@ def list_seasons(client, series_id, library_id, page=None):
             ),
         )
 
-        xbmcplugin.addDirectoryItem(
-            HANDLE,
-            build_url(
-                action="season",
-                series_id=series_id,
-                season_number=season_number,
-                library_id=resolved_library_id,
-            ),
-            item,
-            True,
-        )
+        batch.append((build_url(action="season", series_id=series_id, season_number=season_number, library_id=resolved_library_id), item, True))
 
     if has_next:
-        add_next_page(
-            series_id=series_id,
-            library_id=resolved_library_id,
-            action="seasons",
-            page=page,
-        )
-
-    xbmcplugin.endOfDirectory(HANDLE)
-def list_episodes(client, series_id, season_number, library_id, page=None):
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        batch.append((build_url(action="seasons", series_id=series_id, library_id=resolved_library_id, page=int(page or 1) + 1), next_item, True))
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
+def list_episodes(client, series_id, season_number, library_id, page=None, return_items=False):
     """Display all episodes for a season and apply their current watched state."""
     if not series_id:
         raise SiloError("No series ID was supplied.")
@@ -6903,15 +6868,18 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         page,
     )
 
-    xbmcplugin.setContent(HANDLE, "episodes")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "episodes")
 
-    add_previous_page(
-        series_id=series_id,
-        season_number=season_number,
-        library_id=library_id,
-        action="season",
-        page=page,
-    )
+    if not return_items:
+        if not return_items:
+            add_previous_page(
+                series_id=series_id,
+                season_number=season_number,
+                library_id=library_id,
+                action="season",
+                page=page,
+            )
 
     detail_map = fetch_detail_metadata(
         client,
@@ -7007,7 +6975,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
 
         batch.append((build_url(**params), item, False))
 
-        if len(batch) >= 500:
+        if len(batch) >= 500 and not return_items:
             xbmcplugin.addDirectoryItems(
                 HANDLE,
                 batch,
@@ -7015,23 +6983,16 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             )
             batch = []
 
-    if batch:
-        xbmcplugin.addDirectoryItems(
-            HANDLE,
-            batch,
-            totalItems=len(episodes),
-        )
-
     if has_next:
-        add_next_page(
-            series_id=series_id,
-            season_number=season_number,
-            library_id=library_id,
-            action="season",
-            page=page,
-        )
-
-    xbmcplugin.endOfDirectory(HANDLE)
+        next_item = xbmcgui.ListItem(label="Next Page")
+        next_item.setArt({"icon": "DefaultFolder.png"})
+        batch.append((build_url(action="season", series_id=series_id, season_number=season_number, library_id=library_id, page=int(page or 1) + 1), next_item, True))
+    if return_items:
+        return batch
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(episodes))
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 def resolve_playback_library_id(client, content_id, library_id=None):
     """Resolve a playable item's library using the same pattern as search."""
@@ -9154,6 +9115,223 @@ def kodi_requested_resume():
     return value == "true"
 
 
+def _cinematic_tag_value(tag, *method_names):
+    """Read optional Kodi VideoInfoTag fields without breaking older Kodi builds."""
+    for method_name in method_names:
+        try:
+            method = getattr(tag, method_name, None)
+            value = method() if callable(method) else ""
+        except Exception:
+            continue
+        if value in (None, ""):
+            continue
+        if isinstance(value, (list, tuple, set)):
+            parts = []
+            for entry in value:
+                if isinstance(entry, str):
+                    text = entry.strip()
+                elif isinstance(entry, dict):
+                    text = str(entry.get("name") or entry.get("title") or entry.get("label") or "").strip()
+                else:
+                    text = str(entry).strip()
+                if text and text not in parts:
+                    parts.append(text)
+            value = " · ".join(parts)
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def cinematic_cards_from_directory(batch):
+    """Keep existing Kodi directory URLs and rich ListItems; only change presentation."""
+    cards = []
+    for entry in batch or []:
+        if not isinstance(entry, (tuple, list)) or len(entry) < 3:
+            continue
+        url, item, is_folder = entry
+        if item is None:
+            continue
+        query = str(url or "").partition("?")[2]
+        params = dict(parse_qsl(query, keep_blank_values=True)) if query else {}
+        action = params.pop("action", "")
+        if not action:
+            continue
+        art = {}
+        for key in ("poster", "thumb", "fanart", "landscape", "banner", "clearlogo", "icon"):
+            try:
+                value = item.getArt(key)
+            except Exception:
+                value = ""
+            if value:
+                art[key] = value
+        try:
+            title = item.getLabel() or "Untitled"
+            tag = item.getVideoInfoTag()
+            overview = tag.getPlot() or ""
+            media_type = tag.getMediaType() or ""
+            year = tag.getYear()
+            duration = tag.getDuration()
+            tagline = _cinematic_tag_value(tag, "getTagLine", "getTagline")
+            plot_outline = _cinematic_tag_value(tag, "getPlotOutline")
+            genres = _cinematic_tag_value(tag, "getGenres", "getGenre")
+            directors = _cinematic_tag_value(tag, "getDirectors", "getDirector")
+            studios = _cinematic_tag_value(tag, "getStudios", "getStudio")
+            certification = _cinematic_tag_value(tag, "getMpaa", "getMPAA")
+            rating_text = _cinematic_tag_value(tag, "getRating")
+            # Deliberately don't import premiered/first-aired into the cinematic
+            # details: some Kodi tags expose default/placeholder dates as real values.
+            premiered = ""
+            tv_show_title = _cinematic_tag_value(tag, "getTVShowTitle")
+            season_number = _cinematic_tag_value(tag, "getSeason")
+            episode_number = _cinematic_tag_value(tag, "getEpisode")
+            original_title = _cinematic_tag_value(tag, "getOriginalTitle")
+        except Exception:
+            title, overview, media_type, year, duration = "Untitled", "", "", "", ""
+            tagline, plot_outline, genres, directors, studios = "", "", "", "", ""
+            certification, rating_text, premiered, tv_show_title = "", "", "", ""
+            season_number, episode_number, original_title = "", "", ""
+        media_type = {"movie":"movie", "tvshow":"series", "episode":"episode", "season":"season"}.get(media_type, media_type)
+        # Episode stills and landscape-only artwork should remain landscape.
+        # Prefer the portrait poster for films and series whenever one exists.
+        landscape_art = art.get("landscape") or art.get("fanart") or art.get("thumb") or art.get("banner")
+        has_portrait_art = bool(art.get("poster"))
+        art_wide = bool(
+            (media_type == "episode" and landscape_art)
+            or (not has_portrait_art and landscape_art)
+        )
+        backdrop = (
+            (art.get("thumb") or art.get("landscape") or art.get("fanart") or art.get("banner"))
+            if media_type == "episode"
+            else (art.get("landscape") or art.get("fanart") or art.get("banner") or art.get("thumb"))
+        )
+        cards.append({
+            "title": str(title), "name": str(title), "overview": str(overview or plot_outline or tagline or ""),
+            "tagline": tagline, "plot_outline": plot_outline,
+            "type": media_type or ("directory" if is_folder else "video"),
+            "year": year, "duration_seconds": duration,
+            "runtime_minutes": (float(duration) / 60.0) if duration else 0,
+            "genres": genres, "directors": directors, "studios": studios,
+            "content_rating": certification, "rating_label": rating_text,
+            "series_title": tv_show_title,
+            "season_number": season_number, "episode_number": episode_number,
+            "original_title": original_title,
+            "poster_url": art.get("poster") or (art.get("thumb") if not art_wide else "") or art.get("icon") or art.get("landscape") or "",
+            "backdrop_url": backdrop or art.get("poster") or "",
+            "logo_url": art.get("clearlogo") or "",
+            "_cinematic_art_wide": art_wide,
+            "_cinematic_source": item, "_cinematic_url": str(url),
+            "_cinematic_folder": bool(is_folder), "_cinematic_action": action,
+            "_cinematic_payload": params,
+        })
+    return cards
+
+
+def cinematic_load_directory(client, action, params=None):
+    """Get content from the same functions used by the regular Kodi directory UI."""
+    p = dict(params or {})
+    if action == "libraries":
+        batch, title = list_libraries(client, return_items=True), "LIBRARIES"
+    elif action == "library":
+        batch, title = list_library(client, p.get("library_id"), p.get("cursor"), return_items=True), p.get("title") or "LIBRARY"
+    elif action == "library_letter":
+        batch = list_library_letter(client, p.get("library_id"), p.get("letter"), p.get("page"), p.get("expected_count"), return_items=True)
+        title = p.get("letter") or "LIBRARY"
+    elif action == "your_stuff":
+        batch, title = list_your_stuff(client, return_items=True), "YOUR STUFF"
+    elif action == "collections":
+        batch, title = list_collections(client, return_items=True), "COLLECTIONS"
+    elif action == "personal_list":
+        source = p.get("source")
+        batch = _list_personal_catalog(client, source, p.get("cursor"), p.get("collection_id"), return_items=True)
+        title = {"favorites":"FAVORITES", "watchlist":"WATCHLIST", "history":"HISTORY", "user_collection":"COLLECTION"}.get(source, "YOUR STUFF")
+    elif action == "collection":
+        batch = list_collection(client, p.get("collection_id"), p.get("title"), p.get("cursor"), return_items=True)
+        title = p.get("title") or "COLLECTION"
+    elif action == "home_section":
+        batch, title = list_home_section(client, p.get("section_id"), return_items=True), p.get("title") or "HOME"
+    elif action == "home_section_group":
+        batch, title = list_home_section_group(client, p.get("group_key"), return_items=True), p.get("title") or "HOME"
+    elif action == "search":
+        batch = list_search_results(client, p.get("query"), p.get("page"), return_items=True)
+        title = "SEARCH · " + str(p.get("query") or "")
+    elif action == "person":
+        batch = list_person_media(client, p.get("person_id"), p.get("person_name"), p.get("cursor"), return_items=True)
+        title = p.get("person_name") or "PERSON"
+    elif action == "seasons":
+        batch = list_seasons(client, p.get("series_id"), p.get("library_id"), p.get("page"), return_items=True)
+        title = p.get("title") or "SEASONS"
+    elif action == "season":
+        batch = list_episodes(client, p.get("series_id"), p.get("season_number"), p.get("library_id"), p.get("page"), return_items=True)
+        title = p.get("title") or "EPISODES"
+    else:
+        batch, title = [], str(action or "SILO").replace("_", " ").upper()
+    cards = cinematic_cards_from_directory(batch)
+    log("Silo Cinematic: main directory %s produced %d card(s)" % (action, len(cards)), xbmc.LOGINFO)
+    return [(title, cards, "poster")]
+
+
+def cinematic_root_rows(client):
+    """Use main root's existing Home-section list and expand each section to posters."""
+    if not client.cfg.get("token"):
+        entries = []
+        login = xbmcgui.ListItem(label="Login")
+        login.setArt({"icon":"DefaultVideo.png"})
+        settings = xbmcgui.ListItem(label="Settings")
+        settings.setArt({"icon":"DefaultFolder.png"})
+        return [("WELCOME TO SILO", cinematic_cards_from_directory([
+            (build_url(action="login"), login, False),
+            (build_url(action="settings"), settings, False),
+        ]), "poster")]
+    log("Silo Cinematic: loading Home section definitions")
+    try:
+        sections = client.home_sections(image_size="medium") or []
+    except SiloError as exc:
+        log("Silo Cinematic: main Home sections failed: %s" % exc, xbmc.LOGWARNING)
+        sections = []
+    log("Silo Cinematic: received %d Home section definitions" % len(sections))
+    grouped = {}
+    ordered = []
+    for section in sections:
+        sid = section.get("id") or section.get("section_id")
+        if not sid:
+            continue
+        try:
+            if section.get("total_count") is not None and int(section.get("total_count")) <= 0:
+                continue
+        except (TypeError, ValueError):
+            pass
+        key = _home_section_group_key(section) if ADDON.getSettingBool("combine_home_sections") else "unique:" + str(sid)
+        if key not in grouped:
+            grouped[key] = []
+            ordered.append(key)
+        grouped[key].append(section)
+    rows = []
+    for key in ordered:
+        sections_in_group = grouped[key]
+        title = _home_section_group_title(sections_in_group[0])
+        cards = []
+        for section in sections_in_group:
+            sid = section.get("id") or section.get("section_id")
+            log("Silo Cinematic: loading section %s (%s)" % (sid, title))
+            data = list_home_section(client, sid, return_items=True) or []
+            section_cards = cinematic_cards_from_directory(data)
+            log("Silo Cinematic: section %s supplied %d card(s)" % (sid, len(section_cards)))
+            cards.extend(section_cards)
+        if not cards:
+            continue
+        if len(sections_in_group) > 1:
+            route = build_url(action="home_section_group", group_key=key, title=title)
+        else:
+            route = build_url(action="home_section", section_id=sections_in_group[0].get("id") or sections_in_group[0].get("section_id"), title=title)
+        section_type = str(sections_in_group[0].get("section_type") or "").lower()
+        rows.append((title, cards, "wide" if section_type in ("continue_watching", "next_up") else "poster"))
+    log("Silo Cinematic: home rows ready (%d rail(s), %d cards)" % (
+        len(rows), sum(len(row[1]) for row in rows)
+    ))
+    return rows
+
+
 def router(client):
     """Route Kodi's current plugin request to the appropriate addon action."""
     query = sys.argv[2]
@@ -9169,6 +9347,23 @@ def router(client):
     )
 
     action = params.get("action")
+
+    # The cinematic UI is deliberately optional. It opens only for the add-on's
+    # root entry point; every existing action continues through the established
+    # Kodi directory and playback handlers.
+    if ADDON.getSettingBool("cinematic_interface") and action in (None, "root"):
+        # Complete the plugin request promptly. The long-lived WindowXML runs
+        # in a script add-on, like Silo-Theater, so Kodi will not kill this
+        # plugin invocation while a modal window is open.
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
+        log("Silo Cinematic: directory request completed; launching in-addon window runner")
+        # Run a short script from this same add-on. It explicitly opens the
+        # plugin.video.silo settings context, then owns the WindowXML in its
+        # own Kodi script process; the plugin directory request can finish.
+        runner_path = os.path.join(ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py")
+        xbmc.executebuiltin("RunScript(%s)" % runner_path)
+        return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered
     # plugin directory. Normal navigation, including Kodi's '..', clears it.
@@ -9330,6 +9525,13 @@ def router(client):
             resume_available=str(params.get("resume_available", "")).strip().lower()
             in ("1", "true", "yes"),
         )
+        # The custom window closes before playback so Kodi's player has focus.
+        # After the existing progress monitor finishes, reopen the Silo Cinematic UI.
+        if (
+            str(params.get("cinematic_return", "")).strip().lower() in ("1", "true", "yes")
+            and ADDON.getSettingBool("cinematic_interface")
+        ):
+            xbmc.executebuiltin("Container.Update(%s)" % BASE_URL)
         return
 
     if action == "switch_profile":
