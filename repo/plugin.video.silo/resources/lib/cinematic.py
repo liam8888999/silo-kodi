@@ -676,6 +676,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             source.setProperty("Silo.Cinematic.ArtWide", "true" if item.get("_cinematic_art_wide") else "")
             source.setProperty("Silo.Cinematic.HeroTitle", title)
             source.setProperty("Silo.Cinematic.Overview", str(item.get("overview") or ""))
+            source.setProperty("Silo.Cinematic.Details", self._detail_text(item))
             source.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
             source.setProperty("Silo.Cinematic.Badges", self._hero_badges(item))
             source.setProperty("Silo.Cinematic.Badge", (self._hero_badge_list(item) or [""])[0])
@@ -771,6 +772,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         list_item.setProperty("Silo.Cinematic.ArtWide", "true" if art_wide else "")
         list_item.setProperty("Silo.Cinematic.HeroTitle", title)
         list_item.setProperty("Silo.Cinematic.Overview", str(_value(item, "overview", "plot", "description")))
+        list_item.setProperty("Silo.Cinematic.Details", self._detail_text(item))
         list_item.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
         list_item.setProperty("Silo.Cinematic.Badges", self._hero_badges(item))
         list_item.setProperty("Silo.Cinematic.Badge", (self._hero_badge_list(item) or [""])[0])
@@ -1112,7 +1114,37 @@ class CinematicWindow(xbmcgui.WindowXML):
                     break
         if rating:
             parts.append(rating)
+        for key in ("genres", "content_rating", "premiered"):
+            value = _value(item, key)
+            if isinstance(value, (list, tuple, set)):
+                value = " / ".join(str(v).strip() for v in value if str(v).strip())
+            value = str(value or "").strip()
+            if value and value not in parts:
+                parts.append(value)
         return "   ·   ".join(part for part in parts if part)
+
+    def _detail_text(self, item):
+        """Readable, deduplicated metadata for cards and the focused hero."""
+        fields = [
+            ("genres", "genres", "genre"),
+            ("directors", "directors", "director"),
+            ("studios", "studios", "studio", "network"),
+            ("premiered", "premiered", "first_aired", "air_date"),
+            ("content_rating", "content_rating", "official_rating", "mpaa"),
+        ]
+        parts = []
+        for label, *keys in fields:
+            value = _value(item, *keys)
+            if isinstance(value, (list, tuple, set)):
+                value = " · ".join(str(v).strip() for v in value if str(v).strip())
+            value = str(value or "").strip()
+            if value and value not in parts:
+                parts.append(value)
+        original_title = str(_value(item, "original_title") or "").strip()
+        title = _display_title(item)
+        if original_title and original_title.casefold() != title.casefold():
+            parts.append("Original title: " + original_title)
+        return "   ·   ".join(parts)
 
     def _hero_badge_list(self, item):
         """Compact quality and rating badges, in the same order as Silo TV."""
@@ -1149,6 +1181,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         logo = self._art(item, "logo_url", "logo")
         backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url", "poster_url", "poster")
         plot = str(_value(item, "overview", "plot", "description", default=""))
+        details = self._detail_text(item)
         meta = self._hero_meta(item)
         badges = self._hero_badges(item)
         self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, plot
@@ -1156,6 +1189,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.cinematic.hero.logo", self._hero_logo)
         self.setProperty("silo.cinematic.hero.type", media_type)
         self.setProperty("silo.cinematic.hero.badges", badges)
+        self.setProperty("silo.cinematic.hero.details", details)
         for slot, badge in enumerate(self._hero_badge_list(item), 1):
             self.setProperty("silo.cinematic.hero.badge%d" % slot, badge)
         for slot in range(len(self._hero_badge_list(item)) + 1, 5):
@@ -1163,7 +1197,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_PLOT).setText(plot[:500])
+            self.getControl(HERO_PLOT).setText("\\n".join(part for part in (plot, details) if part)[:1200])
             self.getControl(100).setImage(backdrop or "")
             self.getControl(HERO_LOGO).setImage(logo or "")
             self._set_hero_visible(self.screen in ("home", "series", "details"))
@@ -1267,6 +1301,8 @@ class CinematicWindow(xbmcgui.WindowXML):
             title = str(item.get("title") or item.get("name") or "Silo")
             meta = self._hero_meta(item)
             overview = str(_value(item, "overview", "plot", "description", default="") or "")
+            details = self._detail_text(item)
+            synopsis = "\\n".join(part for part in (overview, details) if part)
             poster = self._art(item, "poster_url", "poster", "thumb", "image", "icon")
             backdrop = self._art(item, "backdrop_url", "backdrop", "fanart", "poster_url", "poster")
             logo = self._art(item, "logo_url", "logo", "clearlogo")
@@ -1275,12 +1311,13 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._hero_badge_values = self._hero_badge_list(item)
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_PLOT).setText(overview[:500])
+            self.getControl(HERO_PLOT).setText(synopsis[:1200])
             self.getControl(HERO_LOGO).setImage(logo or "")
             self.getControl(100).setImage(backdrop or poster or "")
             self.setProperty("silo.cinematic.hero.title", title)
             self.setProperty("silo.cinematic.hero.meta", meta)
             self.setProperty("silo.cinematic.hero.overview", overview)
+            self.setProperty("silo.cinematic.hero.details", details)
             self.setProperty("silo.cinematic.hero.backdrop", backdrop or poster or "")
             self.setProperty("silo.cinematic.hero.poster", poster or "")
             self.setProperty("silo.cinematic.hero.logo", logo or "")
