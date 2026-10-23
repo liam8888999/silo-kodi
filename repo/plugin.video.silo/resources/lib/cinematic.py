@@ -15,7 +15,7 @@ import xbmcgui
 from resources.lib.silo import SiloError
 
 
-ADDON = xbmcaddon.Addon()
+ADDON = xbmcaddon.Addon("plugin.video.silo")
 WINDOW_XML = "SiloCinematic.xml"
 
 # Static controls defined by resources/skins/Default/1080i/SiloCinematic.xml.
