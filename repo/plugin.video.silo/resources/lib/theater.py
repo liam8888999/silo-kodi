@@ -246,6 +246,12 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
         backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url")
         logo = self._art(item, "logo_url", "logo")
         art = {}
+        action = item.get("_theater_action", "")
+        if not poster and action in ("play", "start_over"):
+            # Use Kodi's familiar video tile for action cards on the details screen.
+            poster = "DefaultVideo.png"
+        elif not poster and _item_type(item) == "menu":
+            poster = "DefaultFolder.png"
         if poster:
             art.update({"poster": poster, "thumb": poster, "icon": poster})
         if backdrop:
