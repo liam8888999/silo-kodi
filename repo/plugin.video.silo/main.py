@@ -9180,7 +9180,9 @@ def cinematic_cards_from_directory(batch):
             studios = _cinematic_tag_value(tag, "getStudios", "getStudio")
             certification = _cinematic_tag_value(tag, "getMpaa", "getMPAA")
             rating_text = _cinematic_tag_value(tag, "getRating")
-            premiered = _cinematic_tag_value(tag, "getPremiered", "getFirstAired")
+            # Deliberately don't import premiered/first-aired into the cinematic
+            # details: some Kodi tags expose default/placeholder dates as real values.
+            premiered = ""
             tv_show_title = _cinematic_tag_value(tag, "getTVShowTitle")
             season_number = _cinematic_tag_value(tag, "getSeason")
             episode_number = _cinematic_tag_value(tag, "getEpisode")
@@ -9212,7 +9214,7 @@ def cinematic_cards_from_directory(batch):
             "runtime_minutes": (float(duration) / 60.0) if duration else 0,
             "genres": genres, "directors": directors, "studios": studios,
             "content_rating": certification, "rating_label": rating_text,
-            "premiered": premiered, "series_title": tv_show_title,
+            "series_title": tv_show_title,
             "season_number": season_number, "episode_number": episode_number,
             "original_title": original_title,
             "poster_url": art.get("poster") or (art.get("thumb") if not art_wide else "") or art.get("icon") or art.get("landscape") or "",
