@@ -36,11 +36,13 @@ HERO_META = 131
 HERO_PLOT = 132
 HERO_LOGO = 133
 HERO_BADGES = 134
+HERO_BADGE_IMAGES = (135, 145, 147, 149)
+HERO_BADGE_LABELS = (134, 146, 148, 150)
 MIN_ROW_SLOTS = 12
 SLOT_BASE = 3000
-ROWS_TOP = 460
-WIDE_PITCH = 175
-POSTER_PITCH = 320
+ROWS_TOP = 530
+WIDE_PITCH = 410
+POSTER_PITCH = 470
 SCREEN_HEIGHT = 1080
 GRID_HEADING = 800
 GRID_CONTROL = 801
@@ -194,6 +196,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._hero_logo = ""
         self._hero_badges_text = ""
         self._hero_overview = ""
+        self._hero_badge_values = []
 
     def onInit(self):
         # Honour the same settings-first login path used by the standard root.
@@ -1122,6 +1125,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         meta = self._hero_meta(item)
         badges = self._hero_badges(item)
         self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, plot
+        self._hero_badge_values = self._hero_badge_list(item)
         self.setProperty("silo.cinematic.hero.logo", self._hero_logo)
         self.setProperty("silo.cinematic.hero.type", media_type)
         self.setProperty("silo.cinematic.hero.badges", badges)
@@ -1132,7 +1136,6 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_BADGES).setLabel(badges)
             self.getControl(HERO_PLOT).setText(plot[:500])
             self.getControl(100).setImage(backdrop or "")
             self.getControl(HERO_LOGO).setImage(logo or "")
@@ -1148,16 +1151,14 @@ class CinematicWindow(xbmcgui.WindowXML):
             except Exception:
                 pass
 
-        # Like the Silo TV clients, keep the hero title/metadata bottom-aligned
-        # when a title has no synopsis instead of leaving an empty description gap.
-        shift = 56 if visible and not str(self._hero_overview or "").strip() else 0
+        # Match Silo-Theater's bottom-aligned hero and move the title block down
+        # when a synopsis is unavailable, rather than leaving an empty text gap.
+        shift = 84 if visible and not str(self._hero_overview or "").strip() else 0
         positions = {
-            HERO_TITLE: (82, 148 + shift),
-            HERO_LOGO: (82, 155 + shift),
-            HERO_META: (84, 292 + shift),
-            HERO_BADGES: (90, 329 + shift),
-            HERO_PLOT: (84, 372),
-            135: (76, 329 + shift),
+            HERO_TITLE: (88, 180 + shift),
+            HERO_LOGO: (88, 180 + shift),
+            HERO_META: (88, 346 + shift),
+            HERO_PLOT: (88, 396),
         }
         for control_id, position in positions.items():
             try:
@@ -1169,15 +1170,41 @@ class CinematicWindow(xbmcgui.WindowXML):
             HERO_TITLE: bool(visible) and not bool(self._hero_logo),
             HERO_LOGO: bool(visible) and bool(self._hero_logo),
             HERO_META: bool(visible),
-            HERO_BADGES: bool(visible) and bool(self._hero_badges_text),
             HERO_PLOT: bool(visible) and bool(self._hero_overview),
-            135: bool(visible) and bool(self._hero_badges_text),
         }
         for control_id, state in states.items():
             try:
                 self.getControl(control_id).setVisible(state)
             except Exception:
                 pass
+        self._layout_hero_badges(bool(visible), shift)
+
+    def _layout_hero_badges(self, visible, shift=0):
+        """Lay out separate quality chips, then place metadata immediately after them."""
+        left = 88
+        top = 346 + shift
+        for index, (image_id, label_id) in enumerate(zip(HERO_BADGE_IMAGES, HERO_BADGE_LABELS)):
+            badge = self._hero_badge_values[index] if index < len(self._hero_badge_values) else ""
+            width = max(56, min(176, 24 + len(badge) * 11))
+            for control_id in (image_id, label_id):
+                try:
+                    control = self.getControl(control_id)
+                    control.setPosition(left, top)
+                    control.setWidth(width)
+                    control.setVisible(bool(visible) and bool(badge))
+                    if control_id == label_id:
+                        control.setLabel(badge)
+                except Exception:
+                    pass
+            self.setProperty("silo.cinematic.hero.badge%d" % (index + 1), badge)
+            if badge:
+                left += width + 12
+        try:
+            meta = self.getControl(HERO_META)
+            meta.setPosition(left, top)
+            meta.setWidth(max(120, 1068 - left))
+        except Exception:
+            pass
 
     def _update_hero_from_focus(self):
         """Update the feature area when focus changes within a poster list."""
@@ -1211,6 +1238,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             logo = self._art(item, "logo_url", "logo", "clearlogo")
             badges = self._hero_badges(item)
             self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, overview
+            self._hero_badge_values = self._hero_badge_list(item)
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
             self.getControl(HERO_BADGES).setLabel(badges)
