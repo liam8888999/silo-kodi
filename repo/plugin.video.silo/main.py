@@ -2367,7 +2367,8 @@ def list_person_media(client, person_id, person_name="", cursor=None, return_ite
         if return_items:
             return []
         notify("Invalid person.")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     page_size = min(get_directory_page_size(), 100)
@@ -2387,7 +2388,8 @@ def list_person_media(client, person_id, person_name="", cursor=None, return_ite
         if return_items:
             return []
         notify("Unable to load person credits: %s" % str(exc)[:180])
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     log(
@@ -2395,11 +2397,13 @@ def list_person_media(client, person_id, person_name="", cursor=None, return_ite
         % (person_id, len(items), bool(next_cursor)),
     )
 
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        person_name or "Person",
-    )
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(
+            HANDLE,
+            person_name or "Person",
+        )
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
     # Use the same extended metadata pipeline as normal Search. This
     # preserves cast, crew, ratings, runtime, artwork, stream details,
@@ -2525,7 +2529,8 @@ def list_person_media(client, person_id, person_name="", cursor=None, return_ite
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
     if not batch:
         notify("No Silo media found for this person.")
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
@@ -2649,8 +2654,10 @@ def list_search_results(client, query, page=1, return_items=False):
     if not query:
         if return_items:
             return []
-        xbmcplugin.setContent(HANDLE, "files")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "files")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     try:
@@ -2690,7 +2697,8 @@ def list_search_results(client, query, page=1, return_items=False):
             people_future.cancel()
             if return_items:
                 return []
-            xbmcplugin.endOfDirectory(HANDLE)
+            if not return_items:
+                xbmcplugin.endOfDirectory(HANDLE)
             return
 
         items = data.get("items") or []
@@ -2715,11 +2723,13 @@ def list_search_results(client, query, page=1, return_items=False):
         % (query, len(items), has_more)
     )
 
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        "Search: %s" % query,
-    )
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(
+            HANDLE,
+            "Search: %s" % query,
+        )
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
     # Preserve the normal Search order: people first, then media.
     prefix_batch = []
@@ -2866,7 +2876,8 @@ def list_search_results(client, query, page=1, return_items=False):
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
     if not items and not people:
         notify("No results found for: %s" % query)
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
@@ -5372,9 +5383,11 @@ def list_your_stuff(client, return_items=False):
 
     if return_items:
         return batch
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
     xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 def _list_personal_catalog(client, source, cursor=None, collection_id=None, return_items=False):
@@ -5389,16 +5402,18 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None, retu
         collection_id=collection_id,
     )
 
-    xbmcplugin.setPluginCategory(
-        HANDLE,
-        {
-            "favorites": "Favorites",
-            "watchlist": "Watchlist",
-            "history": "History",
-            "user_collection": "Collection",
-        }.get(source, "Your Stuff"),
-    )
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(
+            HANDLE,
+            {
+                "favorites": "Favorites",
+                "watchlist": "Watchlist",
+                "history": "History",
+                "user_collection": "Collection",
+            }.get(source, "Your Stuff"),
+        )
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
     # Keep personal-list cards in lockstep with Search and Library browsing:
     # full detail metadata first, then fresh in-progress positions, then the
@@ -5490,7 +5505,8 @@ def _list_personal_catalog(client, source, cursor=None, collection_id=None, retu
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
@@ -5502,8 +5518,10 @@ def list_collections(client, return_items=False):
     # Keep the server's collection/group ordering, matching the web client.
     group_names = {str(group.get("id")): group.get("name") for group in groups or []}
 
-    xbmcplugin.setPluginCategory(HANDLE, "Collections")
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, "Collections")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
     batch = []
 
     for collection in collections or []:
@@ -5533,7 +5551,8 @@ def list_collections(client, return_items=False):
     if return_items:
         return batch
     xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 def list_collection(client, collection_id, title=None, cursor=None, return_items=False):
@@ -6021,9 +6040,12 @@ def list_home_section_group(client, group_key, return_items=False):
         if return_items:
             return []
         notify("Home section unavailable")
-        xbmcplugin.setPluginCategory(HANDLE, "Home")
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, "Home")
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     matching = [
@@ -6034,9 +6056,12 @@ def list_home_section_group(client, group_key, return_items=False):
 
     if not matching:
         notify("Home section no longer exists")
-        xbmcplugin.setPluginCategory(HANDLE, "Home")
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, "Home")
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     try:
@@ -6145,9 +6170,12 @@ def list_home_section(client, section_id, return_items=False):
         if return_items:
             return []
         notify("Home section unavailable")
-        xbmcplugin.setPluginCategory(HANDLE, "Home")
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, "Home")
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
     section = data.get("section") if isinstance(data.get("section"), dict) else {}
@@ -6209,8 +6237,10 @@ def list_libraries(client, return_items=False):
     """Display the accessible Silo libraries inside the Libraries folder."""
     libraries = client.libraries()
 
-    xbmcplugin.setPluginCategory(HANDLE, "Libraries")
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, "Libraries")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
 
     batch = []
 
@@ -6248,7 +6278,8 @@ def list_libraries(client, return_items=False):
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 def add_home_section_folder(section):
@@ -6324,13 +6355,18 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     if not items:
         if return_items:
             return []
-        xbmcplugin.setPluginCategory(HANDLE, section_title)
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.endOfDirectory(HANDLE)
+        if not return_items:
+            xbmcplugin.setPluginCategory(HANDLE, section_title)
+        if not return_items:
+            xbmcplugin.setContent(HANDLE, "videos")
+        if not return_items:
+            xbmcplugin.endOfDirectory(HANDLE)
         return
 
-    xbmcplugin.setPluginCategory(HANDLE, section_title)
-    xbmcplugin.setContent(HANDLE, "videos")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, section_title)
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "videos")
 
     try:
         # Keep the normal detail prefetch for artwork, cast, crew, runtime and
@@ -6493,7 +6529,8 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 
 
@@ -6512,8 +6549,10 @@ def list_library(client, library_id, cursor=None, return_items=False):
 
     counts = library_letter_counts(items)
 
-    xbmcplugin.setPluginCategory(HANDLE, "Library")
-    xbmcplugin.setContent(HANDLE, "files")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, "Library")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "files")
 
     batch = []
     for group in LIBRARY_LETTER_GROUPS:
@@ -6533,7 +6572,8 @@ def list_library(client, library_id, cursor=None, return_items=False):
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 def list_library_letter(client, library_id, letter, page=None, expected_count=None, return_items=False):
     """Display one alphabet group using Silo's indexed prefix query when safe."""
@@ -6615,16 +6655,19 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             page_number,
         )
 
-    xbmcplugin.setPluginCategory(HANDLE, letter)
-    xbmcplugin.setContent(HANDLE, "movies")
+    if not return_items:
+        xbmcplugin.setPluginCategory(HANDLE, letter)
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "movies")
 
     if not return_items:
-        add_previous_page(
-            library_id=library_id,
-            action="library_letter",
-            page=page_number,
-            letter=letter,
-        )
+        if not return_items:
+            add_previous_page(
+                library_id=library_id,
+                action="library_letter",
+                page=page_number,
+                letter=letter,
+            )
 
     detail_map = fetch_detail_metadata(
         client,
@@ -6703,7 +6746,8 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(grouped_items))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 def list_seasons(client, series_id, library_id, page=None, return_items=False):
     """Display all seasons belonging to a series.
@@ -6770,16 +6814,18 @@ def list_seasons(client, series_id, library_id, page=None, return_items=False):
         page,
     )
 
-    xbmcplugin.setContent(HANDLE, "seasons")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "seasons")
 
     batch = []
     if not return_items:
-        add_previous_page(
-            series_id=series_id,
-            library_id=resolved_library_id,
-            action="seasons",
-            page=page,
-        )
+        if not return_items:
+            add_previous_page(
+                series_id=series_id,
+                library_id=resolved_library_id,
+                action="seasons",
+                page=page,
+            )
 
     for season in page_items:
         season_number = season.get("season_number", season.get("number"))
@@ -6814,7 +6860,8 @@ def list_seasons(client, series_id, library_id, page=None, return_items=False):
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 def list_episodes(client, series_id, season_number, library_id, page=None, return_items=False):
     """Display all episodes for a season and apply their current watched state."""
     if not series_id:
@@ -6829,16 +6876,18 @@ def list_episodes(client, series_id, season_number, library_id, page=None, retur
         page,
     )
 
-    xbmcplugin.setContent(HANDLE, "episodes")
+    if not return_items:
+        xbmcplugin.setContent(HANDLE, "episodes")
 
     if not return_items:
-        add_previous_page(
-            series_id=series_id,
-            season_number=season_number,
-            library_id=library_id,
-            action="season",
-            page=page,
-        )
+        if not return_items:
+            add_previous_page(
+                series_id=series_id,
+                season_number=season_number,
+                library_id=library_id,
+                action="season",
+                page=page,
+            )
 
     detail_map = fetch_detail_metadata(
         client,
@@ -6950,7 +6999,8 @@ def list_episodes(client, series_id, season_number, library_id, page=None, retur
         return batch
     if batch:
         xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(episodes))
-    xbmcplugin.endOfDirectory(HANDLE)
+    if not return_items:
+        xbmcplugin.endOfDirectory(HANDLE)
 
 def resolve_playback_library_id(client, content_id, library_id=None):
     """Resolve a playable item's library using the same pattern as search."""
