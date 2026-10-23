@@ -6368,68 +6368,60 @@ def _render_catalog_items(client, data, section_title=None, merged_group_key=Non
     if not return_items:
         xbmcplugin.setContent(HANDLE, "videos")
 
-    try:
-        # Keep the normal detail prefetch for artwork, cast, crew, runtime and
-        # stream metadata. Its result is also reused by the card renderer.
-        detail_map = fetch_detail_metadata(client, items, None)
-
-        if merged_group_key == "recently added":
-            # For ordering, look up added_at from each source Home section,
-            # but only apply timestamps to the cards already present in this
-            # combined Home result. Do not replace or expand the Home card list.
-            source_sections = data.get("_silo_home_source_sections") or []
-            for source_section in source_sections:
-                section = source_section.get("section") or {}
-                source_items = source_section.get("items") or []
-                added_at_map = fetch_home_added_at_by_section(
-                    client,
-                    section,
-                    source_items,
-                )
-                for catalog_item in source_items:
-                    content_id = get_content_id(catalog_item)
-                    if content_id and str(content_id) in added_at_map:
-                        catalog_item["_silo_home_added_at"] = added_at_map[str(content_id)]
-    except Exception as exc:
-        log(
-            "Unable to prefetch Home detail metadata: %s"
-            % exc,
-            xbmc.LOGWARNING,
-        )
+    if return_items:
+        # Cinematic only needs the same directory's artwork, labels and click
+        # URLs to render cards. Avoid detail/progress lookups for every item,
+        # which otherwise keep the whole window blank while Home is assembled.
         detail_map = {}
+    else:
+        try:
+            detail_map = fetch_detail_metadata(client, items, None)
+
+            if merged_group_key == "recently added":
+                source_sections = data.get("_silo_home_source_sections") or []
+                for source_section in source_sections:
+                    section = source_section.get("section") or {}
+                    source_items = source_section.get("items") or []
+                    added_at_map = fetch_home_added_at_by_section(client, section, source_items)
+                    for catalog_item in source_items:
+                        content_id = get_content_id(catalog_item)
+                        if content_id and str(content_id) in added_at_map:
+                            catalog_item["_silo_home_added_at"] = added_at_map[str(content_id)]
+        except Exception as exc:
+            log("Unable to prefetch Home detail metadata: %s" % exc, xbmc.LOGWARNING)
+            detail_map = {}
 
     if merged_group_key:
-        _sort_merged_home_items(items, detail_map, str(merged_group_key))
+        if not return_items:
+            _sort_merged_home_items(items, detail_map, str(merged_group_key))
 
-        # Deduplicate only after the global merged sort. The first occurrence
-        # is therefore the card that appears highest on the combined page.
+        # Keep the first occurrence on the cinematic Home rail; normal Kodi
+        # directories retain the existing metadata-aware sort/merge behaviour.
         deduped = []
         seen = {}
         for catalog_item in items:
             content_id = get_content_id(catalog_item)
             key = str(content_id) if content_id else None
-
             if key and key in seen:
-                index = seen[key]
-                deduped[index] = _merge_home_catalog_items(
-                    deduped[index],
-                    catalog_item,
-                )
+                if not return_items:
+                    index = seen[key]
+                    deduped[index] = _merge_home_catalog_items(deduped[index], catalog_item)
                 continue
-
             if key:
                 seen[key] = len(deduped)
             deduped.append(catalog_item)
-
         items = deduped
 
 
-    progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
-        client,
-        items,
-        detail_map,
-        library_id=None,
-    )
+    if return_items:
+        progress_map, series_watch_map, season_watch_map = {}, {}, {}
+    else:
+        progress_map, series_watch_map, season_watch_map = prepare_catalog_watch_state(
+            client,
+            items,
+            detail_map,
+            library_id=None,
+        )
 
     batch = []
 
@@ -9225,11 +9217,13 @@ def cinematic_root_rows(client):
             (build_url(action="login"), login, False),
             (build_url(action="settings"), settings, False),
         ]), "poster")]
+    log("Silo Cinematic: loading Home section definitions")
     try:
         sections = client.home_sections(image_size="medium") or []
     except SiloError as exc:
         log("Silo Cinematic: main Home sections failed: %s" % exc, xbmc.LOGWARNING)
         sections = []
+    log("Silo Cinematic: received %d Home section definitions" % len(sections))
     grouped = {}
     ordered = []
     for section in sections:
@@ -9253,8 +9247,11 @@ def cinematic_root_rows(client):
         cards = []
         for section in sections_in_group:
             sid = section.get("id") or section.get("section_id")
+            log("Silo Cinematic: loading section %s (%s)" % (sid, title))
             data = list_home_section(client, sid, return_items=True) or []
-            cards.extend(cinematic_cards_from_directory(data))
+            section_cards = cinematic_cards_from_directory(data)
+            log("Silo Cinematic: section %s supplied %d card(s)" % (sid, len(section_cards)))
+            cards.extend(section_cards)
         if not cards:
             continue
         if len(sections_in_group) > 1:
@@ -9268,6 +9265,9 @@ def cinematic_root_rows(client):
         rows.append((title, cards, "wide" if section_type in ("continue_watching", "next_up") else "poster"))
         if len(rows) >= 10:
             break
+    log("Silo Cinematic: home rows ready (%d rail(s), %d cards)" % (
+        len(rows), sum(len(row[1]) for row in rows)
+    ))
     return rows
 
 def router(client):
