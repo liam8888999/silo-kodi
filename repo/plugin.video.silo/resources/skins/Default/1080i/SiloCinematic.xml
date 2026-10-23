@@ -38,77 +38,77 @@
       <font>font10</font><textcolor>FF20A89F</textcolor><label>MEDIA SERVER</label><aligny>center</aligny>
     </control>
     <control type="image" id="160">
-      <left>340</left><top>25</top><width>100</width><height>48</height>
+      <left>280</left><top>25</top><width>100</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),home) + !Control.HasFocus(110)</visible>
     </control>
     <control type="button" id="110">
-      <left>340</left><top>25</top><width>100</width><height>48</height><label>HOME</label><align>center</align><aligny>center</aligny>
+      <left>280</left><top>25</top><width>100</width><height>48</height><label>HOME</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>110</onleft><onright>111</onright></control>
     <control type="image" id="161">
-      <left>445</left><top>25</top><width>128</width><height>48</height>
+      <left>385</left><top>25</top><width>140</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),libraries) + !Control.HasFocus(111)</visible>
     </control>
     <control type="button" id="111">
-      <left>445</left><top>25</top><width>128</width><height>48</height><label>LIBRARIES</label><align>center</align><aligny>center</aligny>
+      <left>385</left><top>25</top><width>140</width><height>48</height><label>LIBRARIES</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>110</onleft><onright>112</onright></control>
     <control type="image" id="162">
-      <left>578</left><top>25</top><width>98</width><height>48</height>
+      <left>530</left><top>25</top><width>110</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),search) + !Control.HasFocus(112)</visible>
     </control>
     <control type="button" id="112">
-      <left>578</left><top>25</top><width>98</width><height>48</height><label>SEARCH</label><align>center</align><aligny>center</aligny>
+      <left>530</left><top>25</top><width>110</width><height>48</height><label>SEARCH</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>111</onleft><onright>113</onright></control>
     <control type="image" id="163">
-      <left>681</left><top>25</top><width>132</width><height>48</height>
+      <left>645</left><top>25</top><width>145</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),your_stuff) + !Control.HasFocus(113)</visible>
     </control>
     <control type="button" id="113">
-      <left>681</left><top>25</top><width>132</width><height>48</height><label>YOUR STUFF</label><align>center</align><aligny>center</aligny>
+      <left>645</left><top>25</top><width>145</width><height>48</height><label>YOUR STUFF</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>112</onleft><onright>114</onright></control>
     <control type="image" id="164">
-      <left>818</left><top>25</top><width>135</width><height>48</height>
+      <left>795</left><top>25</top><width>150</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),collections) + !Control.HasFocus(114)</visible>
     </control>
     <control type="button" id="114">
-      <left>818</left><top>25</top><width>135</width><height>48</height><label>COLLECTIONS</label><align>center</align><aligny>center</aligny>
+      <left>795</left><top>25</top><width>150</width><height>48</height><label>COLLECTIONS</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>113</onleft><onright>115</onright></control>
     <control type="image" id="165">
-      <left>958</left><top>25</top><width>105</width><height>48</height>
+      <left>950</left><top>25</top><width>120</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),settings) + !Control.HasFocus(115)</visible>
     </control>
     <control type="button" id="115">
-      <left>958</left><top>25</top><width>105</width><height>48</height><label>SETTINGS</label><align>center</align><aligny>center</aligny>
+      <left>950</left><top>25</top><width>120</width><height>48</height><label>SETTINGS</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>114</onleft><onright>116</onright></control>
     <control type="image" id="166">
-      <left>1068</left><top>25</top><width>104</width><height>48</height>
+      <left>1075</left><top>25</top><width>120</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),profile) + !Control.HasFocus(116)</visible>
     </control>
     <control type="button" id="116">
-      <left>1068</left><top>25</top><width>104</width><height>48</height><label>PROFILE</label><align>center</align><aligny>center</aligny>
+      <left>1075</left><top>25</top><width>120</width><height>48</height><label>PROFILE</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>115</onleft><onright>117</onright></control>
     <control type="button" id="117">
-      <left>1177</left><top>25</top><width>94</width><height>48</height><label>LOG OUT</label><align>center</align><aligny>center</aligny>
+      <left>1200</left><top>25</top><width>125</width><height>48</height><label>LOG OUT</label><align>center</align><aligny>center</aligny>
       <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     <onleft>116</onleft><onright>117</onright></control>
