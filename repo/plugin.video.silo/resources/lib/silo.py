@@ -1195,7 +1195,7 @@ class SiloClient:
     # ----------------------------------------------------------- profiles
 
     # Load household profiles and remember the selected profile.
-    def select_profile(self):
+    def select_profile(self, show_loading=True):
         data = self._json(
             "GET",
             "/api/v2/profiles",
@@ -1234,9 +1234,11 @@ class SiloClient:
             # spinner active and select the only profile automatically.
             chosen = profiles[0]
         else:
-            # A real profile-selection dialog needs to be visible to the user,
-            # so temporarily close the login spinner while Kodi displays it.
-            _hide_login_loading()
+            # A real profile-selection dialog needs to be visible to the user.
+            # The cinematic modal already has no login spinner, so only touch
+            # the shared spinner when this method is called from a login flow.
+            if show_loading:
+                _hide_login_loading()
 
             idx = xbmcgui.Dialog().select(
                 "Who's watching?",
@@ -1249,7 +1251,8 @@ class SiloClient:
             chosen = profiles[idx]
 
             # Resume the existing login spinner once profile selection is done.
-            _show_login_loading()
+            if show_loading:
+                _show_login_loading()
 
         self.cfg["profile_id"] = str(chosen["id"])
         self.cfg.pop("profile_token", None)
@@ -1265,11 +1268,13 @@ class SiloClient:
         if chosen.get("has_pin"):
             # The PIN prompt must be visible, so pause the spinner for it and
             # resume the same login spinner afterwards.
-            _hide_login_loading()
+            if show_loading:
+                _hide_login_loading()
             try:
                 self.verify_profile(chosen["id"])
             finally:
-                _show_login_loading()
+                if show_loading:
+                    _show_login_loading()
 
     # Verify a PIN-locked profile and store its temporary verification token.
     def verify_profile(self, profile_id):
