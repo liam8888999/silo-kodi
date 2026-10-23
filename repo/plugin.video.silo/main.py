@@ -60,10 +60,18 @@ from resources.lib.silo import (
 
 
 # Kodi supplies a numeric handle for the current plugin directory.
-HANDLE = int(sys.argv[1])
+try:
+    HANDLE = int(sys.argv[1])
+except (IndexError, TypeError, ValueError):
+    # Imported by the cinematic companion script; it has no plugin handle.
+    HANDLE = -1
 
 # Base plugin URL supplied by Kodi.
-BASE_URL = sys.argv[0]
+BASE_URL = (
+    sys.argv[0]
+    if sys.argv and str(sys.argv[0]).startswith("plugin://")
+    else "plugin://plugin.video.silo/"
+)
 
 # Media types that this addon can send directly to Kodi's VideoPlayer.
 PLAYABLE = (
@@ -84,7 +92,7 @@ SEARCH_PAGE_SIZE = 100
 MIN_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
-ADDON = xbmcaddon.Addon()
+ADDON = xbmcaddon.Addon("plugin.video.silo")
 
 
 _SKIN_EPISODE_NUMBER_DETECTION = None
@@ -9232,35 +9240,13 @@ def router(client):
     # root entry point; every existing action continues through the established
     # Kodi directory and playback handlers.
     if ADDON.getSettingBool("cinematic_interface") and action in (None, "root"):
-        # Complete Kodi's plugin-directory request BEFORE opening the fullscreen
-        # WindowXML. If endOfDirectory is postponed until after doModal(), Kodi
-        # keeps the container in its loading state for the entire lifetime of
-        # the window (the dialog version hid this because it floated over the
-        # previous directory). Silo-Theater is a WindowXML-driven application,
-        # so this add-on must close the plugin request before showing the UI.
+        # Complete the plugin request promptly. The long-lived WindowXML runs
+        # in a script add-on, like Silo-Theater, so Kodi will not kill this
+        # plugin invocation while a modal window is open.
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
-        log("Silo Cinematic: root directory completed; opening fullscreen window")
-
-        from resources.lib.cinematic import CinematicWindow
-
-        CinematicWindow.configure(client, BASE_URL, cinematic_root_rows, cinematic_load_directory)
-        window = CinematicWindow(
-            "SiloCinematic.xml",
-            ADDON.getAddonInfo("path"),
-            "Default",
-            "1080i",
-        )
-        try:
-            window.doModal()
-        finally:
-            del window
-            log("Silo Cinematic: fullscreen window closed")
-
-        if not ADDON.getSettingBool("cinematic_interface"):
-            # Turning the feature off from its own Settings menu should return
-            # to the normal Kodi directory.
-            xbmc.executebuiltin("Container.Refresh")
+        log("Silo Cinematic: directory request completed; launching script window")
+        xbmc.executebuiltin("RunScript(script.silo.cinematic)")
         return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered
@@ -9490,5 +9476,7 @@ def main():
         pass
 
 
-# Kodi executes main.py as the addon entry point.
-main()
+# Kodi executes main.py as the plugin entry point. Keep imports side-effect free
+# so the companion script can reuse these directory renderers.
+if __name__ == "__main__":
+    main()
