@@ -747,6 +747,10 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             pass
 
     def _update_hero_from_focus(self):
+        # Detail and series screens keep their selected title in the hero while
+        # focus moves through Play/Resume, Start over, or season choices.
+        if self.screen in ("details", "series"):
+            return
         try:
             focused_id = self.getFocusId()
             if focused_id not in ROW_CONTROLS:
