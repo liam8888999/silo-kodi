@@ -9176,10 +9176,12 @@ def router(client):
     if ADDON.getSettingBool("theater_interface") and action in (None, "root"):
         from resources.lib.theater import TheaterWindow
 
+        TheaterWindow.configure(client, BASE_URL)
         window = TheaterWindow(
-            client,
-            BASE_URL,
+            "SiloTheater.xml",
             ADDON.getAddonInfo("path"),
+            "Default",
+            "1080i",
         )
         window.doModal()
         if not ADDON.getSettingBool("theater_interface"):
