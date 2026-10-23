@@ -1314,23 +1314,9 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if hasattr(source, "setLabel2"):
                     source.setLabel2(card_subtitle)
 
-                detail_data = detail if isinstance(detail, dict) else {}
-                state = item.get("user_state") if isinstance(item.get("user_state"), dict) else {}
-                user_data = item.get("user_data") if isinstance(item.get("user_data"), dict) else {}
-                if not state:
-                    state = user_data
-                detail_state = detail_data.get("user_state") if isinstance(detail_data.get("user_state"), dict) else {}
-                detail_user_data = detail_data.get("user_data") if isinstance(detail_data.get("user_data"), dict) else {}
-                state = state or detail_state or detail_user_data
-                progress_state = progress if isinstance(progress, dict) else {}
-                played = (
-                    state.get("played") is True
-                    or item.get("played") is True
-                    or progress_state.get("completed") is True
-                )
-                source.setProperty("Silo.UserState.Played", "true" if played else "false")
-                source.setProperty("Silo.UserState.InWatchlist", "true" if state.get("in_watchlist") is True else "false")
-                source.setProperty("Silo.UserState.IsFavorite", "true" if state.get("is_favorite") is True else "false")
+                # build_catalog_list_item sets viewer-state properties from
+                # both catalog and detail data, keeping action labels identical
+                # to the regular Kodi UI.
                 source.setProperty("IsPlayable", "true" if card_type in ("movie", "episode", "video") else "false")
 
                 payload = item.get("_cinematic_payload") if isinstance(item.get("_cinematic_payload"), dict) else {}
