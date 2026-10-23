@@ -188,6 +188,8 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             rows = self._library_rows()
         elif self.screen == "series":
             rows = self._series_rows()
+        elif self.screen == "details":
+            rows = self._details_rows()
         elif self.screen == "season":
             rows = self._season_rows()
         elif self.screen == "your_stuff":
@@ -206,7 +208,8 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             rows = [("Silo", [])]
 
         self._show_rows(rows)
-        self._update_hero_from_focus()
+        if self.screen not in ("details", "series"):
+            self._update_hero_from_focus()
 
         first_populated_row = next(
             (control_id for control_id in ROW_CONTROLS if self._row_items.get(control_id)),
@@ -338,7 +341,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
                     continue
                 media_type = _item_type(item)
                 if media_type in ("movie", "episode", "video"):
-                    action = "play"
+                    action = "details"
                 elif media_type == "series":
                     action = "series"
                 elif media_type == "season":
@@ -396,7 +399,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             if not content_id:
                 continue
             if media_type in ("movie", "episode", "video"):
-                action = "play"
+                action = "details"
             elif media_type == "series":
                 action = "series"
             elif media_type == "season":
@@ -465,6 +468,48 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             ))
         return [("SEASONS", cards), ("", []), ("", [])]
 
+    def _details_rows(self):
+        """Show a selected title's metadata and explicit playback choices."""
+        content_id = self.params.get("content_id")
+        library_id = self.params.get("library_id")
+        if not content_id:
+            return [("TITLE DETAILS", []), ("", []), ("", [])]
+
+        detail = {}
+        try:
+            detail = self.client.item_detail(content_id, library_id) or {}
+        except SiloError as exc:
+            xbmc.log("[plugin.video.silo] Detail lookup unavailable: %s" % exc, xbmc.LOGDEBUG)
+
+        if detail:
+            self._set_hero(detail)
+        else:
+            self._set_hero({
+                "title": self.params.get("title", "Title details"),
+                "type": self.params.get("type", "video"),
+                "overview": self.params.get("overview", ""),
+                "backdrop_url": self.params.get("backdrop_url", ""),
+            })
+
+        playable_id = _value(detail, "play_content_id", "content_id", "id", default=content_id)
+        play_payload = {
+            "content_id": playable_id,
+            "library_id": library_id or "",
+            "title": _display_title(detail) if detail else self.params.get("title", "Untitled"),
+        }
+        duration = _value(detail, "duration_seconds", default=self.params.get("duration_seconds", ""))
+        if duration not in (None, ""):
+            play_payload["duration_seconds"] = duration
+        file_id = self.params.get("file_id") or self._single_file_id(detail)
+        if file_id:
+            play_payload["file_id"] = file_id
+
+        choices = [
+            self._menu_item("Play  /  Resume", "play", **play_payload),
+            self._menu_item("Start over", "start_over", **dict(play_payload, resume_available=1)),
+        ]
+        return [("WATCH", choices), ("", []), ("", [])]
+
     def _season_rows(self):
         series_id = self.params.get("series_id")
         season_number = self.params.get("season_number")
@@ -483,8 +528,8 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
                 pass
             episode = dict(item, title=title)
             cards.append(self._with_action(
-                episode, "play",
-                content_id=_value(item, "play_content_id", "content_id", "id"),
+                episode, "details",
+                content_id=content_id,
                 library_id=library_id,
                 title=_display_title(item),
                 duration_seconds=_value(item, "duration_seconds", default=""),
@@ -516,7 +561,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             content_id = _content_id(item)
             if not content_id:
                 continue
-            action = "series" if media_type == "series" else "play" if _playable(item) else ""
+            action = "series" if media_type == "series" else "details" if _playable(item) else ""
             if not action:
                 continue
             cards.append(self._with_action(
@@ -559,7 +604,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             content_id = _content_id(item)
             if not content_id:
                 continue
-            action = "series" if media_type == "series" else "play" if _playable(item) else ""
+            action = "series" if media_type == "series" else "details" if _playable(item) else ""
             if action:
                 cards.append(self._with_action(
                     item, action, content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
@@ -582,7 +627,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             content_id = _content_id(item)
             if not content_id:
                 continue
-            action = "series" if media_type == "series" else "play" if _playable(item) else ""
+            action = "series" if media_type == "series" else "details" if _playable(item) else ""
             if action:
                 cards.append(self._with_action(
                     item, action, content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
@@ -612,7 +657,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             content_id = _content_id(item)
             if not content_id:
                 continue
-            action = "series" if media_type == "series" else "play" if _playable(item) else ""
+            action = "series" if media_type == "series" else "details" if _playable(item) else ""
             if action:
                 cards.append(self._with_action(item, action,
                     content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id), library_id=_value(item, "library_id", default=""),
@@ -641,6 +686,8 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             self._push("library", payload)
         elif action == "series":
             self._push("series", payload)
+        elif action == "details":
+            self._push("details", payload)
         elif action == "season":
             self._push("season", payload)
         elif action == "personal":
@@ -661,12 +708,12 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             self._push("person", payload)
         elif action == "person_page":
             self._push("person", payload)
-        elif action == "play":
+        elif action in ("play", "start_over"):
             self._play(payload)
 
     def _play(self, payload):
         params = {"action": "play", "theater_return": 1}
-        for key in ("content_id", "library_id", "file_id", "duration_seconds"):
+        for key in ("content_id", "library_id", "file_id", "duration_seconds", "resume_available"):
             value = payload.get(key)
             if value not in (None, ""):
                 params[key] = value
