@@ -241,7 +241,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -317,7 +317,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -427,7 +427,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -510,7 +510,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -637,7 +637,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -713,7 +713,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -823,7 +823,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -906,7 +906,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -1033,7 +1033,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -1109,7 +1109,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -1219,7 +1219,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -1302,7 +1302,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -1429,7 +1429,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -1505,7 +1505,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -1615,7 +1615,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -1698,7 +1698,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -1825,7 +1825,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -1901,7 +1901,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -2011,7 +2011,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -2094,7 +2094,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -2221,7 +2221,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -2297,7 +2297,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -2407,7 +2407,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -2490,7 +2490,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -2617,7 +2617,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -2693,7 +2693,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -2803,7 +2803,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -2886,7 +2886,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -3013,7 +3013,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -3089,7 +3089,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -3199,7 +3199,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -3282,7 +3282,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -3409,7 +3409,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -3485,7 +3485,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -3595,7 +3595,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -3678,7 +3678,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -3805,7 +3805,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -3881,7 +3881,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -3991,7 +3991,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -4074,7 +4074,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -4201,7 +4201,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -4277,7 +4277,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -4387,7 +4387,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -4470,7 +4470,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -4597,7 +4597,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -4673,7 +4673,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -4783,7 +4783,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
             </control>
             <control type="label">
@@ -4866,7 +4866,7 @@
                 <lefttexture/>
                 <righttexture/>
                 <overlaytexture/>
-                <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+                <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
               </control>
               <control type="image">
                 <left>-4</left>
@@ -5592,7 +5592,7 @@
               <lefttexture/>
               <righttexture/>
               <overlaytexture/>
-              <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+              <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
             </control>
           </control>
           <control type="label">
@@ -5675,7 +5675,7 @@
               <lefttexture/>
               <righttexture/>
               <overlaytexture/>
-              <visible>!String.IsEmpty(ListItem.PercentPlayed)</visible>
+              <visible>Integer.IsGreater(ListItem.PercentPlayed,0)</visible>
             </control>
             <control type="image">
               <left>-4</left>
@@ -6196,14 +6196,6 @@
         <align>center</align>
         <aligny>center</aligny>
         <label>Loading your Silo library…</label>
-      </control>
-      <control type="image">
-        <left>928</left>
-        <top>630</top>
-        <width>64</width>
-        <height>64</height>
-        <texture colordiffuse="FFEDEDED">ring_circle.png</texture>
-        <animation effect="rotate" start="0" end="360" time="900" loop="true" condition="true">Conditional</animation>
       </control>
     </control>
   </controls>
