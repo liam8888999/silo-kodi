@@ -9263,8 +9263,6 @@ def cinematic_root_rows(client):
         cards.append(cinematic_cards_from_directory([(route, view_all, True)])[0])
         section_type = str(sections_in_group[0].get("section_type") or "").lower()
         rows.append((title, cards, "wide" if section_type in ("continue_watching", "next_up") else "poster"))
-        if len(rows) >= 10:
-            break
     log("Silo Cinematic: home rows ready (%d rail(s), %d cards)" % (
         len(rows), sum(len(row[1]) for row in rows)
     ))
