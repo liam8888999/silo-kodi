@@ -69,8 +69,15 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
         self.stack = []
         self._row_items = {}
         self._last_error = ""
-        super(TheaterWindow, self).__init__(
-            WINDOW_XML, self.addon_path, "Default", "1080i"
+        # Use Kodi's explicit WindowXMLDialog initializer. Some Kodi GUI
+        # bindings do not resolve this C-extension constructor reliably via
+        # zero-argument/super-style initialization.
+        xbmcgui.WindowXMLDialog.__init__(
+            self,
+            str(WINDOW_XML),
+            str(self.addon_path),
+            "Default",
+            "1080i",
         )
 
     def onInit(self):
