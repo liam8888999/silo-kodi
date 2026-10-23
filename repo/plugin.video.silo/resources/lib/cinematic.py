@@ -685,6 +685,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             try:
                 tag = source.getVideoInfoTag()
                 playcount = int(tag.getPlaycount() or 0)
+                source.setProperty("Silo.Cinematic.Watched", "true" if playcount > 0 else "")
                 resume = tag.getResumePoint()
                 position = float(resume.timeInSeconds()) if resume else 0.0
                 duration = float(resume.totalTimeInSeconds()) if resume else 0.0
@@ -1241,7 +1242,6 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._hero_badge_values = self._hero_badge_list(item)
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_BADGES).setLabel(badges)
             self.getControl(HERO_PLOT).setText(overview[:500])
             self.getControl(HERO_LOGO).setImage(logo or "")
             self.getControl(100).setImage(backdrop or poster or "")
