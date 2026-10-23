@@ -7753,6 +7753,11 @@ def play(
         resolved_item,
     )
 
+    # Cinematic WindowXML runs in a separate script process. Explicitly raise
+    # Kodi's fullscreen player after handing it the resolved item so the
+    # closing cinematic window cannot remain visually above playback.
+    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+
     session_id = info.get("session_id")
 
     if session_id:
