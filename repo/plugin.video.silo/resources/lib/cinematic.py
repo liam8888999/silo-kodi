@@ -80,6 +80,18 @@ def _content_id(item):
 def _display_title(item):
     return str(_value(item, "title", "name", default="Untitled"))
 
+def _positive_number(*values):
+    """Use the first positive number, skipping empty and zero-valued API fallbacks."""
+    for value in values:
+        try:
+            number = float(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            return number
+    return 0.0
+
+
 
 class CinematicWindow(xbmcgui.WindowXML):
     """A standalone remote-friendly UI using Kodi's standard XML-first constructor."""
@@ -1286,12 +1298,17 @@ class CinematicWindow(xbmcgui.WindowXML):
                 source.setProperty("Silo.Cinematic.Watched", "true" if watched else "")
                 source.setProperty("Silo.Cinematic.Progress", "")
                 resume = tag.getResumePoint()
-                position = float(resume.timeInSeconds()) if resume else 0.0
-                duration = float(resume.totalTimeInSeconds()) if resume else 0.0
-                if position <= 0:
-                    position = float(item.get("position_seconds") or source.getProperty("Silo.PositionSeconds") or 0)
-                if duration <= 0:
-                    duration = float(item.get("duration_seconds") or source.getProperty("Silo.DurationSeconds") or tag.getDuration() or 0)
+                position = _positive_number(
+                    resume.timeInSeconds() if resume else 0,
+                    item.get("position_seconds"),
+                    source.getProperty("Silo.PositionSeconds"),
+                )
+                duration = _positive_number(
+                    resume.totalTimeInSeconds() if resume else 0,
+                    item.get("duration_seconds"),
+                    source.getProperty("Silo.DurationSeconds"),
+                    tag.getDuration(),
+                )
                 if duration > 0 and 0 < position < duration and not watched:
                     tag.setPlaycount(0)
                     tag.setResumePoint(position, duration)
@@ -1372,20 +1389,25 @@ class CinematicWindow(xbmcgui.WindowXML):
         list_item.setProperty("Silo.UserState.IsFavorite", "true" if state.get("is_favorite") is True else "false")
         list_item.setProperty("Silo.Cinematic.Watched", "true" if played else "")
         list_item.setProperty("Silo.Cinematic.Progress", "")
-        position = _value(item, "position_seconds", default=state.get("position_seconds", state.get("position", 0)))
-        duration = _value(item, "duration_seconds", default=state.get("duration_seconds", state.get("duration", 0)))
-        if not position:
-            position = _value(overlay, "position_seconds", "position", default=0)
-        if not duration:
-            duration = _value(overlay, "duration_seconds", "duration", default=0)
-        try:
-            position = max(0.0, float(position or 0))
-        except (TypeError, ValueError):
-            position = 0.0
-        try:
-            duration = max(0.0, float(duration or 0))
-        except (TypeError, ValueError):
-            duration = 0.0
+        position = _positive_number(
+            item.get("position_seconds"),
+            state.get("position_seconds"),
+            state.get("position"),
+            user_data.get("position_seconds"),
+            user_data.get("position"),
+            overlay.get("position_seconds"),
+            overlay.get("position"),
+        )
+        duration = _positive_number(
+            item.get("duration_seconds"),
+            state.get("duration_seconds"),
+            state.get("duration"),
+            user_data.get("duration_seconds"),
+            user_data.get("duration"),
+            overlay.get("duration_seconds"),
+            overlay.get("duration"),
+            _value(item, "runtime_minutes", "runtime", default=0) * 60,
+        )
         if duration <= 0:
             try:
                 duration = max(0.0, float(_value(item, "runtime_minutes", "runtime", default=0) or 0) * 60)
