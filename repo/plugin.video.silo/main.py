@@ -9727,6 +9727,10 @@ def router(client):
         xbmcplugin.setContent(HANDLE, "videos")
         xbmcplugin.addDirectoryItem(HANDLE, play_url, item, False)
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
+        # The one-item native container now exists. Queue Select so Kodi
+        # runs its own video-item activation and resume chooser without
+        # asking the user to navigate an intermediate browser screen.
+        xbmc.executebuiltin("Action(Select)")
         return
     # When cinematic mode is enabled, all normal browse routes stay in the
     # WindowXML presentation. Previously only the root entry point was
