@@ -158,7 +158,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             if control_id in (
                 NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT, NAV_WATCH_PARTY,
+                NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
             ):
                 self._nav_click(control_id)
                 return
@@ -349,6 +349,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "grid"
         self.setProperty("silo.cinematic.view", "grid")
+        self.getControl(GRID_HEADING).setVisible(True)
+        self.getControl(GRID_CONTROL).setVisible(True)
         for index in range(MAX_ROWS):
             self.getControl(slot_ids(index)[0]).setVisible(False)
         for row in rows or []:
@@ -572,15 +574,26 @@ class CinematicWindow(xbmcgui.WindowXML):
         return list_item
 
     def _art(self, item, *keys):
-        value = _value(item, *keys)
-        if isinstance(value, dict):
-            value = _value(value, "url", "src", "path")
-        if not value:
+        if not isinstance(item, dict):
             return ""
-        try:
-            return self.client.abs_url(str(value))
-        except Exception:
-            return str(value)
+        for key in keys:
+            value = item.get(key)
+            if value in (None, ""):
+                for container_key in ("artwork", "images", "image_urls", "art"):
+                    container = item.get(container_key)
+                    if isinstance(container, dict):
+                        value = container.get(key)
+                        if value not in (None, ""):
+                            break
+            if isinstance(value, dict):
+                value = _value(value, "url", "src", "path", "href")
+            if value not in (None, ""):
+                value = str(value)
+                try:
+                    return self.client.abs_url(value)
+                except Exception:
+                    return value
+        return ""
 
     def _with_action(self, item, action, **payload):
         result = dict(item or {})
@@ -596,70 +609,92 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _home_rows(self):
+        """Load cards from the same Home-section endpoint used by Silo's normal UI."""
         if not self.client.cfg.get("token"):
+            xbmc.log("[plugin.video.silo] Silo Cinematic: no access token in client config; showing sign-in actions", xbmc.LOGWARNING)
             return [("WELCOME TO SILO", [
                 self._menu_item("Sign in to Silo", "login"),
                 self._menu_item("Open settings", "settings"),
             ], "poster")]
 
-        try:
-            sections = self.client.home_sections(image_size="medium")
-        except SiloError:
-            raise
-        except Exception as exc:
-            xbmc.log("[plugin.video.silo] Home sections unavailable: %s" % exc, xbmc.LOGWARNING)
-            sections = []
+        sections = self.client.home_sections(image_size="medium") or []
+        xbmc.log("[plugin.video.silo] Silo Cinematic: received %d Home section(s)" % len(sections), xbmc.LOGINFO)
+        rows, total_items = [], 0
 
-        rows = []
-        # Keep the server's home ordering intact. Continue Watching / Next Up
-        # use landscape art, while other sections use poster cards.
+        # /home/sections lists metadata. Actual media cards live in
+        # /home/sections/{id}/items; the catalog-backed endpoint is a metadata
+        # lookup used for added_at, not the primary Home-card source.
         for section in sections:
+            if not isinstance(section, dict):
+                continue
             section_id = _value(section, "id", "section_id")
-            title = str(_value(section, "title", "name", default="Silo"))
-            items = []
-            if section_id:
-                try:
-                    response = self.client.home_section_catalog_items(
-                        section_id, image_size="medium", limit=200
-                    ) or {}
-                except SiloError as exc:
-                    xbmc.log("[plugin.video.silo] Home section %s unavailable: %s" % (section_id, exc), xbmc.LOGDEBUG)
-                    response = {}
-                items = response.get("items") or response.get("results") or []
-            if not items:
-                items = section.get("items") or []
-            cards = []
-            for item in items:
-                if not isinstance(item, dict):
+            if not section_id:
+                continue
+            try:
+                data = self.client.home_section_items(section_id, image_size="medium") or {}
+            except SiloError as exc:
+                xbmc.log("[plugin.video.silo] Silo Cinematic: section %s failed: %s" % (section_id, exc), xbmc.LOGWARNING)
+                continue
+            except Exception as exc:
+                xbmc.log("[plugin.video.silo] Silo Cinematic: section %s raised: %s" % (section_id, exc), xbmc.LOGERROR)
+                continue
+
+            section_data = data.get("section") if isinstance(data.get("section"), dict) else data
+            source_items = (
+                data.get("items")
+                or (section_data.get("items") if isinstance(section_data, dict) else [])
+                or section.get("items")
+                or []
+            )
+            title = str(_value(section_data, "title", default=_value(section, "title", "name", default="Silo")))
+            section_type = str(_value(section_data, "section_type", default=_value(section, "section_type", "type"))).lower()
+            cards, seen = [], set()
+            for source_item in source_items:
+                if not isinstance(source_item, dict):
                     continue
+                item = dict(source_item)
                 media_type = _item_type(item)
                 content_id = _content_id(item)
-                if not content_id:
+                if not content_id or media_type not in ("movie", "series", "season", "episode", "video"):
                     continue
-                action = "details" if media_type in ("movie", "episode", "video") else "series" if media_type == "series" else "season" if media_type == "season" else ""
-                if not action:
+                if str(content_id) in seen:
                     continue
+                seen.add(str(content_id))
+                action = "details" if media_type in ("movie", "episode", "video") else "series" if media_type == "series" else "season"
                 payload = {
                     "content_id": content_id,
                     "library_id": _value(item, "library_id", "source_library_id", default=""),
                     "title": _display_title(item),
                     "type": media_type,
-                    "overview": _value(item, "overview", "plot", default=""),
+                    "overview": _value(item, "overview", "plot", "description", default=""),
                     "backdrop_url": _value(item, "backdrop_url", "backdrop", default=""),
+                    "poster_url": _value(item, "poster_url", "poster", default=""),
                 }
                 if action == "season":
                     payload.update({"series_id": _value(item, "series_id"), "season_number": _value(item, "season_number")})
                 cards.append(self._with_action(item, action, **payload))
+
             if not cards:
+                xbmc.log(
+                    "[plugin.video.silo] Silo Cinematic: section %s (%s) has no usable cards; response keys=%s"
+                    % (section_id, title, sorted(str(k) for k in data.keys()) if isinstance(data, dict) else type(data).__name__),
+                    xbmc.LOGDEBUG,
+                )
                 continue
-            section_type = str(_value(section, "section_type", "type", default="")).lower()
-            title_key = title.lower()
-            wide = section_type in ("continue_watching", "in_progress", "next_up") or "continue watching" in title_key or title_key == "next up"
+
+            title_key = title.casefold()
+            wide = section_type in ("continue_watching", "next_up", "in_progress") or "continue watching" in title_key or title_key == "next up"
             rows.append((title, cards, "wide" if wide else "poster"))
+            total_items += len(cards)
             if len(rows) >= MAX_ROWS:
                 break
+
+        xbmc.log("[plugin.video.silo] Silo Cinematic: rendering %d Home rail(s), %d card(s)" % (len(rows), total_items), xbmc.LOGINFO)
         if not rows:
-            rows.append(("SILO", [self._menu_item("Browse libraries", "libraries")], "poster"))
+            rows.append(("SILO", [
+                self._menu_item("Browse libraries", "libraries"),
+                self._menu_item("Retry Home", "refresh_home"),
+            ], "poster"))
         return rows
 
     def _libraries_rows(self):
@@ -964,14 +999,15 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.client.login_full()
             self.screen, self.params, self.stack = "home", {}, []
             self._render()
+        elif action == "refresh_home":
+            self.screen, self.params, self.stack = "home", {}, []
+            self._render()
         elif action == "settings":
             ADDON.openSettings()
             self._render()
         elif action == "libraries":
             self._push("libraries")
-        elif action == "library":
-            self._push("library", payload)
-        elif action == "library_page":
+        elif action in ("library", "library_page"):
             self._push("library", payload)
         elif action == "series":
             self._push("series", payload)
@@ -985,9 +1021,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._push("personal", payload)
         elif action == "collections":
             self._push("collections")
-        elif action == "collection":
-            self._push("collection", payload)
-        elif action == "collection_page":
+        elif action in ("collection", "collection_page"):
             self._push("collection", payload)
         elif action == "search":
             query = str(xbmcgui.Dialog().input("Search Silo") or "").strip()
