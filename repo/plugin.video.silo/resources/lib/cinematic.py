@@ -504,6 +504,64 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.cinematic.activeTab", self._active_nav())
 
     def _make_list_item(self, item):
+        # The regular Silo directory renderer has already prepared this exact
+        # Kodi ListItem (signed artwork URLs, VideoInfoTag metadata, resume
+        # state, library IDs and other properties). Reuse it rather than
+        # rebuilding a second item and accidentally dropping skin metadata.
+        source = item.get("_cinematic_source")
+        if source is not None:
+            title = str(item.get("title") or item.get("name") or "Untitled")
+            action = item.get("_cinematic_action", "")
+            payload = item.get("_cinematic_payload", {})
+            source.setProperty("Silo.Cinematic.Action", str(action))
+            source.setProperty(
+                "Silo.Cinematic.Payload",
+                json.dumps(payload, separators=(",", ":"), ensure_ascii=True),
+            )
+            source.setProperty("Silo.Cinematic.Type", str(item.get("type") or "video"))
+            source.setProperty("Silo.Cinematic.HeroTitle", title)
+            source.setProperty("Silo.Cinematic.Overview", str(item.get("overview") or ""))
+            source.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
+            source.setProperty("Silo.Cinematic.Badges", self._hero_badges(item))
+            source.setProperty("Silo.Cinematic.Wide", "true" if item.get("_cinematic_wide") else "")
+
+            # Keep the API-signed artwork from the original item, normalizing
+            # the poster/thumb keys used by our horizontal poster templates.
+            art = {}
+            for key in ("poster", "thumb", "fanart", "clearlogo", "icon", "banner", "landscape"):
+                try:
+                    value = source.getArt(key)
+                except Exception:
+                    value = ""
+                if value:
+                    art[key] = value
+            poster = art.get("poster") or art.get("thumb") or art.get("landscape") or art.get("icon")
+            backdrop = art.get("fanart") or art.get("landscape") or poster
+            if item.get("_cinematic_wide"):
+                poster = backdrop or poster
+            if poster:
+                art.update({"poster": poster, "thumb": poster, "icon": poster})
+            if backdrop:
+                art["fanart"] = backdrop
+            try:
+                source.setArt(art)
+            except Exception:
+                pass
+
+            # Make Kodi's percent-played infolabel work alongside our property
+            # based progress indicator when a resume point is available.
+            try:
+                tag = source.getVideoInfoTag()
+                playcount = int(tag.getPlaycount() or 0)
+                resume = tag.getResumePoint()
+                position = float(resume.timeInSeconds()) if resume else 0.0
+                duration = float(resume.totalTimeInSeconds()) if resume else 0.0
+                if duration > 0 and position > 0 and playcount == 0:
+                    source.setProperty("Silo.Cinematic.Progress", str(int(position * 100.0 / duration)))
+            except Exception:
+                pass
+            return source
+
         media_type = _item_type(item)
         wide = bool(item.get("_cinematic_wide"))
         raw_title = _display_title(item)
