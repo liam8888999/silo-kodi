@@ -6667,7 +6667,7 @@
       <top>0</top>
       <width>1920</width>
       <height>1080</height>
-      <visible>String.IsEqual(Window.Property(silo.loading),true)</visible>
+      <visible>String.IsEqual(Window.Property(Silo.Cinematic.Loading),true) | String.IsEqual(Window.Property(silo.loading),true)</visible>
       <control type="image">
         <left>0</left>
         <top>0</top>
