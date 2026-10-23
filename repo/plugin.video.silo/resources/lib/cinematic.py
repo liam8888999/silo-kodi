@@ -80,11 +80,15 @@ class CinematicWindow(xbmcgui.WindowXML):
     # separate from those constructor arguments.
     _launch_client = None
     _launch_base_url = "plugin://plugin.video.silo/"
+    _launch_root_loader = None
+    _launch_directory_loader = None
 
     @classmethod
-    def configure(cls, client, base_url):
+    def configure(cls, client, base_url, root_loader=None, directory_loader=None):
         cls._launch_client = client
         cls._launch_base_url = str(base_url or "plugin://plugin.video.silo/")
+        cls._launch_root_loader = root_loader
+        cls._launch_directory_loader = directory_loader
 
     def __init__(self, xml_filename, script_path, default_skin="Default", default_res="1080i"):
         xbmcgui.WindowXML.__init__(
@@ -92,6 +96,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
         self.client = type(self)._launch_client
         self.base_url = str(type(self)._launch_base_url or "plugin://plugin.video.silo/")
+        self.root_loader = type(self)._launch_root_loader
+        self.directory_loader = type(self)._launch_directory_loader
         self.addon_path = str(script_path or ADDON.getAddonInfo("path"))
         self.screen = "home"
         self.params = {}
@@ -609,148 +615,27 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _home_rows(self):
-        """Load cards from the same Home-section endpoint used by Silo's normal UI."""
-        if not self.client.cfg.get("token"):
-            xbmc.log("[plugin.video.silo] Silo Cinematic: no access token in client config; showing sign-in actions", xbmc.LOGWARNING)
-            return [("WELCOME TO SILO", [
-                self._menu_item("Sign in to Silo", "login"),
-                self._menu_item("Open settings", "settings"),
-            ], "poster")]
+        """Root content comes from main.py's existing directory renderers."""
+        if callable(self.root_loader):
+            return self.root_loader(self.client) or []
+        return [("SILO", [
+            self._menu_item("Browse libraries", "libraries"),
+            self._menu_item("Search", "search"),
+            self._menu_item("Settings", "settings"),
+        ], "poster")]
 
-        sections = self.client.home_sections(image_size="medium") or []
-        xbmc.log("[plugin.video.silo] Silo Cinematic: received %d Home section(s)" % len(sections), xbmc.LOGINFO)
-        rows, total_items = [], 0
+    def _directory_rows(self, action, params=None):
+        """Use the existing main.py directory functions for content and metadata."""
+        if callable(self.directory_loader):
+            return self.directory_loader(self.client, action, params or {}) or []
+        return [("SILO", [], "poster")]
 
-        # /home/sections lists metadata. Actual media cards live in
-        # /home/sections/{id}/items; the catalog-backed endpoint is a metadata
-        # lookup used for added_at, not the primary Home-card source.
-        for section in sections:
-            if not isinstance(section, dict):
-                continue
-            section_id = _value(section, "id", "section_id")
-            if not section_id:
-                continue
-            try:
-                data = self.client.home_section_items(section_id, image_size="medium") or {}
-            except SiloError as exc:
-                xbmc.log("[plugin.video.silo] Silo Cinematic: section %s failed: %s" % (section_id, exc), xbmc.LOGWARNING)
-                continue
-            except Exception as exc:
-                xbmc.log("[plugin.video.silo] Silo Cinematic: section %s raised: %s" % (section_id, exc), xbmc.LOGERROR)
-                continue
-
-            section_data = data.get("section") if isinstance(data.get("section"), dict) else data
-            source_items = (
-                data.get("items")
-                or (section_data.get("items") if isinstance(section_data, dict) else [])
-                or section.get("items")
-                or []
-            )
-            title = str(_value(section_data, "title", default=_value(section, "title", "name", default="Silo")))
-            section_type = str(_value(section_data, "section_type", default=_value(section, "section_type", "type"))).lower()
-            cards, seen = [], set()
-            for source_item in source_items:
-                if not isinstance(source_item, dict):
-                    continue
-                item = dict(source_item)
-                media_type = _item_type(item)
-                content_id = _content_id(item)
-                if not content_id or media_type not in ("movie", "series", "season", "episode", "video"):
-                    continue
-                if str(content_id) in seen:
-                    continue
-                seen.add(str(content_id))
-                action = "details" if media_type in ("movie", "episode", "video") else "series" if media_type == "series" else "season"
-                payload = {
-                    "content_id": content_id,
-                    "library_id": _value(item, "library_id", "source_library_id", default=""),
-                    "title": _display_title(item),
-                    "type": media_type,
-                    "overview": _value(item, "overview", "plot", "description", default=""),
-                    "backdrop_url": _value(item, "backdrop_url", "backdrop", default=""),
-                    "poster_url": _value(item, "poster_url", "poster", default=""),
-                }
-                if action == "season":
-                    payload.update({"series_id": _value(item, "series_id"), "season_number": _value(item, "season_number")})
-                cards.append(self._with_action(item, action, **payload))
-
-            if not cards:
-                xbmc.log(
-                    "[plugin.video.silo] Silo Cinematic: section %s (%s) has no usable cards; response keys=%s"
-                    % (section_id, title, sorted(str(k) for k in data.keys()) if isinstance(data, dict) else type(data).__name__),
-                    xbmc.LOGDEBUG,
-                )
-                continue
-
-            title_key = title.casefold()
-            wide = section_type in ("continue_watching", "next_up", "in_progress") or "continue watching" in title_key or title_key == "next up"
-            rows.append((title, cards, "wide" if wide else "poster"))
-            total_items += len(cards)
-            if len(rows) >= MAX_ROWS:
-                break
-
-        xbmc.log("[plugin.video.silo] Silo Cinematic: rendering %d Home rail(s), %d card(s)" % (len(rows), total_items), xbmc.LOGINFO)
-        if not rows:
-            rows.append(("SILO", [
-                self._menu_item("Browse libraries", "libraries"),
-                self._menu_item("Retry Home", "refresh_home"),
-            ], "poster"))
-        return rows
 
     def _libraries_rows(self):
-        items = self.client.libraries()
-        cards = []
-        for library in items:
-            library_id = _value(library, "id")
-            if library_id is None:
-                continue
-            item = dict(library)
-            item.setdefault("title", _display_title(library))
-            cards.append(self._with_action(
-                item, "library",
-                library_id=library_id,
-                title=_display_title(item),
-                cursor="",
-            ))
-        return [("YOUR LIBRARIES", cards), ("", []), ("", [])]
+        return self._directory_rows("libraries")
 
     def _library_rows(self):
-        library_id = self.params.get("library_id")
-        if not library_id:
-            return [("LIBRARY", []) , ("", []), ("", [])]
-        items, next_cursor = self.client.catalog_page(
-            library_id, cursor=self.params.get("cursor") or None, limit=200
-        )
-        cards = []
-        for item in items:
-            media_type = _item_type(item)
-            content_id = _content_id(item)
-            if not content_id:
-                continue
-            if media_type in ("movie", "episode", "video"):
-                action = "details"
-            elif media_type == "series":
-                action = "series"
-            elif media_type == "season":
-                action = "season"
-            else:
-                continue
-            payload = {
-                "content_id": (_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
-                "library_id": library_id,
-                "title": _display_title(item),
-            }
-            if action == "season":
-                payload.update({
-                    "series_id": _value(item, "series_id"),
-                    "season_number": _value(item, "season_number"),
-                })
-            cards.append(self._with_action(item, action, **payload))
-        if next_cursor:
-            cards.append(self._menu_item("Next page  ›", "library_page",
-                                         library_id=library_id, cursor=next_cursor,
-                                         title=self.params.get("title", "Library")))
-        return [(self.params.get("title") or "LIBRARY", cards), ("", []), ("", [])]
+        return self._directory_rows("library", self.params)
 
     def _series_rows(self):
         series_id = self.params.get("series_id") or self.params.get("content_id")
@@ -840,32 +725,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         return [("WATCH", choices), ("", []), ("", [])]
 
     def _season_rows(self):
-        series_id = self.params.get("series_id")
-        season_number = self.params.get("season_number")
-        library_id = self.params.get("library_id")
-        episodes = self.client.episodes(series_id, season_number, library_id)
-        cards = []
-        for item in episodes:
-            content_id = _content_id(item)
-            if not content_id:
-                continue
-            title = _display_title(item)
-            try:
-                number = int(item.get("episode_number"))
-                title = "%02d  %s" % (number, title)
-            except (TypeError, ValueError):
-                pass
-            episode = dict(item, title=title)
-            cards.append(self._with_action(
-                episode, "details",
-                content_id=content_id,
-                library_id=library_id,
-                title=_display_title(item),
-                duration_seconds=_value(item, "duration_seconds", default=""),
-                file_id=self._single_file_id(item),
-            ))
-        title = "EPISODES  ·  " + str(self.params.get("title")) if self.params.get("title") else "EPISODES"
-        return [(title, cards), ("", []), ("", [])]
+        if self.params.get("season_number") is not None:
+            return self._directory_rows("season", self.params)
+        return self._directory_rows("seasons", self.params)
 
     def _single_file_id(self, item):
         files = item.get("files") or []
@@ -874,123 +736,22 @@ class CinematicWindow(xbmcgui.WindowXML):
         return ""
 
     def _your_stuff_rows(self):
-        return [("YOUR STUFF", [
-            self._menu_item("Watchlist", "personal", source="watchlist", title="WATCHLIST"),
-            self._menu_item("Favorites", "personal", source="favorites", title="FAVORITES"),
-            self._menu_item("History", "personal", source="history", title="HISTORY"),
-        ]), ("", []), ("", [])]
+        return self._directory_rows("your_stuff")
 
     def _personal_rows(self):
-        items, next_cursor = self.client.personal_catalog_page(
-            self.params.get("source"), cursor=self.params.get("cursor") or None, limit=200
-        )
-        cards = []
-        for item in items:
-            media_type = _item_type(item)
-            content_id = _content_id(item)
-            if not content_id:
-                continue
-            action = "series" if media_type == "series" else "details" if _playable(item) else ""
-            if not action:
-                continue
-            cards.append(self._with_action(
-                item, action,
-                content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id), library_id=_value(item, "library_id", default=""),
-                title=_display_title(item),
-            ))
-        if next_cursor:
-            cards.append(self._menu_item("Next page  ›", "personal_page",
-                source=self.params.get("source"), cursor=next_cursor, title=self.params.get("title")))
-        return [(self.params.get("title") or "YOUR STUFF", cards), ("", []), ("", [])]
+        return self._directory_rows("personal_list", self.params)
 
     def _collections_rows(self):
-        collections, groups = self.client.collections()
-        cards = []
-        # Groups are shown first only when they are independently navigable.
-        for collection in collections or []:
-            collection_id = _value(collection, "id", "collection_id")
-            if not collection_id:
-                continue
-            title = _display_title(collection)
-            cards.append(self._with_action(
-                dict(collection, title=title), "collection",
-                collection_id=collection_id, title=title, cursor="",
-            ))
-        if not cards and groups:
-            for group in groups:
-                name = _display_title(group)
-                cards.append(dict(group, title=name))
-        return [("COLLECTIONS", cards), ("", []), ("", [])]
+        return self._directory_rows("collections")
 
     def _collection_rows(self):
-        items, next_cursor = self.client.personal_catalog_page(
-            "user_collection", collection_id=self.params.get("collection_id"),
-            cursor=self.params.get("cursor") or None, limit=200
-        )
-        cards = []
-        for item in items:
-            media_type = _item_type(item)
-            content_id = _content_id(item)
-            if not content_id:
-                continue
-            action = "series" if media_type == "series" else "details" if _playable(item) else ""
-            if action:
-                cards.append(self._with_action(
-                    item, action, content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
-                    library_id=_value(item, "library_id", default=""),
-                    title=_display_title(item),
-                ))
-        if next_cursor:
-            cards.append(self._menu_item("Next page  ›", "collection_page",
-                collection_id=self.params.get("collection_id"), cursor=next_cursor,
-                title=self.params.get("title")))
-        return [(self.params.get("title") or "COLLECTION", cards), ("", []), ("", [])]
+        return self._directory_rows("collection", self.params)
 
     def _search_rows(self):
-        query = self.params.get("query", "")
-        data = self.client.search_catalog(query, limit=100, offset=0) or {}
-        media = data.get("items") or []
-        cards = []
-        for item in media:
-            media_type = _item_type(item)
-            content_id = _content_id(item)
-            if not content_id:
-                continue
-            action = "series" if media_type == "series" else "details" if _playable(item) else ""
-            if action:
-                cards.append(self._with_action(item, action, content_id=content_id,
-                    library_id=_value(item, "library_id", default=""), title=_display_title(item)))
-        people = []
-        try:
-            for person in self.client.search_people(query, limit=20):
-                person_id = _value(person, "id", "person_id")
-                if person_id:
-                    person_copy = dict(person, title="[Person] " + _display_title(person), type="person")
-                    people.append(self._with_action(person_copy, "person", person_id=person_id, title=_display_title(person)))
-        except SiloError as exc:
-            xbmc.log("[plugin.video.silo] People search unavailable: %s" % exc, xbmc.LOGDEBUG)
-        return [("SEARCH RESULTS  ·  " + str(query), people + cards, "poster")]
+        return self._directory_rows("search", self.params)
 
     def _person_rows(self):
-        items, next_cursor = self.client.person_catalog_page(
-            self.params.get("person_id"), cursor=self.params.get("cursor") or None, limit=200
-        )
-        cards = []
-        for item in items:
-            media_type = _item_type(item)
-            content_id = _content_id(item)
-            if not content_id:
-                continue
-            action = "series" if media_type == "series" else "details" if _playable(item) else ""
-            if action:
-                cards.append(self._with_action(item, action,
-                    content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id), library_id=_value(item, "library_id", default=""),
-                    title=_display_title(item)))
-        if next_cursor:
-            cards.append(self._menu_item("Next page  ›", "person_page",
-                person_id=self.params.get("person_id"), cursor=next_cursor,
-                title=self.params.get("title")))
-        return [(self.params.get("title") or "PERSON", cards), ("", []), ("", [])]
+        return self._directory_rows("person", self.params)
 
     def _item_click(self, action, payload):
         if not action:
