@@ -9182,6 +9182,10 @@ def router(client):
             ADDON.getAddonInfo("path"),
         )
         window.doModal()
+        if not ADDON.getSettingBool("theater_interface"):
+            # Turning the feature off from its own Settings menu should return
+            # to the normal Kodi directory, not leave an empty container behind.
+            xbmc.executebuiltin("Container.Refresh")
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
         return
