@@ -289,10 +289,17 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if items:
                     try:
                         self.getControl(control_id).selectItem(0)
-                        self.setFocusId(control_id)
-                    except Exception:
+                        if self.screen != "home":
+                            self.setFocusId(control_id)
+                        else:
+                            # Keep initial focus on the persistent top nav;
+                            # move into the first poster rail on D-pad Down.
+                            self.setFocusId(self._active_nav_control())
+                        self._update_hero_from_item(self._row_items[control_id][0])
+                    except Exception as exc:
+                        xbmc.log("[plugin.video.silo] Silo Cinematic: initial rail focus failed: %s" % exc, xbmc.LOGDEBUG)
                         self.setFocusId(self._active_nav_control())
-                if self.screen not in ("details", "series"):
+                if self.screen in ("details", "series"):
                     self._update_hero_from_focus()
         else:
             self._show_grid(rows)
@@ -915,30 +922,46 @@ class CinematicWindow(xbmcgui.WindowXML):
         except Exception:
             pass
 
-    def _update_hero_from_focus(self):
-        if self.screen in ("details", "series"):
-            return
+        def _update_hero_from_focus(self):
+        """Update the feature area when focus changes within a poster list."""
         try:
             focus_id = self.getFocusId()
+            item = None
             if self._view_mode == "grid" and focus_id == GRID_CONTROL:
-                item = self.getControl(GRID_CONTROL).getSelectedItem()
+                pos = self.getControl(GRID_CONTROL).getSelectedPosition()
+                if 0 <= pos < len(self._grid_items):
+                    item = self._grid_items[pos]
             else:
                 row = self._row_of(focus_id)
-                item = self.getControl(focus_id).getSelectedItem() if row is not None else None
-            if item is None:
-                return
-            title = item.getProperty("Silo.Cinematic.HeroTitle") or item.getLabel()
-            logo = item.getArt("clearlogo") or ""
-            backdrop = item.getArt("fanart") or item.getArt("poster") or item.getArt("thumb") or ""
-            self.setProperty("silo.cinematic.hero.logo", logo)
-            self.setProperty("silo.cinematic.hero.type", item.getProperty("Silo.Cinematic.Type"))
-            self.setProperty("silo.cinematic.hero.badges", item.getProperty("Silo.Cinematic.Badges"))
-            self.getControl(HERO_TITLE).setLabel(title)
-            self.getControl(HERO_META).setLabel(item.getProperty("Silo.Cinematic.Meta"))
-            self.getControl(HERO_BADGES).setLabel(item.getProperty("Silo.Cinematic.Badges"))
-            self.getControl(HERO_PLOT).setText(item.getProperty("Silo.Cinematic.Overview")[:500])
-            self.getControl(100).setImage(backdrop)
-            self.getControl(HERO_LOGO).setImage(logo)
-        except Exception:
-            pass
+                if row is not None:
+                    pos = self.getControl(focus_id).getSelectedPosition()
+                    items = self._row_items.get(focus_id, [])
+                    if 0 <= pos < len(items):
+                        item = items[pos]
+            if item:
+                self._update_hero_from_item(item)
+        except Exception as exc:
+            xbmc.log("[plugin.video.silo] Silo Cinematic: focus hero update failed: %s" % exc, xbmc.LOGDEBUG)
 
+    def _update_hero_from_item(self, item):
+        """Update the hero area from one converted main.py directory card."""
+        try:
+            title = str(item.get("title") or item.get("name") or "Silo")
+            meta = self._hero_meta(item)
+            overview = str(_value(item, "overview", "plot", "description", default="") or "")
+            poster = self._art(item, "poster_url", "poster", "thumb", "image", "icon")
+            backdrop = self._art(item, "backdrop_url", "backdrop", "fanart", "poster_url", "poster")
+            logo = self._art(item, "logo_url", "logo", "clearlogo")
+            self.getControl(HERO_TITLE).setLabel(title)
+            self.getControl(HERO_META).setLabel(meta)
+            self.getControl(HERO_PLOT).setText(overview[:500])
+            self.getControl(HERO_LOGO).setImage(logo or "")
+            self.getControl(100).setImage(backdrop or poster or "")
+            self.setProperty("silo.cinematic.hero.title", title)
+            self.setProperty("silo.cinematic.hero.meta", meta)
+            self.setProperty("silo.cinematic.hero.overview", overview)
+            self.setProperty("silo.cinematic.hero.backdrop", backdrop or poster or "")
+            self.setProperty("silo.cinematic.hero.poster", poster or "")
+            self.setProperty("silo.cinematic.hero.logo", logo or "")
+        except Exception as exc:
+            xbmc.log("[plugin.video.silo] Silo Cinematic: hero artwork update failed: %s" % exc, xbmc.LOGDEBUG)
