@@ -1173,15 +1173,15 @@ class CinematicWindow(xbmcgui.WindowXML):
         # Keep the featured art above the first home rail and leave room for
         # a readable synopsis. Shift the compact title/badge line down when no
         # synopsis is available rather than leaving an empty description gap.
-        shift = 64 if visible and not str(self._hero_overview or "").strip() else 0
+        shift = 52 if visible and not str(self._hero_overview or "").strip() else 0
         positions = {
-            HERO_TITLE: (88, 132 + shift),
-            HERO_LOGO: (88, 132 + shift),
-            HERO_META: (88, 258 + shift),
-            HERO_PLOT: (88, 306),
+            HERO_TITLE: (88, 105 + shift),
+            HERO_LOGO: (88, 105 + shift),
+            HERO_META: (88, 230 + shift),
+            HERO_PLOT: (88, 278),
         }
         sizes = {HERO_TITLE: (740, 104), HERO_LOGO: (740, 104),
-                 HERO_META: (980, 34), HERO_PLOT: (780, 132)}
+                 HERO_META: (820, 34), HERO_PLOT: (800, 230)}
         for control_id, position in positions.items():
             try:
                 control = self.getControl(control_id)
@@ -1207,7 +1207,7 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _layout_hero_badges(self, visible, shift=0):
         """Lay out separate quality chips, then place metadata immediately after them."""
         left = 88
-        top = 258 + shift
+        top = 230 + shift
         for index, (image_id, label_id) in enumerate(zip(HERO_BADGE_IMAGES, HERO_BADGE_LABELS)):
             badge = self._hero_badge_values[index] if index < len(self._hero_badge_values) else ""
             width = max(56, min(176, 24 + len(badge) * 11))
@@ -1227,7 +1227,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             meta = self.getControl(HERO_META)
             meta.setPosition(left, top)
-            meta.setWidth(max(120, 1068 - left))
+            # Keep badges and metadata inside the left text column, clear of the hero art.
+            meta.setWidth(max(100, 860 - left))
         except Exception:
             pass
 
