@@ -161,7 +161,7 @@
       </control>
       <control type="image" id="3002">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3004">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -209,7 +209,7 @@
       </control>
       <control type="image" id="3012">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3014">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -257,7 +257,7 @@
       </control>
       <control type="image" id="3022">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3024">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -305,7 +305,7 @@
       </control>
       <control type="image" id="3032">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3034">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -353,7 +353,7 @@
       </control>
       <control type="image" id="3042">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3044">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -401,7 +401,7 @@
       </control>
       <control type="image" id="3052">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3054">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -449,7 +449,7 @@
       </control>
       <control type="image" id="3062">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3064">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -497,7 +497,7 @@
       </control>
       <control type="image" id="3072">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3074">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -545,7 +545,7 @@
       </control>
       <control type="image" id="3082">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3084">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -593,7 +593,7 @@
       </control>
       <control type="image" id="3092">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3094">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -641,7 +641,7 @@
       </control>
       <control type="image" id="3102">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3104">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
@@ -689,7 +689,7 @@
       </control>
       <control type="image" id="3112">
         <left>30</left><top>6</top><width>40</width><height>28</height>
-        <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
+        <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3114">
         <left>66</left><top>42</top><width>1800</width><height>270</height>
