@@ -271,6 +271,10 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if action_id == 4 and row + 1 < len(self._rows):
                     self._focus_row(row + 1)
                     return
+        elif self._view_mode == "grid" and focus_id == GRID_CONTROL and action_id == 3:
+            # Browse grids should also return to the top navigation on Up.
+            self.setFocusId(self._active_nav_control())
+            return
 
         nav_ids = (
             NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
