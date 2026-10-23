@@ -208,22 +208,42 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._hero_badges_text = ""
         self._hero_overview = ""
         self._hero_badge_values = []
+        self._initialized = False
+        self._on_init_running = False
+        self._modal_action_active = False
 
     def onInit(self):
-        # Honour the same settings-first login path used by the standard root.
+        """Refresh this page when Kodi returns focus, without reopening modal flows."""
+        if self._modal_action_active or self._on_init_running:
+            return
+        self._on_init_running = True
         try:
-            if (
-                not self.client.cfg.get("token")
-                and self.client.base
-                and self.client.cfg.get("username")
-            ):
-                self.client.login()
-                if not self.client.cfg.get("profile_id"):
-                    self.client.select_profile()
-            self._render()
+            if not self._initialized:
+                self._initialized = True
+                # Login/profile prompts open child dialogs. Suppress re-entrant
+                # onInit callbacks until that flow returns, or profile selection
+                # can repeatedly reopen itself.
+                self._modal_action_active = True
+                try:
+                    if (
+                        not self.client.cfg.get("token")
+                        and self.client.base
+                        and self.client.cfg.get("username")
+                    ):
+                        self.client.login()
+                        if not self.client.cfg.get("profile_id"):
+                            self.client.select_profile()
+                finally:
+                    self._modal_action_active = False
+                self._render()
+            else:
+                # The current route reloads from Silo whenever the window regains
+                # focus, while restoring the selected card when it still exists.
+                self._refresh_current_screen(preserve_focus=True)
         except Exception as exc:
             self._error(exc)
-
+        finally:
+            self._on_init_running = False
     def onAction(self, action):
         action_id = action.getId()
         focus_id = self.getFocusId()
@@ -282,29 +302,15 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if action_id == 4 and row + 1 < len(self._rows):
                     self._focus_row(row + 1)
                     return
-        elif self._view_mode == "grid" and focus_id == GRID_CONTROL:
-            grid = self.getControl(GRID_CONTROL)
+        elif self._view_mode == "grid" and focus_id == GRID_CONTROL and action_id == 3:
+            # Let Kodi's Panel control handle all normal row movement. Only
+            # intercept Up at the first row to return to the top navigation.
             try:
-                position = int(grid.getSelectedPosition())
+                position = int(self.getControl(GRID_CONTROL).getSelectedPosition())
             except Exception:
                 position = 0
-            # Six 286px cards fit across the current 1790px viewport. Use the
-            # live width so Up/Down follows grid rows as the layout changes.
-            try:
-                columns = max(1, int((float(grid.getWidth()) + 8) // 286))
-            except Exception:
-                columns = 6
-            if action_id == 3:
-                if position >= columns:
-                    grid.selectItem(position - columns)
-                else:
-                    # Only leave the grid when the selection is on its first row.
-                    self.setFocusId(self._active_nav_control())
-                return
-            if action_id == 4:
-                target = position + columns
-                if target < len(self._grid_items):
-                    grid.selectItem(target)
+            if position < 6:
+                self.setFocusId(self._active_nav_control())
                 return
 
         nav_ids = (
@@ -379,11 +385,61 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._row_index = 0
         self._render()
 
+    def _refresh_current_screen(self, preserve_focus=True):
+        """Reload current server data and optionally restore the prior selection."""
+        focus_snapshot = self._focus_snapshot() if preserve_focus else None
+        self._render()
+        if focus_snapshot is not None and getattr(self, "result", "") != "rebuild":
+            self._restore_snapshot({"focus_snapshot": focus_snapshot})
+
+    def _open_settings_and_refresh(self):
+        """Open Kodi settings, reload the client/config, then refresh visible content."""
+        old_cfg = dict(getattr(self.client, "cfg", {}) or {})
+        old_context = tuple(old_cfg.get(key) for key in ("server", "username", "profile_id"))
+        self._modal_action_active = True
+        try:
+            ADDON.openSettings()
+        finally:
+            self._modal_action_active = False
+
+        if not ADDON.getSettingBool("cinematic_interface"):
+            self.close()
+            return
+
+        try:
+            # Re-read settings rather than retaining a client built with old
+            # server/profile/auth settings.
+            refreshed_client = type(self.client)()
+        except Exception as exc:
+            xbmc.log(
+                "[plugin.video.silo] Cinematic settings reload failed: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+            refreshed_client = self.client
+
+        new_cfg = dict(getattr(refreshed_client, "cfg", {}) or {})
+        new_context = tuple(new_cfg.get(key) for key in ("server", "username", "profile_id"))
+        self.client = refreshed_client
+        self._initial_rows = None
+        type(self).configure(
+            refreshed_client,
+            self.base_url,
+            self.root_loader,
+            self.directory_loader,
+            initial_rows=None,
+            row_capacity=self._row_capacity,
+        )
+        context_changed = old_context != new_context
+        if context_changed:
+            self.screen, self.params, self.stack = "home", {}, []
+            self._row_index = 0
+        self._refresh_current_screen(preserve_focus=not context_changed)
+
     def _nav_click(self, control_id):
         if control_id == NAV_HOME:
             self.stack = []
             self.screen, self.params, self._row_index = "home", {}, 0
-            self._render()
+            self._refresh_current_screen(preserve_focus=False)
         elif control_id == NAV_LIBRARIES:
             self._push("libraries")
         elif control_id == NAV_SEARCH:
@@ -395,20 +451,34 @@ class CinematicWindow(xbmcgui.WindowXML):
         elif control_id == NAV_COLLECTIONS:
             self._push("collections")
         elif control_id == NAV_SETTINGS:
-            ADDON.openSettings()
-            if not ADDON.getSettingBool("cinematic_interface"):
-                self.close()
-            else:
-                self._render()
+            self._open_settings_and_refresh()
         elif control_id == NAV_PROFILE:
-            self.client.select_profile()
-            self._render()
+            old_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
+            self._modal_action_active = True
+            try:
+                self.client.select_profile()
+            finally:
+                self._modal_action_active = False
+            new_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
+            if old_profile != new_profile:
+                # Content IDs and home rows are profile scoped, so return to
+                # Home after a real profile change and discard the old route.
+                self.screen, self.params, self.stack = "home", {}, []
+                self._row_index = 0
+                self._initial_rows = None
+            self._refresh_current_screen(preserve_focus=old_profile == new_profile)
         elif control_id == NAV_LOGOUT:
-            if xbmcgui.Dialog().yesno("Silo", "Log out of this Silo account?"):
+            self._modal_action_active = True
+            try:
+                should_logout = xbmcgui.Dialog().yesno("Silo", "Log out of this Silo account?")
+            finally:
+                self._modal_action_active = False
+            if should_logout:
                 self.client.logout()
                 self.screen, self.params, self.stack = "home", {}, []
-                self._render()
-
+                self._row_index = 0
+                self._initial_rows = None
+                self._refresh_current_screen(preserve_focus=False)
     def _render(self):
         if not ADDON.getSettingBool("cinematic_interface"):
             self.close()
@@ -1091,8 +1161,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.screen, self.params, self.stack = "home", {}, []
             self._render()
         elif action == "settings":
-            ADDON.openSettings()
-            self._render()
+            self._open_settings_and_refresh()
         elif action == "libraries":
             self._push("libraries")
         elif action in ("library", "library_page"):
