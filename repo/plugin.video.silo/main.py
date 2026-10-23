@@ -9295,8 +9295,14 @@ def router(client):
         # plugin invocation while a modal window is open.
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
-        log("Silo Cinematic: directory request completed; launching script window")
-        xbmc.executebuiltin("RunScript(script.silo.cinematic)")
+        log("Silo Cinematic: directory request completed; requesting the in-addon service window")
+        try:
+            # The add-on's own xbmc.service extension owns the full-screen
+            # WindowXML. This one-shot property keeps the plugin invocation
+            # short and avoids a separate script add-on dependency.
+            xbmcgui.Window(10000).setProperty("Silo.Cinematic.LaunchRequested", str(time.time()))
+        except Exception as exc:
+            log("Silo Cinematic: could not signal UI service: %s" % exc, xbmc.LOGERROR)
         return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered
