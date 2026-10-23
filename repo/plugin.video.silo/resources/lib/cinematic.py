@@ -260,8 +260,13 @@ class CinematicWindow(xbmcgui.WindowXML):
         if self._view_mode == "rails":
             row = self._row_of(focus_id)
             if row is not None:
-                if action_id == 3 and row > 0:
-                    self._focus_row(row - 1)
+                if action_id == 3:
+                    if row > 0:
+                        self._focus_row(row - 1)
+                    else:
+                        # Make the top navigation reachable from the first rail;
+                        # don't let Kodi's default focus search land on hero labels.
+                        self.setFocusId(self._active_nav_control())
                     return
                 if action_id == 4 and row + 1 < len(self._rows):
                     self._focus_row(row + 1)
@@ -1161,18 +1166,24 @@ class CinematicWindow(xbmcgui.WindowXML):
             except Exception:
                 pass
 
-        # Match Silo-Theater's bottom-aligned hero and move the title block down
-        # when a synopsis is unavailable, rather than leaving an empty text gap.
-        shift = 84 if visible and not str(self._hero_overview or "").strip() else 0
+        # Keep the featured art above the first home rail and leave room for
+        # a readable synopsis. Shift the compact title/badge line down when no
+        # synopsis is available rather than leaving an empty description gap.
+        shift = 64 if visible and not str(self._hero_overview or "").strip() else 0
         positions = {
-            HERO_TITLE: (88, 180 + shift),
-            HERO_LOGO: (88, 180 + shift),
-            HERO_META: (88, 346 + shift),
-            HERO_PLOT: (88, 396),
+            HERO_TITLE: (88, 132 + shift),
+            HERO_LOGO: (88, 132 + shift),
+            HERO_META: (88, 258 + shift),
+            HERO_PLOT: (88, 306),
         }
+        sizes = {HERO_TITLE: (740, 104), HERO_LOGO: (740, 104),
+                 HERO_META: (980, 34), HERO_PLOT: (780, 132)}
         for control_id, position in positions.items():
             try:
-                self.getControl(control_id).setPosition(*position)
+                control = self.getControl(control_id)
+                control.setPosition(*position)
+                control.setWidth(sizes[control_id][0])
+                control.setHeight(sizes[control_id][1])
             except Exception:
                 pass
 
@@ -1192,7 +1203,7 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _layout_hero_badges(self, visible, shift=0):
         """Lay out separate quality chips, then place metadata immediately after them."""
         left = 88
-        top = 346 + shift
+        top = 258 + shift
         for index, (image_id, label_id) in enumerate(zip(HERO_BADGE_IMAGES, HERO_BADGE_LABELS)):
             badge = self._hero_badge_values[index] if index < len(self._hero_badge_values) else ""
             width = max(56, min(176, 24 + len(badge) * 11))
