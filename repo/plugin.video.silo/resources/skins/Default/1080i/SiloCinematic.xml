@@ -168,7 +168,7 @@
     </control>
     <control type="textbox" id="132">
       <left>88</left><top>306</top><width>780</width><height>132</height>
-      <font>font13</font><textcolor>B3EDEDED</textcolor><label></label><autoscroll>true</autoscroll>
+      <font>font13</font><textcolor>B3EDEDED</textcolor><label></label><autoscroll time="3000" delay="7000" repeat="5000">true</autoscroll>
     </control>
     <control type="label" id="800">
       <left>88</left><top>402</top><width>1700</width><height>40</height>
