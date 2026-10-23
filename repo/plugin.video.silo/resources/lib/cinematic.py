@@ -467,9 +467,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "rails"
         self.setProperty("silo.cinematic.view", "rails")
-        self.getControl(GRID_HEADING).setPosition(88, 402)
-        self.getControl(GRID_CONTROL).setPosition(62, 452)
-        self.getControl(GRID_EMPTY).setPosition(90, 490)
+        self.getControl(GRID_HEADING).setPosition(88, 126)
+        self.getControl(GRID_CONTROL).setPosition(62, 176)
+        self.getControl(GRID_EMPTY).setPosition(90, 226)
         # Kodi's WindowXML does not expose skin scrollbar controls to Python.
         self.getControl(GRID_HEADING).setVisible(False)
         self.getControl(GRID_CONTROL).setVisible(False)
