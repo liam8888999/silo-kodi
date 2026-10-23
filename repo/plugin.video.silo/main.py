@@ -7753,11 +7753,6 @@ def play(
         resolved_item,
     )
 
-    # Cinematic WindowXML runs in a separate script process. Explicitly raise
-    # Kodi's fullscreen player after handing it the resolved item so the
-    # closing cinematic window cannot remain visually above playback.
-    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
-
     session_id = info.get("session_id")
 
     if session_id:
@@ -7870,6 +7865,11 @@ def track_progress(
             xbmc.LOGWARNING,
         )
         return
+
+    # At this point Kodi's player has actually started. Bring the native
+    # fullscreen video window forward now, rather than racing player creation
+    # from the WindowXML's PlayMedia callback.
+    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
 
     # Kodi can apply a resume bookmark from its local database after the
     # resolved URL has been opened. If Silo says there is no resume state but
