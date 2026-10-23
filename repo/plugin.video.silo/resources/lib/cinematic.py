@@ -410,19 +410,6 @@ class CinematicWindow(xbmcgui.WindowXML):
 
     def onClick(self, control_id):
         try:
-            if control_id in RESUME_BUTTON_IDS:
-                payload = dict(self._pending_play_payload or {})
-                start_over = control_id == 902
-                if not payload:
-                    self._close_resume_prompt(restore_focus=True)
-                    return
-                self._close_resume_prompt(restore_focus=False)
-                self._play(
-                    payload,
-                    start_over=start_over,
-                    resume_choice=0 if start_over else 1,
-                )
-                return
             if control_id in (
                 NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
                 NAV_PROFILE,
@@ -1832,8 +1819,9 @@ class CinematicWindow(xbmcgui.WindowXML):
             else:
                 self._push("person", payload)
         elif action == "play":
-            if not self._show_resume_prompt(payload):
-                self._play(payload, start_over=False)
+            # Let Kodi show its native Resume / Play from beginning dialog
+            # through the shared playback pipeline.
+            self._play(payload, start_over=False)
         elif action == "start_over":
             self._play(payload, start_over=True, resume_choice=0)
 
