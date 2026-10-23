@@ -21,7 +21,9 @@ try:
     import main as silo_main
     from resources.lib.cinematic import CinematicWindow
 
+    xbmc.log("[plugin.video.silo] Silo Cinematic runner: main module imported", xbmc.LOGINFO)
     client = silo_main.SiloClient()
+    xbmc.log("[plugin.video.silo] Silo Cinematic runner: Silo client created", xbmc.LOGINFO)
     CinematicWindow.configure(
         client,
         "plugin://plugin.video.silo/",
@@ -29,10 +31,12 @@ try:
         silo_main.cinematic_load_directory,
     )
     window = CinematicWindow("SiloCinematic.xml", ADDON_PATH, "Default", "1080i")
+    xbmc.log("[plugin.video.silo] Silo Cinematic runner: window constructed; opening", xbmc.LOGINFO)
     try:
         window.doModal()
     finally:
         del window
+        xbmc.log("[plugin.video.silo] Silo Cinematic runner: window closed", xbmc.LOGINFO)
 
     if not ADDON.getSettingBool("cinematic_interface"):
         xbmc.executebuiltin("Container.Refresh")
