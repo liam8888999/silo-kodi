@@ -48,7 +48,6 @@ GRID_HEADING = 0
 GRID_CONTROL = 500
 GRID_EMPTY = 550
 PROFILE_MENU_BUTTON_IDS = (610, 611, 612, 616, 617)
-RESUME_BUTTON_IDS = (901, 902)
 
 
 def slot_ids(index):
@@ -237,8 +236,6 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._home_load_error = None
         self._home_load_timer = None
         self._window_closed = False
-        self._pending_play_payload = None
-        self._resume_return_focus_id = None
 
     def onInit(self):
         """Show the window immediately; load Home rows off the UI thread."""
@@ -297,9 +294,6 @@ class CinematicWindow(xbmcgui.WindowXML):
         action_id = action.getId()
         focus_id = self.getFocusId()
         if action_id in (9, 10, 92, 216, 247, 257, 61448):
-            if self.getProperty("silo.resume.prompt"):
-                self._close_resume_prompt(restore_focus=True)
-                return
             if self.getProperty("silo.menu"):
                 self.setProperty("silo.menu", "")
                 try:
@@ -452,7 +446,7 @@ class CinematicWindow(xbmcgui.WindowXML):
                         payload["title"] = str(selected.getLabel() or selected.getLabel2() or "")
                 except Exception:
                     pass
-                self._item_click(action, payload)
+                self._item_click(action, payload, selected_item=selected)
         except Exception as exc:
             self._error(exc)
     def _error(self, exc):
@@ -1817,7 +1811,7 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _person_rows(self):
         return self._directory_rows("person", self.params)
 
-    def _item_click(self, action, payload):
+    def _item_click(self, action, payload, selected_item=None):
         if not action:
             return
         payload = dict(payload or {})
@@ -1868,9 +1862,10 @@ class CinematicWindow(xbmcgui.WindowXML):
             else:
                 self._push("person", payload)
         elif action == "play":
-            # Let Kodi show its native Resume / Play from beginning dialog
-            # through the shared playback pipeline.
-            self._play(payload, start_over=False)
+            # Pass the actual selected Kodi ListItem to the core player. It
+            # contains the Silo resume point in its VideoInfoTag; do not replace
+            # Kodi's native playback handling with an add-on-created dialog.
+            self._play(payload, start_over=False, list_item=selected_item)
         elif action == "start_over":
             self._play(payload, start_over=True, resume_choice=0)
 
@@ -1882,94 +1877,13 @@ class CinematicWindow(xbmcgui.WindowXML):
             payload.get("position"),
         )
 
-    @staticmethod
-    def _resume_available(payload):
-        flag = payload.get("resume_available")
-        return (
-            flag is True
-            or str(flag or "").strip().lower() in ("1", "true", "yes", "on")
-            or _positive_number(
-                payload.get("cached_resume_position"),
-                payload.get("position_seconds"),
-                payload.get("position"),
-            ) > 0
-        )
-
-    @staticmethod
-    def _format_resume_time(seconds):
-        total = max(0, int(float(seconds or 0)))
-        hours, remainder = divmod(total, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        if hours:
-            return "%d:%02d:%02d" % (hours, minutes, seconds)
-        return "%d:%02d" % (minutes, seconds)
-
-    def _show_resume_prompt(self, payload):
-        """Show a skinned Resume / Play from beginning choice when a bookmark exists."""
+    def _play(self, payload, start_over=False, resume_choice=None, list_item=None):
+        # File/version selection and server-authoritative progress remain in
+        # main.py. Forward the selected ListItem to Kodi's own Player API so
+        # the core receives the real VideoInfoTag, including its resume point.
+        # WindowXML doesn't expose Kodi's native resume chooser as a callable
+        # dialog; do not substitute an add-on-created yes/no prompt here.
         payload = dict(payload or {})
-        if not self._resume_available(payload):
-            return False
-        position = self._resume_position(payload)
-        self._pending_play_payload = payload
-        try:
-            self._resume_return_focus_id = self.getFocusId()
-        except Exception:
-            self._resume_return_focus_id = NAV_PROFILE
-        self.setProperty("silo.resume.title", str(payload.get("title") or "this title"))
-        if position > 0:
-            resume_text = "Resume from " + self._format_resume_time(position)
-        else:
-            resume_text = "Continue from your saved position"
-        self.setProperty("silo.resume.time", resume_text)
-        self.setProperty("silo.resume.prompt", "true")
-        try:
-            self.setFocusId(901)
-        except Exception:
-            pass
-        return True
-
-    def _close_resume_prompt(self, restore_focus=True):
-        self.setProperty("silo.resume.prompt", "")
-        self.setProperty("silo.resume.title", "")
-        self.setProperty("silo.resume.time", "")
-        self._pending_play_payload = None
-        focus_id = self._resume_return_focus_id
-        self._resume_return_focus_id = None
-        if restore_focus and focus_id:
-            try:
-                self.setFocusId(int(focus_id))
-            except Exception:
-                pass
-
-    def _play(self, payload, start_over=False, resume_choice=None):
-        # A WindowXML rail is not a Kodi plugin-directory row, so Kodi will not
-        # automatically pass its native resume:true/false choice to PlayMedia.
-        # Ask with Kodi's own dialog and forward the explicit answer to the
-        # regular playback resolver, which rechecks the current server position.
-        payload = dict(payload or {})
-        if resume_choice is None and not start_over and self._resume_available(payload):
-            position = self._resume_position(payload)
-            title = str(payload.get("title") or "this title")
-            if position > 0:
-                message = "%s has a saved position at %s. Resume playback?" % (
-                    title, self._format_resume_time(position)
-                )
-            else:
-                message = "%s has a saved playback position. Resume playback?" % title
-            resume_choice = int(xbmcgui.Dialog().yesno(
-                "Resume playback",
-                message,
-                yeslabel="Resume",
-                nolabel="Play from beginning",
-            ))
-            xbmc.log(
-                "[plugin.video.silo] Cinematic resume choice for %s: %s"
-                % (title, "resume" if resume_choice else "start from beginning"),
-                xbmc.LOGDEBUG,
-            )
-
-        # File/version selection and server-authoritative progress are handled
-        # by main.py's shared playback pipeline after this native dialog.
         params = {"action": "play", "cinematic_return": 1}
         for key in (
             "content_id", "library_id", "file_id", "duration_seconds",
@@ -1991,10 +1905,35 @@ class CinematicWindow(xbmcgui.WindowXML):
         if not url.endswith("/"):
             url += "/"
         url += "?" + urlencode(params)
-        # Keep the modal cinematic window alive underneath Kodi's player.
-        # Closing it before PlayMedia exposes the plugin directory and makes
-        # the first playback launch race the skin's return path.
-        xbmc.executebuiltin("PlayMedia(%s)" % url)
+        # Pass the actual item to Kodi's core player. Player.play() copies
+        # its InfoTag/properties onto the playback item and replaces only the
+        # path with the plugin route. This preserves the native resume marker
+        # that is lost when PlayMedia() is given only a URL string.
+        try:
+            if list_item is not None:
+                list_item.setProperty("IsPlayable", "true")
+                list_item.setProperty("ForceResolvePlugin", "true")
+                tag = list_item.getVideoInfoTag()
+                resume = tag.getResumePoint()
+                if resume and float(resume.timeInSeconds() or 0) > 0:
+                    xbmc.log(
+                        "[plugin.video.silo] Starting cinematic item through Kodi Player with InfoTag resume "
+                        "%.3fs / %.3fs"
+                        % (
+                            float(resume.timeInSeconds()),
+                            float(resume.totalTimeInSeconds()),
+                        ),
+                        xbmc.LOGDEBUG,
+                    )
+                xbmc.Player().play(url, listitem=list_item)
+            else:
+                xbmc.Player().play(url)
+        except Exception as exc:
+            xbmc.log(
+                "[plugin.video.silo] Kodi Player handoff failed; using PlayMedia fallback: %s" % exc,
+                xbmc.LOGWARNING,
+            )
+            xbmc.executebuiltin("PlayMedia(%s)" % url)
 
     def _hero_meta(self, item):
         media_type = _item_type(item)
