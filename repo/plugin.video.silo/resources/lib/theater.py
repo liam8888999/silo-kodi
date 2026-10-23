@@ -58,27 +58,35 @@ def _display_title(item):
 
 
 class TheaterWindow(xbmcgui.WindowXMLDialog):
-    """A standalone remote-friendly theater UI with a reversible settings toggle."""
+    """A standalone remote-friendly UI using Kodi's standard XML-first constructor."""
 
-    def __init__(self, client, base_url, addon_path=None):
-        self.client = client
-        self.base_url = str(base_url or "plugin://plugin.video.silo/")
-        self.addon_path = addon_path or ADDON.getAddonInfo("path")
+    # Kodi's native WindowXMLDialog validates the XML filename during object
+    # construction, before this class's __init__ runs. Keep app dependencies
+    # separate from those constructor arguments.
+    _launch_client = None
+    _launch_base_url = "plugin://plugin.video.silo/"
+
+    @classmethod
+    def configure(cls, client, base_url):
+        cls._launch_client = client
+        cls._launch_base_url = str(base_url or "plugin://plugin.video.silo/")
+
+    def __init__(self, xml_filename, script_path, default_skin="Default", default_res="1080i"):
+        xbmcgui.WindowXMLDialog.__init__(
+            self,
+            str(xml_filename),
+            str(script_path),
+            str(default_skin),
+            str(default_res),
+        )
+        self.client = type(self)._launch_client
+        self.base_url = str(type(self)._launch_base_url or "plugin://plugin.video.silo/")
+        self.addon_path = str(script_path or ADDON.getAddonInfo("path"))
         self.screen = "home"
         self.params = {}
         self.stack = []
         self._row_items = {}
         self._last_error = ""
-        # Use Kodi's explicit WindowXMLDialog initializer. Some Kodi GUI
-        # bindings do not resolve this C-extension constructor reliably via
-        # zero-argument/super-style initialization.
-        xbmcgui.WindowXMLDialog.__init__(
-            self,
-            str(WINDOW_XML),
-            str(self.addon_path),
-            "Default",
-            "1080i",
-        )
 
     def onInit(self):
         # Honour the same settings-first login path used by the standard root.
