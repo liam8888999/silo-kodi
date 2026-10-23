@@ -651,6 +651,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             source.setProperty("Silo.Cinematic.Overview", str(item.get("overview") or ""))
             source.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
             source.setProperty("Silo.Cinematic.Badges", self._hero_badges(item))
+            source.setProperty("Silo.Cinematic.Badge", (self._hero_badge_list(item) or [""])[0])
             source.setProperty("Silo.Cinematic.Wide", "true" if item.get("_cinematic_wide") else "")
 
             # Keep the API-signed artwork from the original item, normalizing
@@ -742,6 +743,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         list_item.setProperty("Silo.Cinematic.Overview", str(_value(item, "overview", "plot", "description")))
         list_item.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
         list_item.setProperty("Silo.Cinematic.Badges", self._hero_badges(item))
+        list_item.setProperty("Silo.Cinematic.Badge", (self._hero_badge_list(item) or [""])[0])
         list_item.setProperty("Silo.Cinematic.Wide", "true" if wide else "")
 
         user_state = item.get("user_state") if isinstance(item.get("user_state"), dict) else {}
@@ -1082,7 +1084,8 @@ class CinematicWindow(xbmcgui.WindowXML):
             parts.append(rating)
         return "   ·   ".join(part for part in parts if part)
 
-    def _hero_badges(self, item):
+    def _hero_badge_list(self, item):
+        """Compact quality and rating badges, in the same order as Silo TV."""
         summary = item.get("overlay_summary") if isinstance(item.get("overlay_summary"), dict) else {}
         badges = []
         resolution = str(_value(summary, "resolution", default=_value(item, "resolution"))).lower()
@@ -1099,7 +1102,14 @@ class CinematicWindow(xbmcgui.WindowXML):
         rating = str(_value(item, "content_rating", "official_rating")).strip()
         if rating:
             badges.append(rating.upper())
-        return "     ·     ".join(dict.fromkeys(badges))
+        result = []
+        for badge in badges:
+            if badge not in result:
+                result.append(badge)
+        return result[:4]
+
+    def _hero_badges(self, item):
+        return "     ·     ".join(self._hero_badge_list(item))
 
     def _set_hero(self, item):
         if not isinstance(item, dict):
@@ -1115,6 +1125,10 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.cinematic.hero.logo", self._hero_logo)
         self.setProperty("silo.cinematic.hero.type", media_type)
         self.setProperty("silo.cinematic.hero.badges", badges)
+        for slot, badge in enumerate(self._hero_badge_list(item), 1):
+            self.setProperty("silo.cinematic.hero.badge%d" % slot, badge)
+        for slot in range(len(self._hero_badge_list(item)) + 1, 5):
+            self.setProperty("silo.cinematic.hero.badge%d" % slot, "")
         try:
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
@@ -1210,6 +1224,10 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.setProperty("silo.cinematic.hero.poster", poster or "")
             self.setProperty("silo.cinematic.hero.logo", logo or "")
             self.setProperty("silo.cinematic.hero.badges", badges)
+            for slot, badge in enumerate(self._hero_badge_list(item), 1):
+                self.setProperty("silo.cinematic.hero.badge%d" % slot, badge)
+            for slot in range(len(self._hero_badge_list(item)) + 1, 5):
+                self.setProperty("silo.cinematic.hero.badge%d" % slot, "")
             self._set_hero_visible(self.screen in ("home", "series", "details"))
         except Exception as exc:
             xbmc.log("[plugin.video.silo] Silo Cinematic: hero artwork update failed: %s" % exc, xbmc.LOGDEBUG)
