@@ -822,6 +822,10 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _start_home_load(self):
         """Start Home requests in the background and keep the UI responsive."""
         if self._home_loading:
+            # Keep _home_rows() on its cached path while an existing fetch is
+            # underway; otherwise a re-entrant onInit can call the loader inline.
+            if self._initial_rows is None:
+                self._initial_rows = []
             return
         if not callable(self.root_loader):
             self._initial_rows = []
@@ -884,6 +888,13 @@ class CinematicWindow(xbmcgui.WindowXML):
                 "[plugin.video.silo] Silo Cinematic Home load failed: %s" % error,
                 xbmc.LOGWARNING,
             )
+            self.setProperty("silo.hero.title", "Unable to load Silo")
+            self.setProperty("silo.hero.meta", "CONNECTION ERROR")
+            self.setProperty("silo.hero.synopsis", str(error)[:500])
+        elif not self._initial_rows:
+            self.setProperty("silo.hero.title", "No Home content available")
+            self.setProperty("silo.hero.meta", "")
+            self.setProperty("silo.hero.synopsis", "The server returned no Home rows for this profile.")
         try:
             self._render()
         except Exception as exc:
