@@ -215,18 +215,21 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._modal_action_active = False
         self._row_preferences = self._load_row_preferences()
         self._saved_servers = self._load_saved_servers()
+        self._home_loading = False
+        self._home_load_done = threading.Event()
+        self._home_load_result = None
+        self._home_load_error = None
+        self._home_load_timer = None
+        self._window_closed = False
 
     def onInit(self):
-        """Refresh this page when Kodi returns focus, without reopening modal flows."""
+        """Show the window immediately; load Home rows off the UI thread."""
         if self._modal_action_active or self._on_init_running:
             return
         self._on_init_running = True
         try:
             if not self._initialized:
                 self._initialized = True
-                # Login/profile prompts open child dialogs. Suppress re-entrant
-                # onInit callbacks until that flow returns, or profile selection
-                # can repeatedly reopen itself.
                 self._modal_action_active = True
                 try:
                     if (
@@ -239,11 +242,18 @@ class CinematicWindow(xbmcgui.WindowXML):
                             self.client.select_profile(show_loading=False)
                 finally:
                     self._modal_action_active = False
+                if self.screen == "home" and self._initial_rows is None:
+                    self._start_home_load()
                 self._render()
             else:
-                # The current route reloads from Silo whenever the window regains
-                # focus, while restoring the selected card when it still exists.
-                self._refresh_current_screen(preserve_focus=True)
+                # On returning from the player or another window, reload Home
+                # asynchronously so a slow server never leaves a blank screen.
+                if self.screen == "home":
+                    self._initial_rows = None
+                    self._start_home_load()
+                    self._render()
+                else:
+                    self._refresh_current_screen(preserve_focus=True)
         except Exception as exc:
             self._error(exc)
         finally:
@@ -267,6 +277,12 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self._render()
                 self._restore_snapshot(snapshot)
             else:
+                self._window_closed = True
+                if self._home_load_timer is not None:
+                    try:
+                        self._home_load_timer.cancel()
+                    except Exception:
+                        pass
                 self.close()
             return
 
@@ -407,6 +423,8 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _refresh_current_screen(self, preserve_focus=True):
         """Reload current server data and optionally restore the prior selection."""
         focus_snapshot = self._focus_snapshot() if preserve_focus else None
+        if self.screen == "home" and self._initial_rows is None:
+            self._start_home_load()
         self._render()
         if focus_snapshot is not None and getattr(self, "result", "") != "rebuild":
             self._restore_snapshot({"focus_snapshot": focus_snapshot})
@@ -736,6 +754,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         if control_id == NAV_HOME:
             self.stack = []
             self.screen, self.params, self._row_index = "home", {}, 0
+            self._initial_rows = None
             self._refresh_current_screen(preserve_focus=False)
         elif control_id == NAV_LIBRARIES:
             self._push("libraries")
@@ -800,6 +819,76 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.avatar", avatar)
         self.setProperty("silo.initials", initials)
 
+    def _start_home_load(self):
+        """Start Home requests in the background and keep the UI responsive."""
+        if self._home_loading:
+            return
+        if not callable(self.root_loader):
+            self._initial_rows = []
+            return
+        self._home_loading = True
+        self._home_load_done.clear()
+        self._home_load_result = None
+        self._home_load_error = None
+        # An empty cached result prevents _render() from calling the loader
+        # synchronously while the worker is still fetching the real sections.
+        self._initial_rows = []
+
+        def worker():
+            try:
+                rows = self.root_loader(self.client) or []
+                self._home_load_result = rows
+            except Exception as exc:
+                self._home_load_error = exc
+                self._home_load_result = []
+            finally:
+                self._home_load_done.set()
+
+        thread = threading.Thread(
+            target=worker,
+            name="SiloCinematicHomeLoader",
+        )
+        thread.daemon = True
+        self._home_load_thread = thread
+        thread.start()
+        self._schedule_home_load_poll()
+
+    def _schedule_home_load_poll(self):
+        if self._window_closed or not self._home_loading:
+            return
+        if self._home_load_timer is not None:
+            try:
+                self._home_load_timer.cancel()
+            except Exception:
+                pass
+        self._home_load_timer = threading.Timer(0.25, self._poll_home_load)
+        self._home_load_timer.daemon = True
+        self._home_load_timer.start()
+
+    def _poll_home_load(self):
+        """Finish asynchronous Home loading from a short-lived UI callback."""
+        if self._window_closed or not self._home_loading:
+            return
+        if not self._home_load_done.is_set():
+            self._schedule_home_load_poll()
+            return
+
+        self._home_loading = False
+        self._home_load_thread = None
+        self._initial_rows = list(self._home_load_result or [])
+        error = self._home_load_error
+        self._home_load_result = None
+        self._home_load_error = None
+        if error:
+            xbmc.log(
+                "[plugin.video.silo] Silo Cinematic Home load failed: %s" % error,
+                xbmc.LOGWARNING,
+            )
+        try:
+            self._render()
+        except Exception as exc:
+            self._error(exc)
+
     def _render(self):
         self._update_profile_properties()
         if not ADDON.getSettingBool("cinematic_interface"):
@@ -843,6 +932,9 @@ class CinematicWindow(xbmcgui.WindowXML):
                 # Home sections can change after a profile switch or refresh.
                 # Reopen with an XML file sized to the new server response.
                 self.result = "rebuild"
+                type(self)._launch_initial_rows = rows
+                type(self)._launch_row_capacity = visible_row_count
+                self._window_closed = True
                 self.close()
                 return
 
@@ -854,6 +946,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setFocusId(self._active_nav_control())
         if self.screen == "home":
             self._show_rails(rows)
+            if self._home_loading:
+                self.setProperty("silo.hero.logo", "")
+                self.setProperty("silo.hero.backdrop", "")
+                self.setProperty("silo.hero.title", "Loading your Silo library…")
+                self.setProperty("silo.hero.meta", "CONNECTING TO SILO")
+                self.setProperty("silo.hero.synopsis", "Your Home sections are loading. You can continue navigating while the server responds.")
             if self._rows:
                 self._row_index = min(max(0, self._row_index), len(self._rows) - 1)
                 self._layout_rows()
