@@ -334,9 +334,17 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             title = str(_value(section, "title", "name", default="Silo"))
             items = []
             if section_id:
-                response = self.client.home_section_catalog_items(
-                    section_id, image_size="medium", limit=200
-                ) or {}
+                try:
+                    response = self.client.home_section_catalog_items(
+                        section_id, image_size="medium", limit=200
+                    ) or {}
+                except SiloError as exc:
+                    xbmc.log(
+                        "[plugin.video.silo] Home section %s unavailable: %s"
+                        % (section_id, exc),
+                        xbmc.LOGDEBUG,
+                    )
+                    response = {}
                 items = response.get("items") or []
                 if not items:
                     items = response.get("results") or []
