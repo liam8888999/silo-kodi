@@ -166,7 +166,7 @@
     </control>
     <control type="panel" id="801">
       <left>62</left><top>452</top><width>1790</width><height>600</height>
-      <orientation>vertical</orientation><scrolltime>220</scrolltime><pagecontrol>803</pagecontrol>
+      <orientation>vertical</orientation><scrolltime>220</scrolltime>
       <itemlayout width="286" height="390">
         <control type="image"><left>8</left><top>0</top><width>270</width><height>338</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
         <control type="image"><left>8</left><top>0</top><width>270</width><height>338</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio></control>
@@ -188,7 +188,6 @@
       <left>90</left><top>490</top><width>1400</width><height>80</height><font>font20_title</font>
       <textcolor>FFAAAAAA</textcolor><label>No titles to show</label><visible>false</visible>
     </control>
-    <control type="scrollbar" id="803"><left>1854</left><top>452</top><width>18</width><height>600</height><orientation>vertical</orientation><visible>Control.HasFocus(801)</visible></control>
         <control type="group" id="3000">
       <left>0</left><top>530</top><width>1920</width><height>450</height>
       <control type="image" id="3002">
