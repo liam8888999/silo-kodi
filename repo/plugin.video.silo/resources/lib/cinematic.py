@@ -261,9 +261,9 @@ class CinematicWindow(xbmcgui.WindowXML):
                         and self.client.base
                         and self.client.cfg.get("username")
                     ):
-                        self.client.login()
+                        self.client.login(show_loading=True)
                         if not self.client.cfg.get("profile_id"):
-                            self.client.select_profile(show_loading=False)
+                            self.client.select_profile(show_loading=True)
                 finally:
                     self._modal_action_active = False
                 if needs_home_load:
@@ -285,6 +285,14 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._error(exc)
         finally:
             self._on_init_running = False
+            # The plugin router waits for this signal before completing its
+            # directory request, so Kodi never presents an empty-folder flash
+            # before this modal skin is actually on screen.
+            try:
+                xbmcgui.Window(10000).setProperty("Silo.Cinematic.WindowReady", "true")
+            except Exception:
+                pass
+
     def onAction(self, action):
         action_id = action.getId()
         focus_id = self.getFocusId()
@@ -881,7 +889,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         previous_screen = self.screen
         previous_params = dict(self.params)
         previous_rows = self._initial_rows
-        self.setProperty("silo.loading", "true")
+        # Keep the splash inside the normal cinematic UI. The dedicated
+        # loading overlay should only appear once a real wait is in progress.
+        self.setProperty("silo.loading", "")
         self.setProperty("silo.hero.logo", "")
         self.setProperty("silo.hero.backdrop", "")
         self.setProperty("silo.hero.title", "Loading Silo…")
