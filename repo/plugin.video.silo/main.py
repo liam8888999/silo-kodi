@@ -9174,6 +9174,16 @@ def router(client):
     # root entry point; every existing action continues through the established
     # Kodi directory and playback handlers.
     if ADDON.getSettingBool("cinematic_interface") and action in (None, "root"):
+        # Complete Kodi's plugin-directory request BEFORE opening the fullscreen
+        # WindowXML. If endOfDirectory is postponed until after doModal(), Kodi
+        # keeps the container in its loading state for the entire lifetime of
+        # the window (the dialog version hid this because it floated over the
+        # previous directory). Silo-Theater is a WindowXML-driven application,
+        # so this add-on must close the plugin request before showing the UI.
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
+        log("Silo Cinematic: root directory completed; opening fullscreen window")
+
         from resources.lib.cinematic import CinematicWindow
 
         CinematicWindow.configure(client, BASE_URL)
@@ -9183,13 +9193,16 @@ def router(client):
             "Default",
             "1080i",
         )
-        window.doModal()
+        try:
+            window.doModal()
+        finally:
+            del window
+            log("Silo Cinematic: fullscreen window closed")
+
         if not ADDON.getSettingBool("cinematic_interface"):
             # Turning the feature off from its own Settings menu should return
-            # to the normal Kodi directory, not leave an empty container behind.
+            # to the normal Kodi directory.
             xbmc.executebuiltin("Container.Refresh")
-        xbmcplugin.setContent(HANDLE, "files")
-        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
         return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered
