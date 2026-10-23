@@ -9282,17 +9282,26 @@ def cinematic_load_directory(client, action, params=None):
 
 
 def cinematic_root_rows(client):
-    """Build cinematic Home rails using bounded parallel, lightweight section reads."""
+    """Load Home sections concurrently into plain card dictionaries.
+
+    Do not build Kodi ListItems in the worker thread: the window owns all GUI
+    object creation. This lets the cinematic window appear before the server
+    finishes responding and avoids invalid script:// art coming from fallback
+    skin art on temporary ListItems.
+    """
     if not client.cfg.get("token"):
-        entries = []
-        login = xbmcgui.ListItem(label="Login")
-        login.setArt({"icon": "DefaultVideo.png"})
-        settings = xbmcgui.ListItem(label="Settings")
-        settings.setArt({"icon": "DefaultFolder.png"})
-        return [("WELCOME TO SILO", cinematic_cards_from_directory([
-            (build_url(action="login"), login, False),
-            (build_url(action="settings"), settings, False),
-        ]), "poster")]
+        return [("WELCOME TO SILO", [
+            {
+                "title": "Login", "name": "Login", "type": "menu",
+                "_cinematic_action": "login", "_cinematic_payload": {},
+                "poster_url": "", "backdrop_url": "",
+            },
+            {
+                "title": "Settings", "name": "Settings", "type": "menu",
+                "_cinematic_action": "settings", "_cinematic_payload": {},
+                "poster_url": "", "backdrop_url": "",
+            },
+        ], "poster")]
 
     log("Silo Cinematic: loading Home section definitions")
     try:
@@ -9306,6 +9315,8 @@ def cinematic_root_rows(client):
     ordered = []
     section_by_id = {}
     for section in sections:
+        if not isinstance(section, dict):
+            continue
         sid = section.get("id") or section.get("section_id")
         if not sid:
             continue
@@ -9321,11 +9332,21 @@ def cinematic_root_rows(client):
         grouped[key].append(section)
         section_by_id[str(sid)] = section
 
-    # Each row is a single small Home API request. Do not invoke the full
-    # library-aware directory helper here: it can make an extra profile-wide
-    # section/list lookup per row and serially hold the WindowXML off-screen.
-    # Each worker gets its own requests.Session but the same authenticated config.
     cfg_snapshot = dict(client.cfg or {})
+
+    def clean_art(value, worker):
+        if isinstance(value, dict):
+            value = value.get("url") or value.get("src") or value.get("path") or value.get("href")
+        if not value:
+            return ""
+        value = str(value).strip()
+        lower = value.lower()
+        if lower.startswith("script://") or lower == "plugin://" or lower.startswith("plugin:///"):
+            return ""
+        try:
+            return worker.abs_url(value)
+        except Exception:
+            return value
 
     def load_section(section):
         sid = section.get("id") or section.get("section_id")
@@ -9336,18 +9357,71 @@ def cinematic_root_rows(client):
             data = worker.home_section_items(sid, image_size="medium") or {}
             section_data = data.get("section") if isinstance(data.get("section"), dict) else {}
             raw_items = data.get("items") or section_data.get("items") or []
-            normalized = dict(data)
-            normalized["items"] = [dict(item) for item in raw_items if isinstance(item, dict)]
-            for field in ("title", "section_type", "item_limit", "total_count"):
-                if field not in normalized and field in section:
-                    normalized[field] = section[field]
-            batch = _render_catalog_items(
-                worker,
-                normalized,
-                section_title=title,
-                return_items=True,
-            ) or []
-            cards = cinematic_cards_from_directory(batch)
+            cards = []
+            for raw in raw_items:
+                if not isinstance(raw, dict):
+                    continue
+                item = dict(raw)
+                content_id = get_content_id(item)
+                media_type = str(item.get("type") or item.get("media_type") or "video").lower()
+                item["type"] = media_type
+                item["title"] = str(item.get("title") or item.get("name") or "Untitled")
+                item["name"] = item["title"]
+
+                artwork = item.get("artwork") if isinstance(item.get("artwork"), dict) else {}
+                images = item.get("images") if isinstance(item.get("images"), dict) else {}
+                for target, candidates in (
+                    ("poster_url", ("poster_url", "poster", "image", "thumbnail")),
+                    ("backdrop_url", ("backdrop_url", "backdrop", "fanart", "landscape", "still_url", "still")),
+                    ("logo_url", ("logo_url", "logo", "clearlogo")),
+                ):
+                    value = next((item.get(key) for key in candidates if item.get(key)), None)
+                    if value is None:
+                        value = next((artwork.get(key) for key in candidates if artwork.get(key)), None)
+                    if value is None:
+                        value = next((images.get(key) for key in candidates if images.get(key)), None)
+                    item[target] = clean_art(value, worker)
+
+                if content_id:
+                    library_id = (
+                        item.get("library_id")
+                        or item.get("_silo_home_source_library_id")
+                        or ""
+                    )
+                    if media_type in PLAYABLE:
+                        action = "play"
+                        payload = {
+                            "content_id": item.get("play_content_id") or content_id,
+                            "library_id": library_id,
+                            "file_id": item.get("file_id") or "",
+                            "duration_seconds": item.get("duration_seconds") or "",
+                            "resume_available": int(has_usable_resume(catalog_progress(item))),
+                        }
+                    elif media_type == "series":
+                        action = "seasons"
+                        payload = {"series_id": content_id, "library_id": library_id, "title": item["title"]}
+                    elif media_type == "season":
+                        action = "season"
+                        payload = {
+                            "series_id": item.get("series_id") or "",
+                            "season_number": item.get("season_number"),
+                            "library_id": library_id,
+                            "title": item["title"],
+                        }
+                    else:
+                        action = "details"
+                        payload = {
+                            "content_id": content_id, "library_id": library_id,
+                            "title": item["title"], "type": media_type,
+                            "overview": item.get("overview") or "",
+                            "backdrop_url": item.get("backdrop_url") or "",
+                        }
+                    item["_cinematic_action"] = action
+                    item["_cinematic_payload"] = payload
+                    item["_silo_home_source_section_id"] = str(sid)
+                    if library_id:
+                        item["library_id"] = str(library_id)
+                cards.append(item)
             log("Silo Cinematic: section %s supplied %d card(s)" % (sid, len(cards)), xbmc.LOGINFO)
             return str(sid), cards
         except Exception as exc:
@@ -9363,8 +9437,6 @@ def cinematic_root_rows(client):
         ), xbmc.LOGINFO)
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(load_section, section) for section in unique_sections]
-            # Reading results in server order does not serialize the requests;
-            # the futures execute concurrently and presentation order stays stable.
             for future in futures:
                 sid, cards = future.result()
                 loaded[sid] = cards
