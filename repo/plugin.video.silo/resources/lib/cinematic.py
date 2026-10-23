@@ -1942,8 +1942,34 @@ class CinematicWindow(xbmcgui.WindowXML):
                 pass
 
     def _play(self, payload, start_over=False, resume_choice=None):
+        # A WindowXML rail is not a Kodi plugin-directory row, so Kodi will not
+        # automatically pass its native resume:true/false choice to PlayMedia.
+        # Ask with Kodi's own dialog and forward the explicit answer to the
+        # regular playback resolver, which rechecks the current server position.
+        payload = dict(payload or {})
+        if resume_choice is None and not start_over and self._resume_available(payload):
+            position = self._resume_position(payload)
+            title = str(payload.get("title") or "this title")
+            if position > 0:
+                message = "%s has a saved position at %s. Resume playback?" % (
+                    title, self._format_resume_time(position)
+                )
+            else:
+                message = "%s has a saved playback position. Resume playback?" % title
+            resume_choice = int(xbmcgui.Dialog().yesno(
+                "Resume playback",
+                message,
+                yeslabel="Resume",
+                nolabel="Play from beginning",
+            ))
+            xbmc.log(
+                "[plugin.video.silo] Cinematic resume choice for %s: %s"
+                % (title, "resume" if resume_choice else "start from beginning"),
+                xbmc.LOGDEBUG,
+            )
+
         # File/version selection and server-authoritative progress are handled
-        # by main.py's shared playback pipeline after this skinned choice.
+        # by main.py's shared playback pipeline after this native dialog.
         params = {"action": "play", "cinematic_return": 1}
         for key in (
             "content_id", "library_id", "file_id", "duration_seconds",
