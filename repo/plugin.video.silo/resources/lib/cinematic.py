@@ -507,6 +507,9 @@ class CinematicWindow(xbmcgui.WindowXML):
             for item in items:
                 display_item = dict(item or {})
                 display_item["_cinematic_wide"] = style == "wide"
+                # Choose the appropriate rail when artwork is consistently landscape.
+                # Keep portrait poster rails for movies/series when portrait art exists.
+                display_item["_cinematic_art_wide"] = bool(display_item.get("_cinematic_art_wide"))
                 listing.addItem(self._make_list_item(display_item))
         self._row_index = min(max(0, self._row_index), max(0, len(self._rows) - 1))
         self._layout_rows()
@@ -547,7 +550,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         grid.reset()
         self._row_items[GRID_CONTROL] = self._grid_items
         for item in self._grid_items:
-            grid.addItem(self._make_list_item(item))
+            display_item = dict(item or {})
+            display_item["_cinematic_wide"] = False
+            grid.addItem(self._make_list_item(display_item))
         self.getControl(GRID_EMPTY).setVisible(not self._grid_items)
 
     def _layout_rows(self):
