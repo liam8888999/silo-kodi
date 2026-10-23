@@ -464,7 +464,9 @@ class SiloClient:
         self.ensure_access_token_fresh()
 
         if need_profile and not self.cfg.get("profile_id"):
-            self.select_profile()
+            # The request may originate in a modal cinematic window. Profile
+            # selection must not leave the shared login spinner open there.
+            self.select_profile(show_loading=False)
 
         try:
             headers = self._headers(send_profile=send_profile)
