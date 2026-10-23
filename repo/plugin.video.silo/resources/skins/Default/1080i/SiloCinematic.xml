@@ -3,13 +3,17 @@
   <defaultcontrol always="true">3004</defaultcontrol>
   <coordinates><system>1</system><posx>0</posx><posy>0</posy></coordinates>
   <controls>
-    <control type="image" id="100">
+    <control type="image" id="99">
       <posx>0</posx><posy>0</posy><width>1920</width><height>1080</height>
-      <texture>white.png</texture><aspectratio>scale</aspectratio>
+      <texture colordiffuse="FF040D0F">white.png</texture><aspectratio>stretch</aspectratio>
+    </control>
+    <control type="image" id="100">
+      <posx>610</posx><posy>0</posy><width>1310</width><height>790</height>
+      <texture diffuse="mask_hero.png">white.png</texture><aspectratio>scale</aspectratio><fadetime>400</fadetime>
     </control>
     <control type="image" id="101">
       <posx>0</posx><posy>0</posy><width>1920</width><height>1080</height>
-      <texture colordiffuse="C8000000">white.png</texture><aspectratio>stretch</aspectratio>
+      <texture colordiffuse="99000000">white.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="102">
       <posx>0</posx><posy>0</posy><width>1920</width><height>270</height>
@@ -62,6 +66,31 @@
       <posx>1446</posx><posy>34</posy><width>112</width><height>46</height><label>LOG OUT</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
       <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+    </control>
+    <control type="image" id="140">
+      <posx>400</posx><posy>79</posy><width>112</width><height>3</height>
+      <texture colordiffuse="FF20D0C4">white.png</texture>
+      <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),home)</visible>
+    </control>
+    <control type="image" id="141">
+      <posx>520</posx><posy>79</posy><width>150</width><height>3</height>
+      <texture colordiffuse="FF20D0C4">white.png</texture>
+      <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),libraries)</visible>
+    </control>
+    <control type="image" id="142">
+      <posx>678</posx><posy>79</posy><width>126</width><height>3</height>
+      <texture colordiffuse="FF20D0C4">white.png</texture>
+      <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),search)</visible>
+    </control>
+    <control type="image" id="143">
+      <posx>812</posx><posy>79</posy><width>162</width><height>3</height>
+      <texture colordiffuse="FF20D0C4">white.png</texture>
+      <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),your_stuff)</visible>
+    </control>
+    <control type="image" id="144">
+      <posx>982</posx><posy>79</posy><width>160</width><height>3</height>
+      <texture colordiffuse="FF20D0C4">white.png</texture>
+      <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),collections)</visible>
     </control>
     <control type="label" id="130">
       <posx>88</posx><posy>132</posy><width>930</width><height>70</height>
