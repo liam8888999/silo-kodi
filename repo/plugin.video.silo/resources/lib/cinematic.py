@@ -1899,6 +1899,25 @@ class CinematicWindow(xbmcgui.WindowXML):
             params["resume_choice"] = str(int(bool(resume_choice)))
         elif start_over:
             params["resume_choice"] = "0"
+        elif list_item is not None:
+            # The poster's actual Kodi VideoInfoTag is the best local source
+            # for the position the skin is visibly advertising. Pass it through
+            # the plugin URL so the playback resolver can apply it to the
+            # resolved stream rather than losing it during PlayMedia handoff.
+            try:
+                tag = list_item.getVideoInfoTag()
+                resume_point = tag.getResumePoint()
+                position = float(resume_point.timeInSeconds() or 0.0)
+                duration = float(resume_point.totalTimeInSeconds() or 0.0)
+                if position > 0:
+                    params["cinematic_resume_position"] = "%.3f" % position
+                    if duration > 0:
+                        params["cinematic_resume_duration"] = "%.3f" % duration
+            except (AttributeError, TypeError, ValueError) as exc:
+                xbmc.log(
+                    "[plugin.video.silo] Unable to read cinematic ListItem resume point: %s" % exc,
+                    xbmc.LOGDEBUG,
+                )
 
         if not params.get("content_id"):
             self._error("This item does not have a playable Silo content ID.")
