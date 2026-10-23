@@ -1421,7 +1421,18 @@ class CinematicWindow(xbmcgui.WindowXML):
             # based progress indicator when a resume point is available.
             try:
                 tag = source.getVideoInfoTag()
-                playcount = int(tag.getPlaycount() or 0)
+                # Kodi's InfoTagVideo API spells this getPlayCount (capital C).
+                # Older code used getPlaycount, which aborts this entire block
+                # before resume metadata/progress can be applied to a card.
+                get_playcount = getattr(tag, "getPlayCount", None)
+                if callable(get_playcount):
+                    playcount = int(get_playcount() or 0)
+                else:
+                    # Some compatible builds may not expose the getter. The
+                    # shared builder's state property is still a safe fallback.
+                    playcount = int(
+                        source.getProperty("Silo.UserState.PlayCount") or 0
+                    )
                 state_played = str(source.getProperty("Silo.UserState.Played") or "").lower() == "true"
                 watched = playcount > 0 or state_played
                 if watched and playcount <= 0:
