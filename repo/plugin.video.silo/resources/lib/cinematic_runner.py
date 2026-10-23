@@ -24,13 +24,25 @@ try:
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: main module imported", xbmc.LOGINFO)
     client = silo_main.SiloClient()
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: Silo client created", xbmc.LOGINFO)
+    # Load the actual home rows before constructing the WindowXML so the
+    # skin can allocate enough row controls for this server/profile.
+    initial_rows = silo_main.cinematic_root_rows(client) or []
+    row_capacity = max(12, len(initial_rows))
+    profile_path = ADDON.getAddonInfo("profile")
+    if profile_path and not __import__("os").path.isabs(profile_path):
+        profile_path = __import__("xbmcvfs").translatePath(profile_path)
+    skin_name, skin_path = CinematicWindow.prepare_runtime_skin(
+        ADDON_PATH, profile_path or ADDON_PATH, row_capacity
+    )
     CinematicWindow.configure(
         client,
         "plugin://plugin.video.silo/",
         silo_main.cinematic_root_rows,
         silo_main.cinematic_load_directory,
+        initial_rows=initial_rows,
+        row_capacity=row_capacity,
     )
-    window = CinematicWindow("SiloCinematic.xml", ADDON_PATH, "Default", "1080i")
+    window = CinematicWindow(skin_name, skin_path, "Default", "1080i")
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: window constructed; opening", xbmc.LOGINFO)
     try:
         window.doModal()
