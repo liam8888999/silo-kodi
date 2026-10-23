@@ -9656,27 +9656,11 @@ def router(client):
                 runner_path, action, urlencode(route_params)
             )
 
-        # Launch the modal skin first and keep this plugin directory request
-        # alive until its first render is visible. Ending an empty directory
-        # first makes Kodi flash its stock "empty folder" view behind the skin.
-        window = xbmcgui.Window(10000)
-        window.clearProperty("Silo.Cinematic.WindowReady")
+        # Queue the runner and finish this directory callback immediately.
+        # Waiting here deadlocks Kodi's UI queue: RunScript cannot construct the
+        # WindowXML until this plugin invocation yields, so WindowReady never
+        # arrives and the busy spinner remains visible for the full timeout.
         xbmc.executebuiltin(command)
-        monitor = xbmc.Monitor()
-        ready = False
-        for _ in range(300):
-            if window.getProperty("Silo.Cinematic.WindowReady") == "true":
-                ready = True
-                break
-            if monitor.abortRequested():
-                break
-            xbmc.sleep(50)
-        if not ready:
-            log(
-                "Silo Cinematic: window did not signal readiness before timeout; "
-                "finishing the directory request to avoid a stuck spinner",
-                xbmc.LOGWARNING,
-            )
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
         return
