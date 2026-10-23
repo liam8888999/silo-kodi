@@ -47,6 +47,8 @@ SCREEN_HEIGHT = 1080
 GRID_HEADING = 0
 GRID_CONTROL = 500
 GRID_EMPTY = 550
+PROFILE_MENU_BUTTON_IDS = (610, 611, 612, 616, 617)
+RESUME_BUTTON_IDS = (901, 902)
 
 
 def slot_ids(index):
@@ -235,6 +237,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._home_load_error = None
         self._home_load_timer = None
         self._window_closed = False
+        self._pending_play_payload = None
+        self._resume_return_focus_id = None
 
     def onInit(self):
         """Show the window immediately; load Home rows off the UI thread."""
@@ -244,6 +248,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             if not self._initialized:
                 self._initialized = True
+                # Put the cinematic window on screen before any authentication
+                # prompt or network request. Otherwise Kodi exposes the empty
+                # plugin directory underneath while this work is synchronous.
+                needs_home_load = self.screen == "home" and self._initial_rows is None
+                if self._initial_rows is None:
+                    self._show_startup_splash()
                 self._modal_action_active = True
                 try:
                     if (
@@ -256,9 +266,12 @@ class CinematicWindow(xbmcgui.WindowXML):
                             self.client.select_profile(show_loading=False)
                 finally:
                     self._modal_action_active = False
-                if self.screen == "home" and self._initial_rows is None:
+                if needs_home_load:
+                    self._initial_rows = None
                     self._start_home_load()
                 self._render()
+                if not self._home_loading:
+                    self.setProperty("silo.loading", "")
             else:
                 # On returning from the player or another window, reload Home
                 # asynchronously so a slow server never leaves a blank screen.
@@ -276,6 +289,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         action_id = action.getId()
         focus_id = self.getFocusId()
         if action_id in (9, 10, 92, 216, 247, 257, 61448):
+            if self.getProperty("silo.resume.prompt"):
+                self._close_resume_prompt(restore_focus=True)
+                return
             if self.getProperty("silo.menu"):
                 self.setProperty("silo.menu", "")
                 try:
@@ -372,7 +388,9 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._schedule_hero_update()
 
     def onFocus(self, control_id):
-        """Refresh featured details when mouse or keyboard focus enters a control."""
+        """Refresh featured details and dismiss menus once focus leaves them."""
+        if self.getProperty("silo.menu") and control_id not in PROFILE_MENU_BUTTON_IDS:
+            self.setProperty("silo.menu", "")
         if (
             control_id in (
                 GRID_CONTROL, NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
@@ -384,6 +402,19 @@ class CinematicWindow(xbmcgui.WindowXML):
 
     def onClick(self, control_id):
         try:
+            if control_id in RESUME_BUTTON_IDS:
+                payload = dict(self._pending_play_payload or {})
+                start_over = control_id == 902
+                if not payload:
+                    self._close_resume_prompt(restore_focus=True)
+                    return
+                self._close_resume_prompt(restore_focus=False)
+                self._play(
+                    payload,
+                    start_over=start_over,
+                    resume_choice=0 if start_over else 1,
+                )
+                return
             if control_id in (
                 NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
                 NAV_PROFILE,
@@ -845,6 +876,29 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.avatar", avatar)
         self.setProperty("silo.initials", initials)
 
+    def _show_startup_splash(self):
+        """Paint the Silo window before authentication or content loading can block."""
+        previous_screen = self.screen
+        previous_params = dict(self.params)
+        previous_rows = self._initial_rows
+        self.setProperty("silo.loading", "true")
+        self.setProperty("silo.hero.logo", "")
+        self.setProperty("silo.hero.backdrop", "")
+        self.setProperty("silo.hero.title", "Loading Silo…")
+        self.setProperty("silo.hero.meta", "CONNECTING TO SILO")
+        self.setProperty(
+            "silo.hero.synopsis",
+            "Connecting to your server and preparing your library.",
+        )
+        # Render the lightweight Home skeleton without calling the server loader.
+        self.screen, self.params, self._initial_rows = "home", {}, []
+        try:
+            self._render()
+        finally:
+            self.screen = previous_screen
+            self.params = previous_params
+            self._initial_rows = previous_rows
+
     def _start_home_load(self):
         """Start Home requests in the background and keep the UI responsive."""
         if self._home_loading:
@@ -855,8 +909,10 @@ class CinematicWindow(xbmcgui.WindowXML):
             return
         if not callable(self.root_loader):
             self._initial_rows = []
+            self.setProperty("silo.loading", "")
             return
         self._home_loading = True
+        self.setProperty("silo.loading", "true")
         self._home_load_done.clear()
         self._home_load_result = None
         self._home_load_error = None
@@ -904,6 +960,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             return
 
         self._home_loading = False
+        self.setProperty("silo.loading", "")
         self._home_load_thread = None
         self._initial_rows = list(self._home_load_result or [])
         error = self._home_load_error
@@ -1765,19 +1822,93 @@ class CinematicWindow(xbmcgui.WindowXML):
             else:
                 self._push("person", payload)
         elif action == "play":
-            self._play(payload, start_over=False)
+            if not self._show_resume_prompt(payload):
+                self._play(payload, start_over=False)
         elif action == "start_over":
-            self._play(payload, start_over=True)
+            self._play(payload, start_over=True, resume_choice=0)
 
-    def _play(self, payload, start_over=False):
-        # File/version selection and the native Kodi resume prompt are handled
-        # entirely by main.py's shared playback pipeline.
+    @staticmethod
+    def _resume_position(payload):
+        return _positive_number(
+            payload.get("cached_resume_position"),
+            payload.get("position_seconds"),
+            payload.get("position"),
+        )
+
+    @staticmethod
+    def _resume_available(payload):
+        flag = payload.get("resume_available")
+        return (
+            flag is True
+            or str(flag or "").strip().lower() in ("1", "true", "yes", "on")
+            or _positive_number(
+                payload.get("cached_resume_position"),
+                payload.get("position_seconds"),
+                payload.get("position"),
+            ) > 0
+        )
+
+    @staticmethod
+    def _format_resume_time(seconds):
+        total = max(0, int(float(seconds or 0)))
+        hours, remainder = divmod(total, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return "%d:%02d:%02d" % (hours, minutes, seconds)
+        return "%d:%02d" % (minutes, seconds)
+
+    def _show_resume_prompt(self, payload):
+        """Show a skinned Resume / Play from beginning choice when a bookmark exists."""
+        payload = dict(payload or {})
+        if not self._resume_available(payload):
+            return False
+        position = self._resume_position(payload)
+        self._pending_play_payload = payload
+        try:
+            self._resume_return_focus_id = self.getFocusId()
+        except Exception:
+            self._resume_return_focus_id = NAV_PROFILE
+        self.setProperty("silo.resume.title", str(payload.get("title") or "this title"))
+        if position > 0:
+            resume_text = "Resume from " + self._format_resume_time(position)
+        else:
+            resume_text = "Continue from your saved position"
+        self.setProperty("silo.resume.time", resume_text)
+        self.setProperty("silo.resume.prompt", "true")
+        try:
+            self.setFocusId(901)
+        except Exception:
+            pass
+        return True
+
+    def _close_resume_prompt(self, restore_focus=True):
+        self.setProperty("silo.resume.prompt", "")
+        self.setProperty("silo.resume.title", "")
+        self.setProperty("silo.resume.time", "")
+        self._pending_play_payload = None
+        focus_id = self._resume_return_focus_id
+        self._resume_return_focus_id = None
+        if restore_focus and focus_id:
+            try:
+                self.setFocusId(int(focus_id))
+            except Exception:
+                pass
+
+    def _play(self, payload, start_over=False, resume_choice=None):
+        # File/version selection and server-authoritative progress are handled
+        # by main.py's shared playback pipeline after this skinned choice.
         params = {"action": "play", "cinematic_return": 1}
-        for key in ("content_id", "library_id", "file_id", "duration_seconds", "cached_resume_position", "title"):
+        for key in (
+            "content_id", "library_id", "file_id", "duration_seconds",
+            "cached_resume_position", "title", "resume_available",
+        ):
             value = payload.get(key)
             if value not in (None, ""):
                 params[key] = value
-        if start_over:
+        if resume_choice is not None:
+            params["resume_choice"] = str(int(bool(resume_choice)))
+            params["resume_available"] = "1"
+        elif start_over:
             params["resume_choice"] = "0"
             params["resume_available"] = "1"
         if not params.get("content_id"):
