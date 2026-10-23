@@ -211,6 +211,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._initialized = False
         self._on_init_running = False
         self._modal_action_active = False
+        self._row_preferences = self._load_row_preferences()
+        self._saved_servers = self._load_saved_servers()
 
     def onInit(self):
         """Refresh this page when Kodi returns focus, without reopening modal flows."""
@@ -435,6 +437,111 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._row_index = 0
         self._refresh_current_screen(preserve_focus=not context_changed)
 
+    def _load_row_preferences(self):
+        try:
+            raw = ADDON.getSetting("cinematic_home_row_preferences")
+            data = json.loads(raw or "{}")
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_row_preferences(self):
+        try:
+            ADDON.setSetting("cinematic_home_row_preferences", json.dumps(self._row_preferences, sort_keys=True))
+        except Exception as exc:
+            xbmc.log("[plugin.video.silo] Could not save cinematic row preferences: %s" % exc, xbmc.LOGWARNING)
+
+    def _load_saved_servers(self):
+        try:
+            raw = ADDON.getSetting("cinematic_servers")
+            data = json.loads(raw or "[]")
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _save_servers(self):
+        try:
+            ADDON.setSetting("cinematic_servers", json.dumps(self._saved_servers))
+        except Exception as exc:
+            xbmc.log("[plugin.video.silo] Could not save cinematic servers: %s" % exc, xbmc.LOGWARNING)
+
+    def _manage_home_rows(self):
+        rows = self._home_rows()
+        titles = [str(row[0]) for row in rows]
+        if not titles:
+            xbmcgui.Dialog().notification("Silo", "No Home rows are available to customize.")
+            return
+        prefs = dict(self._row_preferences)
+        order = list(prefs.get("order") or titles)
+        hidden = set(prefs.get("hidden") or [])
+        order = [title for title in order if title in titles] + [title for title in titles if title not in order]
+        choices = ["Show/hide rows", "Reorder rows", "Reset row layout"]
+        action = xbmcgui.Dialog().select("Customize Home rows", choices)
+        if action < 0:
+            return
+        if action == 2:
+            self._row_preferences = {}
+        elif action == 0:
+            selected = [i for i, title in enumerate(titles) if title not in hidden]
+            picked = xbmcgui.Dialog().multiselect("Visible Home rows", titles, preselect=selected)
+            if picked is None:
+                return
+            self._row_preferences = {"order": order, "hidden": [title for i, title in enumerate(titles) if i not in picked]}
+        else:
+            while True:
+                picked = xbmcgui.Dialog().select("Reorder Home rows (select row to move up)", order)
+                if picked < 0:
+                    break
+                if picked == 0:
+                    continue
+                order[picked - 1], order[picked] = order[picked], order[picked - 1]
+            self._row_preferences = {"order": order, "hidden": list(hidden)}
+        self._save_row_preferences()
+        self._render()
+
+    def _switch_server(self):
+        cfg = getattr(self.client, "cfg", {}) or {}
+        current = str(cfg.get("server") or "")
+        options = list(self._saved_servers)
+        if current and current not in options:
+            options.insert(0, current)
+        labels = list(options) + ["Add server…", "Remove saved server…"]
+        selected = xbmcgui.Dialog().select("Silo servers", labels)
+        if selected < 0:
+            return
+        if selected == len(options):
+            server = str(xbmcgui.Dialog().input("Silo server URL", defaultt="https://" if not current else "") or "").strip().rstrip("/")
+            if not server:
+                return
+            if server not in self._saved_servers:
+                self._saved_servers.append(server)
+                self._save_servers()
+            xbmcgui.Dialog().notification("Silo", "Server saved. Sign in through Login to connect.")
+            return
+        if selected == len(options) + 1:
+            if not self._saved_servers:
+                return
+            remove = xbmcgui.Dialog().select("Remove saved server", self._saved_servers)
+            if remove >= 0:
+                del self._saved_servers[remove]
+                self._save_servers()
+            return
+        server = options[selected]
+        if server == current:
+            xbmcgui.Dialog().notification("Silo", "This server is already active.")
+            return
+        try:
+            ADDON.setSetting("server", server)
+            for key in ("token", "refresh_token", "profile_id", "profile_token"):
+                ADDON.setSetting(key, "")
+            self.client = type(self.client)()
+            self.screen, self.params, self.stack = "home", {}, []
+            self._initial_rows = None
+            self._render()
+            xbmcgui.Dialog().notification("Silo", "Server changed. Sign in if prompted.")
+        except Exception as exc:
+            self._error(exc)
+
     def _nav_click(self, control_id):
         if control_id == NAV_HOME:
             self.stack = []
@@ -452,6 +559,10 @@ class CinematicWindow(xbmcgui.WindowXML):
             self._push("collections")
         elif control_id == NAV_SETTINGS:
             self._open_settings_and_refresh()
+        elif control_id == NAV_SWITCH_SERVER:
+            self._switch_server()
+        elif control_id == NAV_EDIT_HOME:
+            self._manage_home_rows()
         elif control_id == NAV_PROFILE:
             old_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
             self._modal_action_active = True
@@ -995,31 +1106,20 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _home_rows(self):
-        """Use preloaded server rows on first render, then refresh from Silo as needed."""
         if self._initial_rows is not None:
-            rows, self._initial_rows = self._initial_rows, None
+            rows = list(self._initial_rows)
         elif callable(self.root_loader):
-            try:
-                rows = self.root_loader(self.client) or []
-            except Exception as exc:
-                xbmc.log("[plugin.video.silo] Cinematic home rows failed: %s" % exc, xbmc.LOGWARNING)
-                rows = []
+            rows = self.root_loader(self.client) or []
         else:
             rows = []
-
-        # An empty home response should never leave the user staring at a
-        # hero backdrop with no content or way to continue navigating.
-        if rows:
-            return rows
-        return [("GET STARTED", [
-            self._menu_item("Browse libraries", "libraries"),
-            self._menu_item("Search Silo", "search"),
-            self._menu_item("Your stuff", "your_stuff"),
-            self._menu_item("Collections", "collections"),
-            self._menu_item("Refresh home", "refresh_home"),
-            self._menu_item("Settings", "settings"),
-        ], "poster")]
-
+        prefs = self._row_preferences
+        hidden = set(prefs.get("hidden") or [])
+        order = list(prefs.get("order") or [])
+        rows = [row for row in rows if row[0] not in hidden]
+        by_title = {row[0]: row for row in rows}
+        ordered = [by_title[t] for t in order if t in by_title]
+        ordered.extend(row for row in rows if row[0] not in order)
+        return ordered
     def _directory_rows(self, action, params=None):
         """Use the existing main.py directory functions for content and metadata."""
         if callable(self.directory_loader):
