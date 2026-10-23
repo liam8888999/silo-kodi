@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <settings>
+  <category label="Interface">
+    <setting id="theater_interface" type="bool" label="Use cinematic Silo interface" default="false" />
+  </category>
+
   <category label="Pagination">
     <setting id="items_per_page" type="slider" label="Items per page" default="200" range="20,10,200" option="int" />
   </category>
