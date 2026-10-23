@@ -57,7 +57,7 @@ import xbmcvfs
 
 
 # Read addon metadata and determine where Kodi should store persistent configuration.
-ADDON = xbmcaddon.Addon()
+ADDON = xbmcaddon.Addon("plugin.video.silo")
 ADDON_VERSION = ADDON.getAddonInfo("version")
 
 # Refresh slightly before JWT expiry so normal API calls do not hit an expired
