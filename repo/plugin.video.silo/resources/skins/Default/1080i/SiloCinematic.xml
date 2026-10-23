@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <window>
   <defaultcontrol always="true">110</defaultcontrol>
-  <backgroundcolor>FF040D0F</backgroundcolor>
+  <backgroundcolor>FF05090D</backgroundcolor>
   <coordinates><system>1</system><left>0</left><top>0</top></coordinates>
   <controls>
     <control type="image" id="99">
@@ -9,114 +9,116 @@
       <texture colordiffuse="FF040D0F">white.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="100">
-      <left>0</left><top>0</top><width>1920</width><height>760</height>
-      <texture>white.png</texture><aspectratio>scale</aspectratio><fadetime>400</fadetime>
+      <left>0</left><top>0</top><width>1920</width><height>740</height>
+      <texture>white.png</texture><aspectratio>scale</aspectratio><fadetime>500</fadetime>
     </control>
     <control type="image" id="101">
-      <left>0</left><top>0</top><width>1920</width><height>1080</height>
-      <texture colordiffuse="9902080A">white.png</texture><aspectratio>stretch</aspectratio>
+      <left>0</left><top>0</top><width>1920</width><height>520</height>
+      <texture colordiffuse="5502080A">white.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="105">
-      <left>0</left><top>320</top><width>1920</width><height>760</height>
-      <texture colordiffuse="EE040D0F">white.png</texture><aspectratio>stretch</aspectratio>
+      <left>0</left><top>305</top><width>1920</width><height>195</height>
+      <texture>hero_bottom_scrim.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="image" id="102">
-      <left>0</left><top>0</top><width>1920</width><height>115</height>
-      <texture colordiffuse="DD000000">white.png</texture><aspectratio>stretch</aspectratio>
+      <left>0</left><top>0</top><width>1920</width><height>102</height>
+      <texture colordiffuse="D9080D11">white.png</texture><aspectratio>stretch</aspectratio>
     </control>
     <control type="label" id="103">
-      <left>82</left><top>24</top><width>280</width><height>58</height>
+      <left>78</left><top>17</top><width>245</width><height>56</height>
       <font>font36_title</font><textcolor>FFFFFFFF</textcolor><label>SILO</label><aligny>center</aligny>
       <shadowcolor>FF000000</shadowcolor>
     </control>
     <control type="label" id="104">
-      <left>84</left><top>76</top><width>300</width><height>24</height>
-      <font>font10</font><textcolor>FF20A89F</textcolor><label>CINEMATIC</label><aligny>center</aligny>
+      <left>81</left><top>68</top><width>230</width><height>20</height>
+      <font>font10</font><textcolor>FF20A89F</textcolor><label>FOR KODI</label><aligny>center</aligny>
     </control>
     <control type="button" id="110">
-      <left>390</left><top>28</top><width>105</width><height>48</height><label>HOME</label>
+      <left>340</left><top>25</top><width>105</width><height>48</height><label>HOME</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="111">
-      <left>500</left><top>28</top><width>140</width><height>48</height><label>LIBRARIES</label>
+      <left>450</left><top>25</top><width>140</width><height>48</height><label>LIBRARIES</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="112">
-      <left>645</left><top>28</top><width>110</width><height>48</height><label>SEARCH</label>
+      <left>595</left><top>25</top><width>110</width><height>48</height><label>SEARCH</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="113">
-      <left>760</left><top>28</top><width>145</width><height>48</height><label>YOUR STUFF</label>
+      <left>710</left><top>25</top><width>145</width><height>48</height><label>YOUR STUFF</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="114">
-      <left>910</left><top>28</top><width>145</width><height>48</height><label>COLLECTIONS</label>
+      <left>865</left><top>25</top><width>145</width><height>48</height><label>COLLECTIONS</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="115">
-      <left>1060</left><top>28</top><width>110</width><height>48</height><label>SETTINGS</label>
+      <left>1020</left><top>25</top><width>110</width><height>48</height><label>SETTINGS</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="116">
-      <left>1175</left><top>28</top><width>125</width><height>48</height><label>PROFILE</label>
+      <left>1140</left><top>25</top><width>125</width><height>48</height><label>PROFILE</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="button" id="117">
-      <left>1305</left><top>28</top><width>105</width><height>48</height><label>LOG OUT</label>
+      <left>1275</left><top>25</top><width>105</width><height>48</height><label>LOG OUT</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
-      <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
+      <texturefocus>pill_focus.png</texturefocus><texturenofocus>pill_idle.png</texturenofocus>
     </control>
     <control type="image" id="140">
-      <left>400</left><top>79</top><width>112</width><height>3</height>
+      <left>350</left><top>76</top><width>86</width><height>3</height>
       <texture colordiffuse="FF20D0C4">white.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),home)</visible>
     </control>
     <control type="image" id="141">
-      <left>520</left><top>79</top><width>150</width><height>3</height>
+      <left>464</left><top>76</top><width>112</width><height>3</height>
       <texture colordiffuse="FF20D0C4">white.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),libraries)</visible>
     </control>
     <control type="image" id="142">
-      <left>678</left><top>79</top><width>126</width><height>3</height>
+      <left>611</left><top>76</top><width>80</width><height>3</height>
       <texture colordiffuse="FF20D0C4">white.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),search)</visible>
     </control>
     <control type="image" id="143">
-      <left>812</left><top>79</top><width>162</width><height>3</height>
+      <left>725</left><top>76</top><width>122</width><height>3</height>
       <texture colordiffuse="FF20D0C4">white.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),your_stuff)</visible>
     </control>
     <control type="image" id="144">
-      <left>982</left><top>79</top><width>160</width><height>3</height>
+      <left>878</left><top>76</top><width>122</width><height>3</height>
       <texture colordiffuse="FF20D0C4">white.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),collections)</visible>
     </control>
     <control type="label" id="130">
-      <left>88</left><top>140</top><width>950</width><height>64</height>
-      <font>font36_title</font><textcolor>FFFFFFFF</textcolor><label>Silo</label><aligny>center</aligny>
+      <left>82</left><top>148</top><width>880</width><height>112</height>
+      <font>font36_title</font><textcolor>FFFFFFFF</textcolor><label>Silo</label><aligny>bottom</aligny>
+      <visible>String.IsEmpty(Window.Property(silo.cinematic.hero.logo))</visible>
     </control>
     <control type="image" id="133">
-      <left>88</left><top>125</top><width>500</width><height>90</height>
-      <texture></texture><aspectratio align="left" aligny="center">keep</aspectratio>
+      <left>82</left><top>155</top><width>780</width><height>115</height>
+      <texture></texture><aspectratio align="left" aligny="bottom">keep</aspectratio>
+      <visible>!String.IsEmpty(Window.Property(silo.cinematic.hero.logo))</visible>
     </control>
     <control type="label" id="131">
-      <left>90</left><top>214</top><width>1000</width><height>30</height>
+      <left>84</left><top>292</top><width>1000</width><height>32</height>
       <font>font13</font><textcolor>FF20D0C4</textcolor><label></label><aligny>center</aligny>
     </control>
     <control type="label" id="134">
-      <left>90</left><top>250</top><width>1000</width><height>28</height>
+      <left>84</left><top>333</top><width>1100</width><height>28</height>
       <font>font12</font><textcolor>FFFFFFFF</textcolor><label></label><aligny>center</aligny>
     </control>
     <control type="textbox" id="132">
-      <left>90</left><top>286</top><width>900</width><height>105</height>
-      <font>font13</font><textcolor>FFE8E8E8</textcolor><label></label><autoscroll>false</autoscroll>
+      <left>84</left><top>372</top><width>850</width><height>90</height>
+      <font>font13</font><textcolor>E6F0F3F5</textcolor><label></label><autoscroll>false</autoscroll>
     </control>
     <control type="label" id="800">
       <left>88</left><top>402</top><width>1700</width><height>40</height>
@@ -143,35 +145,35 @@
     </control>
     <control type="scrollbar" id="803"><left>1854</left><top>452</top><width>18</width><height>600</height><orientation>vertical</orientation><visible>Control.HasFocus(801)</visible></control>
     <control type="group" id="3000">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3001">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3002">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3004">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
+        <itemlayout width="184" height="258">
           <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="106" time="120" reversible="true">Focus</animation></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3004)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3004)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3003">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="104" time="120" reversible="true">Focus</animation></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="104" time="120" reversible="true">Focus</animation></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -179,7 +181,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -187,35 +189,35 @@
       </control>
     </control>
     <control type="group" id="3010">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3011">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3012">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3014">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3014)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3014)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3013">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -223,7 +225,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -231,35 +233,35 @@
       </control>
     </control>
     <control type="group" id="3020">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3021">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3022">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3024">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3024)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3024)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3023">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -267,7 +269,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -275,35 +277,35 @@
       </control>
     </control>
     <control type="group" id="3030">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3031">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3032">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3034">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3034)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3034)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3033">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -311,7 +313,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -319,35 +321,35 @@
       </control>
     </control>
     <control type="group" id="3040">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3041">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3042">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3044">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3044)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3044)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3043">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -355,7 +357,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -363,35 +365,35 @@
       </control>
     </control>
     <control type="group" id="3050">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3051">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3052">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3054">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3054)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3054)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3053">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -399,7 +401,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -407,35 +409,35 @@
       </control>
     </control>
     <control type="group" id="3060">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3061">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3062">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3064">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3064)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3064)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3063">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -443,7 +445,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -451,35 +453,35 @@
       </control>
     </control>
     <control type="group" id="3070">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3071">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3072">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3074">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3074)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3074)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3073">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -487,7 +489,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -495,35 +497,35 @@
       </control>
     </control>
     <control type="group" id="3080">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3081">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3082">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3084">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3084)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3084)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3083">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -531,7 +533,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -539,35 +541,35 @@
       </control>
     </control>
     <control type="group" id="3090">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3091">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3092">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3094">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3094)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3094)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3093">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -575,7 +577,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -583,35 +585,35 @@
       </control>
     </control>
     <control type="group" id="3100">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3101">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3102">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3104">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3104)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3104)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3103">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -619,7 +621,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -627,35 +629,35 @@
       </control>
     </control>
     <control type="group" id="3110">
-      <left>0</left><top>455</top><width>1920</width><height>230</height>
+      <left>0</left><top>485</top><width>1920</width><height>300</height>
       <control type="label" id="3111">
-        <left>88</left><top>0</top><width>1600</width><height>32</height>
-        <font>font20_title</font><textcolor>FFFFFFFF</textcolor><label></label>
+        <left>82</left><top>0</top><width>1620</width><height>38</height>
+        <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
       </control>
       <control type="image" id="3112">
-        <left>88</left><top>4</top><width>42</width><height>28</height>
+        <left>30</left><top>6</top><width>40</width><height>28</height>
         <texture colordiffuse="FF20A89F">white.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3114">
-        <left>74</left><top>38</top><width>1780</width><height>190</height>
+        <left>66</left><top>42</top><width>1800</width><height>270</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="150" height="188">
-          <control type="image"><left>5</left><top>0</top><width>140</width><height>158</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>160</top><width>150</width><height>26</height><font>font10</font><textcolor>FFD5D5D5</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>154</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <itemlayout width="184" height="258">
+          <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="150" height="188">
-          <control type="image"><left>0</left><top>0</top><width>150</width><height>160</height><texture colordiffuse="FF20A89F">white.png</texture><visible>Control.HasFocus(3114)</visible></control>
-          <control type="image"><left>5</left><top>4</top><width>140</width><height>152</height><texture>$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
-          <control type="label"><left>0</left><top>162</top><width>150</width><height>24</height><font>font10</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
-          <control type="progress"><left>6</left><top>152</top><width>138</width><height>4</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="55000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
+        <focusedlayout width="184" height="258">
+          <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3114)</visible></control>
+          <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
+          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
       <control type="list" id="3113">
         <left>74</left><top>38</top><width>1780</width><height>126</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
         <itemlayout width="300" height="120">
-          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>0</top><width>292</width><height>116</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
@@ -663,7 +665,7 @@
         </itemlayout>
         <focusedlayout width="300" height="120">
           <control type="image"><left>0</left><top>0</top><width>300</width><height>120</height><texture colordiffuse="FF20A89F">white.png</texture></control>
-          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture>$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
+          <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture diffuse="mask_wide.png">$INFO[ListItem.Art(fanart)]</texture><aspectratio>scale</aspectratio></control>
           <control type="image"><left>4</left><top>4</top><width>292</width><height>112</height><texture colordiffuse="77000000">white.png</texture></control>
           <control type="label"><left>14</left><top>64</top><width>270</width><height>26</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
           <control type="label"><left>14</left><top>88</top><width>270</width><height>22</height><font>font10</font><textcolor>FFE0E0E0</textcolor><label>$INFO[ListItem.Label2]</label></control>
