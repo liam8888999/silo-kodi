@@ -103,7 +103,6 @@ class CinematicWindow(xbmcgui.WindowXML):
         cls._launch_row_capacity = max(MIN_ROW_SLOTS, int(row_capacity or MIN_ROW_SLOTS))
 
     @staticmethod
-    @staticmethod
     def prepare_runtime_skin(addon_path, profile_path, row_capacity):
         """Allocate extra home rails inside the bundled Theater home group."""
         row_capacity = max(MIN_ROW_SLOTS, int(row_capacity or MIN_ROW_SLOTS))
