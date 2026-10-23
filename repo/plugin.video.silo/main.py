@@ -9258,9 +9258,6 @@ def cinematic_root_rows(client):
             route = build_url(action="home_section_group", group_key=key, title=title)
         else:
             route = build_url(action="home_section", section_id=sections_in_group[0].get("id") or sections_in_group[0].get("section_id"), title=title)
-        view_all = xbmcgui.ListItem(label="View all")
-        view_all.setArt({"icon":"DefaultFolder.png"})
-        cards.append(cinematic_cards_from_directory([(route, view_all, True)])[0])
         section_type = str(sections_in_group[0].get("section_type") or "").lower()
         rows.append((title, cards, "wide" if section_type in ("continue_watching", "next_up") else "poster"))
     log("Silo Cinematic: home rows ready (%d rail(s), %d cards)" % (
