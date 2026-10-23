@@ -59,7 +59,7 @@
       <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     </control>
     <control type="button" id="117">
-      <posx>1446</posx><posy>34</posx><width>112</width><height>46</height><label>LOG OUT</label>
+      <posx>1446</posx><posy>34</posy><width>112</width><height>46</height><label>LOG OUT</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
       <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     </control>
