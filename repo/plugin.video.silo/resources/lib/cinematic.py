@@ -4,8 +4,11 @@ This module owns presentation and navigation only. Existing SiloClient and the
 main playback route remain authoritative for authentication, versions, resume
 positions and playback progress.
 """
+import copy
 import json
+import os
 import threading
+import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
 
 import xbmc
@@ -32,7 +35,7 @@ HERO_META = 131
 HERO_PLOT = 132
 HERO_LOGO = 133
 HERO_BADGES = 134
-MAX_ROWS = 12
+MIN_ROW_SLOTS = 12
 SLOT_BASE = 3000
 ROWS_TOP = 530
 WIDE_PITCH = 170
@@ -82,13 +85,71 @@ class CinematicWindow(xbmcgui.WindowXML):
     _launch_base_url = "plugin://plugin.video.silo/"
     _launch_root_loader = None
     _launch_directory_loader = None
+    _launch_initial_rows = None
+    _launch_row_capacity = MIN_ROW_SLOTS
 
     @classmethod
-    def configure(cls, client, base_url, root_loader=None, directory_loader=None):
+    def configure(cls, client, base_url, root_loader=None, directory_loader=None,
+                  initial_rows=None, row_capacity=MIN_ROW_SLOTS):
         cls._launch_client = client
         cls._launch_base_url = str(base_url or "plugin://plugin.video.silo/")
         cls._launch_root_loader = root_loader
         cls._launch_directory_loader = directory_loader
+        cls._launch_initial_rows = initial_rows
+        cls._launch_row_capacity = max(MIN_ROW_SLOTS, int(row_capacity or MIN_ROW_SLOTS))
+
+    @staticmethod
+    def prepare_runtime_skin(addon_path, profile_path, row_capacity):
+        """Create an XML skin with enough home-row controls for this server response."""
+        row_capacity = max(MIN_ROW_SLOTS, int(row_capacity or MIN_ROW_SLOTS))
+        if row_capacity <= MIN_ROW_SLOTS:
+            return WINDOW_XML, addon_path
+
+        source = os.path.join(
+            addon_path, "resources", "skins", "Default", "1080i", WINDOW_XML
+        )
+        tree = ET.parse(source)
+        root = tree.getroot()
+        controls = root.find("controls")
+        if controls is None:
+            raise RuntimeError("The cinematic skin has no controls section.")
+
+        rows = [
+            control for control in list(controls)
+            if control.tag == "control" and control.get("type") == "group"
+            and (control.get("id") or "").isdigit()
+            and int(control.get("id")) >= SLOT_BASE
+            and (int(control.get("id")) - SLOT_BASE) % 10 == 0
+        ]
+        existing_slots = len(rows)
+        if existing_slots < 1:
+            raise RuntimeError("The cinematic skin has no home-row template.")
+
+        template = next(
+            (control for control in rows if int(control.get("id")) == SLOT_BASE),
+            rows[0],
+        )
+        for index in range(existing_slots, row_capacity):
+            base = SLOT_BASE + 10 * index
+            clone = copy.deepcopy(template)
+            for element in clone.iter():
+                old_id = element.get("id")
+                if old_id and old_id.isdigit() and SLOT_BASE <= int(old_id) <= SLOT_BASE + 4:
+                    element.set("id", str(base + int(old_id) - SLOT_BASE))
+            controls.append(clone)
+
+        target_root = os.path.join(profile_path, "cinematic_skin")
+        target_dir = os.path.join(
+            target_root, "resources", "skins", "Default", "1080i"
+        )
+        os.makedirs(target_dir, exist_ok=True)
+        target_name = "SiloCinematicRuntime.xml"
+        tree.write(
+            os.path.join(target_dir, target_name),
+            encoding="utf-8",
+            xml_declaration=True,
+        )
+        return target_name, target_root
 
     def __init__(self, xml_filename, script_path, default_skin="Default", default_res="1080i"):
         xbmcgui.WindowXML.__init__(
@@ -98,7 +159,11 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.base_url = str(type(self)._launch_base_url or "plugin://plugin.video.silo/")
         self.root_loader = type(self)._launch_root_loader
         self.directory_loader = type(self)._launch_directory_loader
-        self.addon_path = str(script_path or ADDON.getAddonInfo("path"))
+        self.addon_path = str(ADDON.getAddonInfo("path") or script_path)
+        self._initial_rows = type(self)._launch_initial_rows
+        self._row_capacity = max(
+            MIN_ROW_SLOTS, int(type(self)._launch_row_capacity or MIN_ROW_SLOTS)
+        )
         self.screen = "home"
         self.params = {}
         self.stack = []
@@ -304,6 +369,18 @@ class CinematicWindow(xbmcgui.WindowXML):
         else:
             rows = [("Silo", [])]
 
+        if self.screen in ("home", "series", "details"):
+            visible_row_count = sum(
+                1 for row in rows or []
+                if row and len(row) > 1 and row[0] and row[1]
+            )
+            if visible_row_count > self._row_capacity:
+                # Home sections can change after a profile switch or refresh.
+                # Reopen with an XML file sized to the new server response.
+                self.result = "rebuild"
+                self.close()
+                return
+
         self._set_active_nav()
         # Start on an always-visible control. Poster rails can be hidden or
         # empty during the first XML layout, so never force focus prematurely.
@@ -351,7 +428,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             style = str(row[2] if len(row) > 2 else "poster").lower()
             if title and items:
                 normalized.append((str(title), list(items), style if style == "wide" else "poster"))
-        self._rows = normalized[:MAX_ROWS]
+        self._rows = normalized
         self._row_items = {}
         self._grid_items = []
         self._view_mode = "rails"
@@ -360,7 +437,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.getControl(GRID_CONTROL).setVisible(False)
         self.getControl(GRID_EMPTY).setVisible(False)
 
-        for index in range(MAX_ROWS):
+        for index in range(self._row_capacity):
             group_id, header_id, icon_id, wide_id, poster_id = slot_ids(index)
             group = self.getControl(group_id)
             header = self.getControl(header_id)
@@ -405,7 +482,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         self.setProperty("silo.cinematic.view", "grid")
         self.getControl(GRID_HEADING).setVisible(True)
         self.getControl(GRID_CONTROL).setVisible(True)
-        for index in range(MAX_ROWS):
+        for index in range(self._row_capacity):
             self.getControl(slot_ids(index)[0]).setVisible(False)
         for row in rows or []:
             if row:
@@ -432,7 +509,7 @@ class CinematicWindow(xbmcgui.WindowXML):
 
     def _layout_rows(self):
         top = ROWS_TOP
-        for index in range(MAX_ROWS):
+        for index in range(self._row_capacity):
             group = self.getControl(slot_ids(index)[0])
             if index >= len(self._rows) or index < self._row_index or top >= SCREEN_HEIGHT:
                 group.setVisible(False)
@@ -721,17 +798,22 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _home_rows(self):
-        """Load Silo's home rails, with a useful fallback when the server has none."""
-        if callable(self.root_loader):
+        """Use preloaded server rows on first render, then refresh from Silo as needed."""
+        if self._initial_rows is not None:
+            rows, self._initial_rows = self._initial_rows, None
+        elif callable(self.root_loader):
             try:
                 rows = self.root_loader(self.client) or []
             except Exception as exc:
                 xbmc.log("[plugin.video.silo] Cinematic home rows failed: %s" % exc, xbmc.LOGWARNING)
                 rows = []
-            # An empty home response should never leave the user staring at a
-            # hero backdrop with no content or way to continue navigating.
-            if rows:
-                return rows
+        else:
+            rows = []
+
+        # An empty home response should never leave the user staring at a
+        # hero backdrop with no content or way to continue navigating.
+        if rows:
+            return rows
         return [("GET STARTED", [
             self._menu_item("Browse libraries", "libraries"),
             self._menu_item("Search Silo", "search"),
