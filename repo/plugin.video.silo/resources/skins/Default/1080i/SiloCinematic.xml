@@ -44,79 +44,79 @@
     </control>
     <control type="button" id="110">
       <left>280</left><top>25</top><width>100</width><height>48</height><label>HOME</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>110</onleft><onright>111</onright></control>
     <control type="image" id="161">
-      <left>385</left><top>25</top><width>140</width><height>48</height>
+      <left>386</left><top>25</top><width>150</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),libraries) + !Control.HasFocus(111)</visible>
     </control>
     <control type="button" id="111">
-      <left>385</left><top>25</top><width>140</width><height>48</height><label>LIBRARIES</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>386</left><top>25</top><width>150</width><height>48</height><label>LIBRARIES</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>110</onleft><onright>112</onright></control>
     <control type="image" id="162">
-      <left>530</left><top>25</top><width>110</width><height>48</height>
+      <left>542</left><top>25</top><width>112</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),search) + !Control.HasFocus(112)</visible>
     </control>
     <control type="button" id="112">
-      <left>530</left><top>25</top><width>110</width><height>48</height><label>SEARCH</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>542</left><top>25</top><width>112</width><height>48</height><label>SEARCH</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>111</onleft><onright>113</onright></control>
     <control type="image" id="163">
-      <left>645</left><top>25</top><width>145</width><height>48</height>
+      <left>660</left><top>25</top><width>150</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),your_stuff) + !Control.HasFocus(113)</visible>
     </control>
     <control type="button" id="113">
-      <left>645</left><top>25</top><width>145</width><height>48</height><label>YOUR STUFF</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>660</left><top>25</top><width>150</width><height>48</height><label>YOUR STUFF</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>112</onleft><onright>114</onright></control>
     <control type="image" id="164">
-      <left>795</left><top>25</top><width>150</width><height>48</height>
+      <left>816</left><top>25</top><width>155</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),collections) + !Control.HasFocus(114)</visible>
     </control>
     <control type="button" id="114">
-      <left>795</left><top>25</top><width>150</width><height>48</height><label>COLLECTIONS</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>816</left><top>25</top><width>155</width><height>48</height><label>COLLECTIONS</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>113</onleft><onright>115</onright></control>
     <control type="image" id="165">
-      <left>950</left><top>25</top><width>120</width><height>48</height>
+      <left>977</left><top>25</top><width>125</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),settings) + !Control.HasFocus(115)</visible>
     </control>
     <control type="button" id="115">
-      <left>950</left><top>25</top><width>120</width><height>48</height><label>SETTINGS</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>977</left><top>25</top><width>125</width><height>48</height><label>SETTINGS</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>114</onleft><onright>116</onright></control>
     <control type="image" id="166">
-      <left>1075</left><top>25</top><width>120</width><height>48</height>
+      <left>1108</left><top>25</top><width>112</width><height>48</height>
       <texture border="20">pill_selected.png</texture>
       <visible>String.IsEqual(Window.Property(silo.cinematic.activeTab),profile) + !Control.HasFocus(116)</visible>
     </control>
     <control type="button" id="116">
-      <left>1075</left><top>25</top><width>120</width><height>48</height><label>PROFILE</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>1108</left><top>25</top><width>112</width><height>48</height><label>PROFILE</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>115</onleft><onright>117</onright></control>
     <control type="button" id="117">
-      <left>1200</left><top>25</top><width>125</width><height>48</height><label>LOG OUT</label><align>center</align><aligny>center</aligny>
-      <font>font12</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
+      <left>1226</left><top>25</top><width>130</width><height>48</height><label>LOG OUT</label><align>center</align><aligny>center</aligny>
+      <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FF05090D</focusedcolor>
       <texturefocus>pill_focus.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
       <onfocus>SetProperty(silo.cinematic.mouseFocus,110)</onfocus>
     <onleft>116</onleft><onright>117</onright></control>
@@ -185,26 +185,26 @@
     <control type="panel" id="801">
       <left>62</left><top>176</top><width>1790</width><height>874</height>
       <orientation>vertical</orientation><scrolltime>220</scrolltime>
-      <itemlayout width="286" height="390">
-        <control type="image"><left>8</left><top>0</top><width>270</width><height>338</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
-        <control type="image"><left>8</left><top>0</top><width>270</width><height>338</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
+      <itemlayout width="286" height="300">
+        <control type="image"><left>8</left><top>0</top><width>270</width><height>238</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
+        <control type="image"><left>8</left><top>0</top><width>270</width><height>238</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
         <control type="image"><left>8</left><top>42</top><width>270</width><height>152</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
         <control type="image"><left>8</left><top>42</top><width>270</width><height>152</height><texture diffuse="mask_wide.png" background="true">$INFO[ListItem.Art(fanart)]</texture><aspectratio>keep</aspectratio><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
         <control type="image"><left>232</left><top>8</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
-        <control type="label"><left>8</left><top>340</top><width>270</width><height>30</height><font>font27</font><textcolor>BFEDEDED</textcolor><label>$INFO[ListItem.Label]</label></control>
-        <control type="label"><left>8</left><top>368</top><width>270</width><height>22</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
-        <control type="label"><left>8</left><top>394</top><width>270</width><height>70</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Overview)]</label><wrap>true</wrap><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Overview))</visible></control>
+        <control type="label"><left>8</left><top>240</top><width>270</width><height>28</height><font>font27</font><textcolor>BFEDEDED</textcolor><label>$INFO[ListItem.Label]</label></control>
+        <control type="label"><left>8</left><top>266</top><width>270</width><height>20</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
+        <control type="label"><left>8</left><top>290</top><width>270</width><height>54</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Overview)]</label><wrap>true</wrap><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Overview))</visible></control>
       </itemlayout>
-      <focusedlayout width="286" height="390">
-        <control type="image"><left>8</left><top>4</top><width>270</width><height>330</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
-        <control type="image"><left>8</left><top>4</top><width>270</width><height>330</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible><animation effect="zoom" start="100" end="104" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+      <focusedlayout width="286" height="300">
+        <control type="image"><left>8</left><top>4</top><width>270</width><height>232</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
+        <control type="image"><left>8</left><top>4</top><width>270</width><height>232</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><visible>!String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible><animation effect="zoom" start="100" end="104" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
         <control type="image"><left>8</left><top>46</top><width>270</width><height>152</height><texture border="16" colordiffuse="FF15171C">round16.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible></control>
         <control type="image"><left>8</left><top>46</top><width>270</width><height>152</height><texture diffuse="mask_wide.png" background="true">$INFO[ListItem.Art(fanart)]</texture><aspectratio>keep</aspectratio><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.ArtWide),true)</visible><animation effect="zoom" start="100" end="104" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
         <control type="image"><left>2</left><top>0</top><width>282</width><height>340</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(801)</visible><animation effect="zoom" start="100" end="104" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
         <control type="image"><left>232</left><top>8</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
-        <control type="label"><left>8</left><top>345</top><width>270</width><height>28</height><font>font27</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label><scroll>true</scroll></control>
-        <control type="label"><left>8</left><top>372</top><width>270</width><height>18</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
-        <control type="textbox"><left>8</left><top>398</top><width>270</width><height>70</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Overview)]</label><autoscroll time="2500" delay="5000" repeat="4000">true</autoscroll><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Overview))</visible></control>
+        <control type="label"><left>8</left><top>240</top><width>270</width><height>26</height><font>font27</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label><scroll>true</scroll></control>
+        <control type="label"><left>8</left><top>266</top><width>270</width><height>20</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
+        <control type="textbox"><left>8</left><top>290</top><width>270</width><height>54</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Overview)]</label><autoscroll time="2500" delay="5000" repeat="4000">true</autoscroll><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Overview))</visible></control>
       </focusedlayout>
     </control>
     <control type="label" id="802">
