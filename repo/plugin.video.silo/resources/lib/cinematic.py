@@ -1878,15 +1878,15 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _play(self, payload, start_over=False, resume_choice=None, list_item=None):
-        """Hand a playable card to Kodi's native video-item selection flow.
+        """Invoke the shared Silo playback route from the cinematic interface.
 
-        WindowXML controls do not run Kodi's normal video-browser click
-        handler, so calling Player.play() directly cannot display the core
-        Resume / Play from beginning chooser. Open a short native directory
-        containing the selected item; its normal click is handled by Kodi.
+        Keep the cinematic WindowXML open beneath Kodi's player. Do not open a
+        second VideoNav window or call Player.play() directly: the plugin
+        playback route remains responsible for file selection, server progress,
+        resolving the stream, and reporting playback position.
         """
         payload = dict(payload or {})
-        params = {"action": "cinematic_native_select"}
+        params = {"action": "play"}
         for key in (
             "content_id", "library_id", "file_id", "duration_seconds",
             "cached_resume_position", "title", "resume_available",
@@ -1894,34 +1894,6 @@ class CinematicWindow(xbmcgui.WindowXML):
             value = payload.get(key)
             if value not in (None, ""):
                 params[key] = value
-
-        if list_item is not None:
-            params.setdefault("title", str(list_item.getLabel() or list_item.getLabel2() or ""))
-            try:
-                params["media_type"] = str(
-                    list_item.getProperty("Silo.Cinematic.Type") or ""
-                ).lower()
-            except Exception:
-                pass
-            try:
-                params.setdefault(
-                    "plot",
-                    str(list_item.getProperty("Silo.Cinematic.Overview") or ""),
-                )
-            except Exception:
-                pass
-            try:
-                art = list_item.getArt() or {}
-                poster = (
-                    art.get("poster")
-                    or art.get("thumb")
-                    or art.get("landscape")
-                    or art.get("icon")
-                )
-                if poster:
-                    params["poster_url"] = str(poster)
-            except Exception:
-                pass
 
         if resume_choice is not None:
             params["resume_choice"] = str(int(bool(resume_choice)))
@@ -1936,17 +1908,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         if not url.endswith("/"):
             url += "/"
         url += "?" + urlencode(params)
-
-        # Kodi only runs its native resume-selection logic for an item
-        # selected by a native container. Open the plugin URL that returns a
-        # single real ListItem, then let that container's normal Select action
-        # invoke the shared action=play URL. The selection is triggered by the
-        # router once the listing is ready, so this is not a second user step.
-        try:
-            self.close()
-        except Exception:
-            pass
-        xbmc.executebuiltin("ActivateWindow(Videos,%s,return)" % url)
+        xbmc.executebuiltin("PlayMedia(%s)" % url)
 
     def _hero_meta(self, item):
         media_type = _item_type(item)
