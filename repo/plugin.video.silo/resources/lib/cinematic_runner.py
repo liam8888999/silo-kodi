@@ -42,13 +42,30 @@ try:
         initial_rows=initial_rows,
         row_capacity=row_capacity,
     )
-    window = CinematicWindow(skin_name, skin_path, "Default", "1080i")
-    xbmc.log("[plugin.video.silo] Silo Cinematic runner: window constructed; opening", xbmc.LOGINFO)
-    try:
-        window.doModal()
-    finally:
-        del window
-        xbmc.log("[plugin.video.silo] Silo Cinematic runner: window closed", xbmc.LOGINFO)
+    while True:
+        window = CinematicWindow(skin_name, skin_path, "Default", "1080i")
+        xbmc.log("[plugin.video.silo] Silo Cinematic runner: window constructed; opening", xbmc.LOGINFO)
+        try:
+            window.doModal()
+            result = getattr(window, "result", "")
+        finally:
+            del window
+            xbmc.log("[plugin.video.silo] Silo Cinematic runner: window closed", xbmc.LOGINFO)
+        if result != "rebuild":
+            break
+        initial_rows = silo_main.cinematic_root_rows(client) or []
+        row_capacity = max(12, len(initial_rows))
+        skin_name, skin_path = CinematicWindow.prepare_runtime_skin(
+            ADDON_PATH, profile_path or ADDON_PATH, row_capacity
+        )
+        CinematicWindow.configure(
+            client,
+            "plugin://plugin.video.silo/",
+            silo_main.cinematic_root_rows,
+            silo_main.cinematic_load_directory,
+            initial_rows=initial_rows,
+            row_capacity=row_capacity,
+        )
 
     if not ADDON.getSettingBool("cinematic_interface"):
         xbmc.executebuiltin("Container.Refresh")
