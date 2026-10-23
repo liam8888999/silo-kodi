@@ -272,10 +272,30 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if action_id == 4 and row + 1 < len(self._rows):
                     self._focus_row(row + 1)
                     return
-        elif self._view_mode == "grid" and focus_id == GRID_CONTROL and action_id == 3:
-            # Browse grids should also return to the top navigation on Up.
-            self.setFocusId(self._active_nav_control())
-            return
+        elif self._view_mode == "grid" and focus_id == GRID_CONTROL:
+            grid = self.getControl(GRID_CONTROL)
+            try:
+                position = int(grid.getSelectedPosition())
+            except Exception:
+                position = 0
+            # Six 286px cards fit across the current 1790px viewport. Use the
+            # live width so Up/Down follows grid rows as the layout changes.
+            try:
+                columns = max(1, int((float(grid.getWidth()) + 8) // 286))
+            except Exception:
+                columns = 6
+            if action_id == 3:
+                if position >= columns:
+                    grid.selectItem(position - columns)
+                else:
+                    # Only leave the grid when the selection is on its first row.
+                    self.setFocusId(self._active_nav_control())
+                return
+            if action_id == 4:
+                target = position + columns
+                if target < len(self._grid_items):
+                    grid.selectItem(target)
+                return
 
         nav_ids = (
             NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
@@ -430,6 +450,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         # Keep the same featured information panel on every screen. Home uses
         # horizontal rails; all nested/browse screens use a downward-scrolling grid.
         self._set_hero_visible(True)
+        self._layout_navigation()
         self._set_active_nav()
         self.setFocusId(self._active_nav_control())
         if self.screen == "home":
@@ -661,6 +682,55 @@ class CinematicWindow(xbmcgui.WindowXML):
         if current == "search":
             return "search"
         return "home"
+
+    def _layout_navigation(self):
+        """Size each top navigation tab from its label and lay tabs out without overlap."""
+        nav_ids = (
+            NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
+            NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+        )
+        selected_ids = (160, 161, 162, 163, 164, 165, 166, 167)
+        left = 340
+        gap = 8
+        for control_id, selected_id in zip(nav_ids, selected_ids):
+            try:
+                button = self.getControl(control_id)
+                label = str(button.getLabel() or "").strip()
+            except Exception:
+                label = ""
+                button = None
+            if not label:
+                label = {
+                    NAV_HOME: "HOME", NAV_LIBRARIES: "LIBRARIES",
+                    NAV_SEARCH: "SEARCH", NAV_YOUR_STUFF: "YOUR STUFF",
+                    NAV_COLLECTIONS: "COLLECTIONS", NAV_SETTINGS: "SETTINGS",
+                    NAV_PROFILE: "PROFILE", NAV_LOGOUT: "LOG OUT",
+                }.get(control_id, "")
+            # Approximate rendered width conservatively for Kodi's font13 and
+            # include horizontal padding; uppercase letters are the widest.
+            text_width = sum(
+                6 if char.isspace() else
+                13 if char.isupper() else
+                11 if char.isdigit() else
+                10 for char in label
+            )
+            width = max(96, text_width + 32)
+            if button is not None:
+                try:
+                    button.setPosition(left, 25)
+                    button.setWidth(width)
+                    button.setHeight(48)
+                except Exception:
+                    pass
+            try:
+                plate = self.getControl(selected_id)
+                plate.setPosition(left, 25)
+                plate.setWidth(width)
+                plate.setHeight(48)
+            except Exception:
+                # Older/custom XMLs may not contain an optional selection plate.
+                pass
+            left += width + gap
 
     def _set_active_nav(self):
         self.setProperty("silo.cinematic.activeTab", self._active_nav())
