@@ -92,7 +92,7 @@ SEARCH_PAGE_SIZE = 100
 MIN_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
-ADDON = xbmcaddon.Addon()
+ADDON = xbmcaddon.Addon("plugin.video.silo")
 
 
 _SKIN_EPISODE_NUMBER_DETECTION = None
