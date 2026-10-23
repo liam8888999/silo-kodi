@@ -415,7 +415,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         else:
             rows = [("Silo", [])]
 
-        if self.screen in ("home", "series", "details"):
+        if self.screen == "home":
             visible_row_count = sum(
                 1 for row in rows or []
                 if row and len(row) > 1 and row[0] and row[1]
@@ -427,15 +427,12 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.close()
                 return
 
-        # Keep the same featured information panel on every screen. The current
-        # selection in a browse grid replaces the hero data just like a home rail.
-        show_hero = True
-        self._set_hero_visible(show_hero)
+        # Keep the same featured information panel on every screen. Home uses
+        # horizontal rails; all nested/browse screens use a downward-scrolling grid.
+        self._set_hero_visible(True)
         self._set_active_nav()
-        # Start on an always-visible control. Poster rails can be hidden or
-        # empty during the first XML layout, so never force focus prematurely.
         self.setFocusId(self._active_nav_control())
-        if show_hero:
+        if self.screen == "home":
             self._show_rails(rows)
             if self._rows:
                 self._row_index = min(max(0, self._row_index), len(self._rows) - 1)
@@ -445,18 +442,12 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if items:
                     try:
                         self.getControl(control_id).selectItem(0)
-                        if self.screen != "home":
-                            self.setFocusId(control_id)
-                        else:
-                            # Keep initial focus on the persistent top nav;
-                            # move into the first poster rail on D-pad Down.
-                            self.setFocusId(self._active_nav_control())
-                        self._update_hero_from_item(self._row_items[control_id][0])
+                        # Keep initial focus on the top nav; Down enters the first rail.
+                        self.setFocusId(self._active_nav_control())
+                        self._update_hero_from_item(items[0])
                     except Exception as exc:
                         xbmc.log("[plugin.video.silo] Silo Cinematic: initial rail focus failed: %s" % exc, xbmc.LOGDEBUG)
                         self.setFocusId(self._active_nav_control())
-                if self.screen in ("details", "series"):
-                    self._update_hero_from_focus()
         else:
             self._show_grid(rows)
             if self._grid_items:
@@ -464,8 +455,8 @@ class CinematicWindow(xbmcgui.WindowXML):
                     self.getControl(GRID_CONTROL).selectItem(0)
                     self.setFocusId(GRID_CONTROL)
                     self._update_hero_from_focus()
-                except Exception:
-                    self.setFocusId(self._active_nav_control())
+                except Exception as exc:
+                    xbmc.log("[plugin.video.silo] Silo Cinematic: initial grid focus failed: %s" % exc, xbmc.LOGDEBUG)
 
     def _show_rails(self, rows):
         """Dynamic poster and wide-art rails with the active row anchored near the top."""
@@ -537,11 +528,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "grid"
         self.setProperty("silo.cinematic.view", "grid")
-        # Reserve the same hero-and-metadata area on every screen. Browse
-        # results begin below the synopsis rather than sitting beside or behind it.
-        self.getControl(GRID_HEADING).setPosition(88, 150)
-        self.getControl(GRID_CONTROL).setPosition(62, 205)
-        self.getControl(GRID_EMPTY).setPosition(90, 240)
+        # Browse screens use a compact version of the hero so several grid
+        # rows are visible at once, without hiding the selected item's details.
+        self.getControl(GRID_HEADING).setPosition(88, 350)
+        self.getControl(GRID_CONTROL).setPosition(62, 395)
+        self.getControl(GRID_CONTROL).setHeight(670)
+        self.getControl(GRID_EMPTY).setPosition(90, 440)
         self.getControl(GRID_HEADING).setVisible(True)
         self.getControl(GRID_CONTROL).setVisible(True)
         for index in range(self._row_capacity):
@@ -1248,18 +1240,33 @@ class CinematicWindow(xbmcgui.WindowXML):
             except Exception:
                 pass
 
-        # Keep the featured art above the first home rail and leave room for
-        # a readable synopsis. Shift the compact title/badge line down when no
-        # synopsis is available rather than leaving an empty description gap.
-        shift = 52 if visible and not str(self._hero_overview or "").strip() else 0
+        # Keep the hero styling consistent, but compact it on nested pages so
+        # a real multi-row grid fits below it. Home keeps the full-height layout.
+        compact = self.screen != "home"
+        shift = (34 if compact else 52) if visible and not str(self._hero_overview or "").strip() else 0
         positions = {
-            HERO_TITLE: (88, 105 + shift),
-            HERO_LOGO: (88, 105 + shift),
-            HERO_META: (88, 230 + shift),
-            HERO_PLOT: (88, 278),
+            HERO_TITLE: (88, (62 if compact else 105) + shift),
+            HERO_LOGO: (88, (62 if compact else 105) + shift),
+            HERO_META: (88, (154 if compact else 230) + shift),
+            HERO_PLOT: (88, 202 if compact else 278),
         }
-        sizes = {HERO_TITLE: (740, 104), HERO_LOGO: (740, 104),
-                 HERO_META: (820, 34), HERO_PLOT: (800, 230)}
+        sizes = {HERO_TITLE: (700, 82 if compact else 104),
+                 HERO_LOGO: (700, 82 if compact else 104),
+                 HERO_META: (810, 32 if compact else 34),
+                 HERO_PLOT: (800, 132 if compact else 230)}
+        background_layout = {
+            100: ((960, 0), (960, 360)) if compact else ((960, 0), (960, 520)),
+            105: ((0, 250), (1920, 115)) if compact else ((0, 300), (1920, 220)),
+            106: ((0, 0), (1120, 365)) if compact else ((0, 0), (1120, 520)),
+        }
+        for control_id, (position, size) in background_layout.items():
+            try:
+                control = self.getControl(control_id)
+                control.setPosition(*position)
+                control.setWidth(size[0])
+                control.setHeight(size[1])
+            except Exception:
+                pass
         for control_id, position in positions.items():
             try:
                 control = self.getControl(control_id)
@@ -1284,8 +1291,9 @@ class CinematicWindow(xbmcgui.WindowXML):
 
     def _layout_hero_badges(self, visible, shift=0):
         """Lay out separate quality chips, then place metadata immediately after them."""
+        compact = self.screen != "home"
         left = 88
-        top = 230 + shift
+        top = (154 if compact else 230) + shift
         for index, (image_id, label_id) in enumerate(zip(HERO_BADGE_IMAGES, HERO_BADGE_LABELS)):
             badge = self._hero_badge_values[index] if index < len(self._hero_badge_values) else ""
             width = max(56, min(176, 24 + len(badge) * 11))
@@ -1306,7 +1314,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             meta = self.getControl(HERO_META)
             meta.setPosition(left, top)
             # Keep badges and metadata inside the left text column, clear of the hero art.
-            meta.setWidth(max(100, 860 - left))
+            meta.setWidth(max(100, (900 if compact else 860) - left))
         except Exception:
             pass
 
