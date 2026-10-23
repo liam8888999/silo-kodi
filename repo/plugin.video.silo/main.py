@@ -7811,9 +7811,9 @@ def play(
         resolved_item,
     )
 
-    # Give Kodi the fullscreen player immediately after resolving the item;
-    # track_progress raises it again once isPlaying() confirms startup.
-    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+    # track_progress raises the native player only after playback is actually
+    # active. Activating fullscreen before the player exists can expose the
+    # underlying plugin container and race the cinematic window transition.
 
     session_id = info.get("session_id")
 
@@ -7928,10 +7928,9 @@ def track_progress(
         )
         return
 
-    # At this point Kodi's player has actually started. Bring the native
-    # fullscreen video window forward now, rather than racing player creation
-    # from the WindowXML's PlayMedia callback.
-    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+    # Do not activate fullscreen here: Kodi owns the player window transition
+    # after setResolvedUrl. An explicit activation can race the modal Silo skin
+    # and reveal the plugin directory behind it.
 
     # Kodi can apply a resume bookmark from its local database after the
     # resolved URL has been opened. If Silo says there is no resume state but
@@ -9836,13 +9835,17 @@ def router(client):
             cached_resume_position=params.get("cached_resume_position"),
             display_title=params.get("title"),
         )
-        # The custom window closes before playback so Kodi's player has focus.
-        # After the existing progress monitor finishes, reopen the Silo Cinematic UI.
+        # The cinematic WindowXML closes to let Kodi take over playback.
+        # Once play() and its progress monitor have fully returned, reopen the
+        # skin directly; refreshing the background plugin container caused
+        # intermittent flashes and left Kodi's directory in front of the skin.
         if (
             str(params.get("cinematic_return", "")).strip().lower() in ("1", "true", "yes")
             and ADDON.getSettingBool("cinematic_interface")
         ):
-            xbmc.executebuiltin("Container.Update(%s)" % BASE_URL)
+            xbmc.executebuiltin("RunScript(%s)" % os.path.join(
+                ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py"
+            ))
         return
 
     if action == "switch_profile":
