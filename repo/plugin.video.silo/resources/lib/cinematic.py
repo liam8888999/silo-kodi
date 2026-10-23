@@ -72,10 +72,10 @@ def _display_title(item):
     return str(_value(item, "title", "name", default="Untitled"))
 
 
-class CinematicWindow(xbmcgui.WindowXMLDialog):
+class CinematicWindow(xbmcgui.WindowXML):
     """A standalone remote-friendly UI using Kodi's standard XML-first constructor."""
 
-    # Kodi's native WindowXMLDialog validates the XML filename during object
+    # Kodi's native WindowXML validates the XML filename during object
     # construction, before this class's __init__ runs. Keep app dependencies
     # separate from those constructor arguments.
     _launch_client = None
@@ -87,7 +87,7 @@ class CinematicWindow(xbmcgui.WindowXMLDialog):
         cls._launch_base_url = str(base_url or "plugin://plugin.video.silo/")
 
     def __init__(self, xml_filename, script_path, default_skin="Default", default_res="1080i"):
-        xbmcgui.WindowXMLDialog.__init__(
+        xbmcgui.WindowXML.__init__(
             self, str(xml_filename), str(script_path), str(default_skin), str(default_res)
         )
         self.client = type(self)._launch_client
