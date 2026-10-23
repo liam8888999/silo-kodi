@@ -1466,11 +1466,43 @@ class CinematicWindow(xbmcgui.WindowXML):
                     except (TypeError, ValueError):
                         duration = 0.0
                 if duration > 0 and 0 < position < duration and not watched:
+                    # Apply the exact same normalized state used by the
+                    # unskinned Home catalog rows as the final operation on
+                    # this WindowXML ListItem. The skin's poster percentage is
+                    # only a property; Kodi's resume prompt reads VideoInfoTag.
+                    try:
+                        import main as silo_main
+                        normalized_progress = dict(progress_state)
+                        normalized_progress.update({
+                            "completed": False,
+                            "position_seconds": position,
+                            "duration_seconds": duration,
+                        })
+                        silo_main.set_watch_state(source, normalized_progress, _item_type(item))
+                    except Exception as exc:
+                        xbmc.log(
+                            "[plugin.video.silo] Cinematic resume tag application failed: %s" % exc,
+                            xbmc.LOGWARNING,
+                        )
+                    # Explicitly set the InfoTag too, after any shared metadata
+                    # processing, so the displayed Home item carries the same
+                    # position and duration as its poster progress marker.
+                    tag = source.getVideoInfoTag()
                     tag.setPlaycount(0)
-                    tag.setResumePoint(position, duration)
+                    tag.setDuration(int(round(duration)))
+                    tag.setResumePoint(float(position), float(duration))
                     source.setProperty("Silo.Cinematic.Progress", str(max(1, min(99, int(position * 100.0 / duration)))))
-            except Exception:
-                pass
+                    xbmc.log(
+                        "[plugin.video.silo] Cinematic resume point applied: %s %.1f/%.1f"
+                        % (title, position, duration),
+                        xbmc.LOGDEBUG,
+                    )
+            except Exception as exc:
+                xbmc.log(
+                    "[plugin.video.silo] Cinematic resume metadata failed for %s: %s"
+                    % (title, exc),
+                    xbmc.LOGWARNING,
+                )
             badge = (self._hero_badge_list(item) or [""])[0]
             source.setProperty("silo.badge", str(badge or ""))
             source.setProperty("silo.watched", source.getProperty("Silo.Cinematic.Watched"))
