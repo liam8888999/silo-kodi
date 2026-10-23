@@ -9296,7 +9296,7 @@ def router(client):
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
         log("Silo Cinematic: directory request completed; launching script window")
-        xbmc.executebuiltin("RunScript(special://home/addons/plugin.video.silo/resources/lib/cinematic_runner.py)")
+        xbmc.executebuiltin("RunScript(script.silo.cinematic)")
         return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered
