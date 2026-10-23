@@ -236,7 +236,7 @@ class CinematicWindow(xbmcgui.WindowXML):
                     ):
                         self.client.login()
                         if not self.client.cfg.get("profile_id"):
-                            self.client.select_profile()
+                            self.client.select_profile(show_loading=False)
                 finally:
                     self._modal_action_active = False
                 self._render()
@@ -263,6 +263,11 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.close()
             return
 
+
+        # ACTION_CONTEXT_MENU / mouse right-click emulate Android TV long-press.
+        if action_id in (101, 117):
+            self._open_context_menu(focus_id)
+            return
 
         # Kodi ACTION_SHOW_INFO (11) mirrors Android TV's detail-page flow.
         if action_id == 11:
@@ -544,6 +549,128 @@ class CinematicWindow(xbmcgui.WindowXML):
         except Exception as exc:
             self._error(exc)
 
+    def _focused_list_item(self, focus_id=None):
+        focus_id = self.getFocusId() if focus_id is None else focus_id
+        try:
+            if focus_id == GRID_CONTROL:
+                return self.getControl(GRID_CONTROL).getSelectedItem()
+            if self._row_of(focus_id) is not None:
+                return self.getControl(focus_id).getSelectedItem()
+        except Exception:
+            return None
+        return None
+
+    def _open_context_menu(self, focus_id=None):
+        selected = self._focused_list_item(focus_id)
+        if selected is None:
+            return
+        try:
+            raw = selected.getProperty("Silo.Cinematic.Payload")
+            payload = json.loads(raw) if raw else {}
+            if not isinstance(payload, dict):
+                payload = {}
+        except (TypeError, ValueError):
+            payload = {}
+        action = str(selected.getProperty("Silo.Cinematic.Action") or "")
+        media_type = str(selected.getProperty("Silo.Cinematic.Type") or "video").lower()
+        content_id = (
+            payload.get("content_id") or payload.get("play_content_id")
+            or payload.get("series_id") or selected.getProperty("Silo.ContentID")
+            or selected.getProperty("Silo.PlayContentID")
+        )
+        library_id = payload.get("library_id") or selected.getProperty("Silo.LibraryID") or ""
+        title = str(selected.getLabel() or selected.getLabel2() or "Title")
+        playable = media_type in ("movie", "episode", "video")
+        payload.setdefault("content_id", content_id)
+        payload.setdefault("library_id", library_id)
+        payload.setdefault("title", title)
+        payload.setdefault("type", media_type)
+
+        watchlist = str(selected.getProperty("Silo.UserState.InWatchlist") or "").lower() == "true"
+        favorite = str(selected.getProperty("Silo.UserState.IsFavorite") or "").lower() == "true"
+        watched = str(selected.getProperty("Silo.Cinematic.Watched") or selected.getProperty("Silo.UserState.Played") or "").lower() == "true"
+
+        actions = []
+        callbacks = []
+        if action and not playable:
+            actions.append("Open")
+            callbacks.append(("open", action, payload))
+        elif content_id and not playable:
+            actions.append("Open details")
+            callbacks.append(("details", "details", payload))
+        if content_id:
+            actions.append("Title details")
+            callbacks.append(("details", "details", payload))
+        if playable:
+            actions.append("Play / Resume")
+            callbacks.append(("play", "play", payload))
+            actions.append("Start over")
+            callbacks.append(("start_over", "start_over", payload))
+        if content_id and media_type in ("movie", "series", "season", "episode", "video"):
+            actions.append("Remove from Watchlist" if watchlist else "Add to Watchlist")
+            callbacks.append(("watchlist", "", payload))
+            actions.append("Remove from Favorites" if favorite else "Add to Favorites")
+            callbacks.append(("favorite", "", payload))
+            actions.append("Mark as unwatched" if watched else "Mark as watched")
+            callbacks.append(("watched", "", payload))
+        if self.screen == "home" and self._view_mode == "rails":
+            row = self._row_of(self.getFocusId() if focus_id is None else focus_id)
+            if row is not None and row < len(self._rows):
+                actions.append("Hide this Home row")
+                callbacks.append(("hide_row", "", {"title": self._rows[row][0]}))
+        if not actions:
+            return
+
+        self._modal_action_active = True
+        try:
+            picked = xbmcgui.Dialog().contextmenu(actions)
+        finally:
+            self._modal_action_active = False
+        if not isinstance(picked, int) or picked < 0 or picked >= len(callbacks):
+            return
+        kind, action_name, action_payload = callbacks[picked]
+        if kind in ("open", "details"):
+            if kind == "open":
+                self._item_click(action_name, action_payload)
+            else:
+                self._item_click("details", action_payload)
+            return
+        if kind == "play":
+            self._item_click("play", action_payload)
+            return
+        if kind == "start_over":
+            action_payload["resume_available"] = 1
+            self._item_click("start_over", action_payload)
+            return
+        if kind == "hide_row":
+            hidden = set(self._row_preferences.get("hidden") or [])
+            hidden.add(str(action_payload.get("title") or ""))
+            self._row_preferences["hidden"] = sorted(value for value in hidden if value)
+            self._save_row_preferences()
+            self._render()
+            return
+
+        mark_id = action_payload.get("content_id")
+        if not mark_id:
+            return
+        try:
+            if kind == "watchlist":
+                state = not watchlist
+                self.client.set_watchlist(mark_id, state)
+                selected.setProperty("Silo.UserState.InWatchlist", "true" if state else "false")
+            elif kind == "favorite":
+                state = not favorite
+                self.client.set_favorite(mark_id, state)
+                selected.setProperty("Silo.UserState.IsFavorite", "true" if state else "false")
+            elif kind == "watched":
+                state = not watched
+                self.client.set_watched(mark_id, state)
+                selected.setProperty("Silo.Cinematic.Watched", "true" if state else "")
+                selected.setProperty("Silo.UserState.Played", "true" if state else "false")
+            self._refresh_current_screen(preserve_focus=True)
+        except Exception as exc:
+            self._error(exc)
+
     def _nav_click(self, control_id):
         if control_id == NAV_HOME:
             self.stack = []
@@ -569,7 +696,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             old_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
             self._modal_action_active = True
             try:
-                self.client.select_profile()
+                self.client.select_profile(show_loading=False)
             finally:
                 self._modal_action_active = False
             new_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
@@ -592,7 +719,35 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self._row_index = 0
                 self._initial_rows = None
                 self._refresh_current_screen(preserve_focus=False)
+    def _update_profile_properties(self):
+        cfg = getattr(self.client, "cfg", {}) or {}
+        display_name = str(
+            cfg.get("profile_display_name")
+            or ADDON.getSetting("profile_display_name")
+            or cfg.get("profile_name")
+            or cfg.get("username")
+            or ""
+        ).strip()
+        avatar = str(
+            cfg.get("profile_avatar")
+            or ADDON.getSetting("profile_avatar")
+            or ""
+        ).strip()
+        if avatar and not avatar.startswith(("http://", "https://", "image://")):
+            try:
+                avatar = self.client.abs_url(avatar)
+            except Exception:
+                pass
+        words = [part for part in display_name.replace("_", " ").split() if part]
+        initials = "".join(word[0] for word in words[:2]).upper()
+        if not initials and display_name:
+            initials = display_name[:1].upper()
+        self.setProperty("silo.profile.name", display_name)
+        self.setProperty("silo.avatar", avatar)
+        self.setProperty("silo.initials", initials)
+
     def _render(self):
+        self._update_profile_properties()
         if not ADDON.getSettingBool("cinematic_interface"):
             self.close()
             return
@@ -961,8 +1116,13 @@ class CinematicWindow(xbmcgui.WindowXML):
                 resume = tag.getResumePoint()
                 position = float(resume.timeInSeconds()) if resume else 0.0
                 duration = float(resume.totalTimeInSeconds()) if resume else 0.0
+                if position <= 0:
+                    position = float(item.get("position_seconds") or source.getProperty("Silo.PositionSeconds") or 0)
+                if duration <= 0:
+                    duration = float(item.get("duration_seconds") or source.getProperty("Silo.DurationSeconds") or tag.getDuration() or 0)
                 if duration > 0 and position > 0 and playcount == 0:
-                    source.setProperty("Silo.Cinematic.Progress", str(int(position * 100.0 / duration)))
+                    tag.setResumePoint(position, duration)
+                    source.setProperty("Silo.Cinematic.Progress", str(max(1, min(100, int(position * 100.0 / duration)))))
             except Exception:
                 pass
             badge = (self._hero_badge_list(item) or [""])[0]
@@ -1031,10 +1191,15 @@ class CinematicWindow(xbmcgui.WindowXML):
 
         user_state = item.get("user_state") if isinstance(item.get("user_state"), dict) else {}
         user_data = item.get("user_data") if isinstance(item.get("user_data"), dict) else {}
+        overlay = item.get("overlay_summary") if isinstance(item.get("overlay_summary"), dict) else {}
         state = user_state or user_data
-        played = bool(state.get("played"))
-        position = _value(item, "position_seconds", default=state.get("position_seconds", 0))
-        duration = _value(item, "duration_seconds", default=state.get("duration_seconds", 0))
+        played = state.get("played") is True
+        position = _value(item, "position_seconds", default=state.get("position_seconds", state.get("position", 0)))
+        duration = _value(item, "duration_seconds", default=state.get("duration_seconds", state.get("duration", 0)))
+        if not position:
+            position = _value(overlay, "position_seconds", "position", default=0)
+        if not duration:
+            duration = _value(overlay, "duration_seconds", "duration", default=0)
         try:
             position = max(0.0, float(position or 0))
         except (TypeError, ValueError):
