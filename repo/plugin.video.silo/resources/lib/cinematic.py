@@ -191,6 +191,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._row_index = 0
         self._hero_timer = None
         self._last_error = ""
+        self._hero_logo = ""
+        self._hero_badges_text = ""
+        self._hero_overview = ""
 
     def onInit(self):
         # Honour the same settings-first login path used by the standard root.
@@ -398,11 +401,13 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self.close()
                 return
 
+        show_hero = self.screen in ("home", "series", "details")
+        self._set_hero_visible(show_hero)
         self._set_active_nav()
         # Start on an always-visible control. Poster rails can be hidden or
         # empty during the first XML layout, so never force focus prematurely.
         self.setFocusId(self._active_nav_control())
-        if self.screen in ("home", "series", "details"):
+        if show_hero:
             self._show_rails(rows)
             if self._rows:
                 self._row_index = min(max(0, self._row_index), len(self._rows) - 1)
@@ -1106,7 +1111,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         plot = str(_value(item, "overview", "plot", "description", default=""))
         meta = self._hero_meta(item)
         badges = self._hero_badges(item)
-        self.setProperty("silo.cinematic.hero.logo", logo or "")
+        self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, plot
+        self.setProperty("silo.cinematic.hero.logo", self._hero_logo)
         self.setProperty("silo.cinematic.hero.type", media_type)
         self.setProperty("silo.cinematic.hero.badges", badges)
         try:
@@ -1116,8 +1122,30 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.getControl(HERO_PLOT).setText(plot[:500])
             self.getControl(100).setImage(backdrop or "")
             self.getControl(HERO_LOGO).setImage(logo or "")
+            self._set_hero_visible(self.screen in ("home", "series", "details"))
         except Exception:
             pass
+
+    def _set_hero_visible(self, visible):
+        """Keep the hero composition separate from browse grids and search."""
+        for control_id in (100, 105, 106):
+            try:
+                self.getControl(control_id).setVisible(bool(visible))
+            except Exception:
+                pass
+        states = {
+            HERO_TITLE: bool(visible) and not bool(self._hero_logo),
+            HERO_LOGO: bool(visible) and bool(self._hero_logo),
+            HERO_META: bool(visible),
+            HERO_BADGES: bool(visible) and bool(self._hero_badges_text),
+            HERO_PLOT: bool(visible) and bool(self._hero_overview),
+            135: bool(visible) and bool(self._hero_badges_text),
+        }
+        for control_id, state in states.items():
+            try:
+                self.getControl(control_id).setVisible(state)
+            except Exception:
+                pass
 
     def _update_hero_from_focus(self):
         """Update the feature area when focus changes within a poster list."""
@@ -1149,8 +1177,11 @@ class CinematicWindow(xbmcgui.WindowXML):
             poster = self._art(item, "poster_url", "poster", "thumb", "image", "icon")
             backdrop = self._art(item, "backdrop_url", "backdrop", "fanart", "poster_url", "poster")
             logo = self._art(item, "logo_url", "logo", "clearlogo")
+            badges = self._hero_badges(item)
+            self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, overview
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
+            self.getControl(HERO_BADGES).setLabel(badges)
             self.getControl(HERO_PLOT).setText(overview[:500])
             self.getControl(HERO_LOGO).setImage(logo or "")
             self.getControl(100).setImage(backdrop or poster or "")
@@ -1160,5 +1191,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             self.setProperty("silo.cinematic.hero.backdrop", backdrop or poster or "")
             self.setProperty("silo.cinematic.hero.poster", poster or "")
             self.setProperty("silo.cinematic.hero.logo", logo or "")
+            self.setProperty("silo.cinematic.hero.badges", badges)
+            self._set_hero_visible(self.screen in ("home", "series", "details"))
         except Exception as exc:
             xbmc.log("[plugin.video.silo] Silo Cinematic: hero artwork update failed: %s" % exc, xbmc.LOGDEBUG)
