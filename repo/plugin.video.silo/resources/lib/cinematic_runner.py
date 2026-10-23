@@ -6,6 +6,7 @@ can finish immediately. It is not a separate add-on: every setting and module
 belongs to plugin.video.silo.
 """
 import sys
+from urllib.parse import parse_qsl
 
 import xbmc
 import xbmcaddon
@@ -24,8 +25,42 @@ try:
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: main module imported", xbmc.LOGINFO)
     client = silo_main.SiloClient()
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: Silo client created", xbmc.LOGINFO)
-    # Show the WindowXML immediately. Its Home loader fetches sections in the
-    # background, so slow server endpoints cannot delay the whole UI.
+    # Direct links into Silo must use the cinematic window too. Decode the
+    # plugin route from main.router() and map it to a cinematic screen.
+    incoming_action = str(sys.argv[1] if len(sys.argv) > 1 else "root")
+    incoming_query = str(sys.argv[2] if len(sys.argv) > 2 else "").lstrip("?")
+    incoming_params = dict(parse_qsl(incoming_query, keep_blank_values=True))
+    initial_screen = "home"
+    initial_params = {}
+
+    if incoming_action == "libraries":
+        initial_screen = "libraries"
+    elif incoming_action == "library":
+        initial_screen, initial_params = "library", incoming_params
+    elif incoming_action == "your_stuff":
+        initial_screen = "your_stuff"
+    elif incoming_action == "personal_list":
+        initial_screen, initial_params = "personal", incoming_params
+    elif incoming_action == "collections":
+        initial_screen = "collections"
+    elif incoming_action == "collection":
+        initial_screen, initial_params = "collection", incoming_params
+    elif incoming_action in (
+        "person", "search", "home_section", "home_section_group",
+        "library_letter", "seasons", "season",
+    ):
+        if incoming_action == "search" and not incoming_params.get("query"):
+            query = str(xbmcgui.Dialog().input("Search Silo") or "").strip()
+            if query:
+                incoming_params["query"] = query
+            else:
+                incoming_action = "root"
+        if incoming_action != "root":
+            initial_screen = "directory"
+            initial_params = dict(incoming_params, route_action=incoming_action)
+
+    # Show the WindowXML immediately. Home itself loads asynchronously, so
+    # slow server responses never expose Kodi's normal unskinned directories.
     initial_rows = None
     row_capacity = 32
     profile_path = ADDON.getAddonInfo("profile")
@@ -41,6 +76,8 @@ try:
         silo_main.cinematic_load_directory,
         initial_rows=initial_rows,
         row_capacity=row_capacity,
+        initial_screen=initial_screen,
+        initial_params=initial_params,
     )
     while True:
         window = CinematicWindow(skin_name, skin_path, "Default", "1080i")
@@ -67,6 +104,8 @@ try:
             silo_main.cinematic_load_directory,
             initial_rows=initial_rows,
             row_capacity=row_capacity,
+            initial_screen="home",
+            initial_params={},
         )
 
     if not ADDON.getSettingBool("cinematic_interface"):

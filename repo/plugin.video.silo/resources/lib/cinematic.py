@@ -28,7 +28,6 @@ NAV_HOME = 210
 NAV_LIBRARIES = 211
 NAV_SEARCH = 201
 NAV_YOUR_STUFF = 212
-NAV_SETTINGS = 204
 NAV_PROFILE = 230
 NAV_LOGOUT = 205
 NAV_SWITCH_SERVER = 643
@@ -104,16 +103,21 @@ class CinematicWindow(xbmcgui.WindowXML):
     _launch_directory_loader = None
     _launch_initial_rows = None
     _launch_row_capacity = MIN_ROW_SLOTS
+    _launch_screen = "home"
+    _launch_params = {}
 
     @classmethod
     def configure(cls, client, base_url, root_loader=None, directory_loader=None,
-                  initial_rows=None, row_capacity=MIN_ROW_SLOTS):
+                  initial_rows=None, row_capacity=MIN_ROW_SLOTS,
+                  initial_screen="home", initial_params=None):
         cls._launch_client = client
         cls._launch_base_url = str(base_url or "plugin://plugin.video.silo/")
         cls._launch_root_loader = root_loader
         cls._launch_directory_loader = directory_loader
         cls._launch_initial_rows = initial_rows
         cls._launch_row_capacity = max(MIN_ROW_SLOTS, int(row_capacity or MIN_ROW_SLOTS))
+        cls._launch_screen = str(initial_screen or "home")
+        cls._launch_params = dict(initial_params or {})
 
     @staticmethod
     def prepare_runtime_skin(addon_path, profile_path, row_capacity):
@@ -207,8 +211,8 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._row_capacity = max(
             MIN_ROW_SLOTS, int(type(self)._launch_row_capacity or MIN_ROW_SLOTS)
         )
-        self.screen = "home"
-        self.params = {}
+        self.screen = str(type(self)._launch_screen or "home")
+        self.params = dict(type(self)._launch_params or {})
         self.stack = []
         self._rows = []
         self._row_items = {}
@@ -358,7 +362,7 @@ class CinematicWindow(xbmcgui.WindowXML):
 
         nav_ids = (
             NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-            NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+            NAV_PROFILE, NAV_LOGOUT,
         )
         if focus_id in nav_ids and action_id == 4:
             self._focus_first_content()
@@ -373,7 +377,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         if (
             control_id in (
                 GRID_CONTROL, NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+                NAV_PROFILE, NAV_LOGOUT,
             )
             or self._row_of(control_id) is not None
         ):
@@ -383,7 +387,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             if control_id in (
                 NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+                NAV_PROFILE, NAV_LOGOUT,
             ):
                 self._nav_click(control_id)
                 return
@@ -803,8 +807,6 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self._push("search", {"query": query})
         elif control_id == NAV_YOUR_STUFF:
             self._push("your_stuff")
-        elif control_id == NAV_SETTINGS:
-            self._open_settings_and_refresh()
         elif control_id == NAV_SWITCH_SERVER:
             self._switch_server()
         elif control_id == NAV_EDIT_HOME:
@@ -1236,7 +1238,6 @@ class CinematicWindow(xbmcgui.WindowXML):
             NAV_LIBRARIES: "Libraries",
             NAV_SEARCH: "",
             NAV_YOUR_STUFF: "Your Stuff",
-            NAV_SETTINGS: "Settings",
             NAV_PROFILE: "",
             NAV_LOGOUT: "Log Out",
         }

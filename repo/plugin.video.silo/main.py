@@ -9632,21 +9632,32 @@ def router(client):
 
     action = params.get("action")
 
-    # The cinematic UI is deliberately optional. It opens only for the add-on's
-    # root entry point; every existing action continues through the established
-    # Kodi directory and playback handlers.
-    if ADDON.getSettingBool("cinematic_interface") and action in (None, "root"):
-        # Complete the plugin request promptly. The long-lived WindowXML runs
-        # in a script add-on, like Silo-Theater, so Kodi will not kill this
-        # plugin invocation while a modal window is open.
+    # When cinematic mode is enabled, all normal browse routes stay in the
+    # WindowXML presentation. Previously only the root entry point was
+    # intercepted, so a deep link or older directory URL could fall through to
+    # Kodi's active skin and display an unskinned directory.
+    cinematic_directory_actions = {
+        "person", "search", "home_section", "home_section_group", "your_stuff",
+        "personal_list", "collections", "collection", "libraries", "library",
+        "library_letter", "seasons", "season",
+    }
+    if ADDON.getSettingBool("cinematic_interface") and (
+        action in (None, "root") or action in cinematic_directory_actions
+    ):
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
-        log("Silo Cinematic: directory request completed; launching in-addon window runner")
-        # Run a short script from this same add-on. It explicitly opens the
-        # plugin.video.silo settings context, then owns the WindowXML in its
-        # own Kodi script process; the plugin directory request can finish.
-        runner_path = os.path.join(ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py")
-        xbmc.executebuiltin("RunScript(%s)" % runner_path)
+        log("Silo Cinematic: routing %s into the in-addon window runner" % (action or "root"))
+        runner_path = os.path.join(
+            ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py"
+        )
+        command = "RunScript(%s)" % runner_path
+        if action not in (None, "root"):
+            route_params = dict(params)
+            route_params.pop("action", None)
+            command = "RunScript(%s,%s,%s)" % (
+                runner_path, action, urlencode(route_params)
+            )
+        xbmc.executebuiltin(command)
         return
 
     # Track whether the dedicated Watch Party lobby is the currently rendered

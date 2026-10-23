@@ -6316,7 +6316,7 @@
             <onup>212</onup>
             <ondown>212</ondown>
             <onleft>211</onleft>
-            <onright>204</onright>
+            <onright>205</onright>
           </control>
           <control type="label">
             <left>0</left>
@@ -6331,52 +6331,8 @@
             <visible>String.IsEqual(Window.Property(silo.tab),series) + !Control.HasFocus(212)</visible>
           </control>
         </control>
-        <control type="group" id="207">
-          <left>516</left>
-          <top>2</top>
-          <width>172</width>
-          <height>60</height>
-          <control type="image">
-            <left>0</left>
-            <top>0</top>
-            <width>172</width>
-            <height>60</height>
-            <texture border="30">pill60_selected.png</texture>
-            <visible>String.IsEqual(Window.Property(silo.tab),calendar) + !Control.HasFocus(204)</visible>
-          </control>
-          <control type="button" id="204">
-            <left>0</left>
-            <top>0</top>
-            <width>172</width>
-            <height>60</height>
-            <label>Settings</label>
-            <font>font25_title</font>
-            <textcolor>9EEDEDED</textcolor>
-            <focusedcolor>FF000000</focusedcolor>
-            <align>center</align>
-            <aligny>center</aligny>
-            <texturefocus colordiffuse="FFEDEDED" border="30">pill60.png</texturefocus>
-            <texturenofocus/>
-            <onup>204</onup>
-            <ondown>204</ondown>
-            <onleft>212</onleft>
-            <onright>205</onright>
-          </control>
-          <control type="label">
-            <left>0</left>
-            <top>0</top>
-            <width>172</width>
-            <height>60</height>
-            <font>font25_title</font>
-            <textcolor>FFEDEDED</textcolor>
-            <align>center</align>
-            <aligny>center</aligny>
-            <label>Settings</label>
-            <visible>String.IsEqual(Window.Property(silo.tab),calendar) + !Control.HasFocus(204)</visible>
-          </control>
-        </control>
         <control type="group" id="208">
-          <left>696</left>
+          <left>516</left>
           <top>2</top>
           <width>172</width>
           <height>60</height>
@@ -6403,7 +6359,7 @@
             <texturenofocus/>
             <onup>205</onup>
             <ondown>205</ondown>
-            <onleft>204</onleft>
+            <onleft>212</onleft>
             <onright>230</onright>
           </control>
           <control type="label">
