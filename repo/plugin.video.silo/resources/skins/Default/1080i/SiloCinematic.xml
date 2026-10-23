@@ -6331,52 +6331,8 @@
             <visible>String.IsEqual(Window.Property(silo.tab),series) + !Control.HasFocus(212)</visible>
           </control>
         </control>
-        <control type="group" id="206">
-          <left>516</left>
-          <top>2</top>
-          <width>156</width>
-          <height>60</height>
-          <control type="image">
-            <left>0</left>
-            <top>0</top>
-            <width>156</width>
-            <height>60</height>
-            <texture border="30">pill60_selected.png</texture>
-            <visible>String.IsEqual(Window.Property(silo.tab),for_you) + !Control.HasFocus(203)</visible>
-          </control>
-          <control type="button" id="203">
-            <left>0</left>
-            <top>0</top>
-            <width>156</width>
-            <height>60</height>
-            <label>Collections</label>
-            <font>font25_title</font>
-            <textcolor>9EEDEDED</textcolor>
-            <focusedcolor>FF000000</focusedcolor>
-            <align>center</align>
-            <aligny>center</aligny>
-            <texturefocus colordiffuse="FFEDEDED" border="30">pill60.png</texturefocus>
-            <texturenofocus/>
-            <onup>203</onup>
-            <ondown>203</ondown>
-            <onleft>212</onleft>
-            <onright>204</onright>
-          </control>
-          <control type="label">
-            <left>0</left>
-            <top>0</top>
-            <width>156</width>
-            <height>60</height>
-            <font>font25_title</font>
-            <textcolor>FFEDEDED</textcolor>
-            <align>center</align>
-            <aligny>center</aligny>
-            <label>Collections</label>
-            <visible>String.IsEqual(Window.Property(silo.tab),for_you) + !Control.HasFocus(203)</visible>
-          </control>
-        </control>
         <control type="group" id="207">
-          <left>680</left>
+          <left>516</left>
           <top>2</top>
           <width>172</width>
           <height>60</height>
@@ -6403,7 +6359,7 @@
             <texturenofocus/>
             <onup>204</onup>
             <ondown>204</ondown>
-            <onleft>203</onleft>
+            <onleft>212</onleft>
             <onright>205</onright>
           </control>
           <control type="label">
@@ -6420,7 +6376,7 @@
           </control>
         </control>
         <control type="group" id="208">
-          <left>860</left>
+          <left>696</left>
           <top>2</top>
           <width>172</width>
           <height>60</height>
@@ -6527,13 +6483,13 @@
       <left>1352</left>
       <top>128</top>
       <width>480</width>
-      <height>600</height>
+      <height>384</height>
       <visible>!String.IsEmpty(Window.Property(silo.menu))</visible>
       <control type="image" id="601">
         <left>0</left>
         <top>0</top>
         <width>480</width>
-        <height>600</height>
+        <height>384</height>
         <texture border="24">panel.png</texture>
       </control>
       <control type="button" id="610">
@@ -6556,63 +6512,6 @@
         <onright>610</onright>
         <visible>String.IsEmpty(Window.Property(silo.profile_locked))</visible>
       </control>
-      <control type="button" id="613">
-        <left>16</left>
-        <top>88</top>
-        <width>448</width>
-        <height>64</height>
-        <label>Watchlist</label>
-        <font>font25_title</font>
-        <textcolor>FFEDEDED</textcolor>
-        <focusedcolor>FF000000</focusedcolor>
-        <align>left</align>
-        <aligny>center</aligny>
-        <textoffsetx>24</textoffsetx>
-        <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
-        <texturenofocus/>
-        <onup>610</onup>
-        <ondown>614</ondown>
-        <onleft>613</onleft>
-        <onright>613</onright>
-      </control>
-      <control type="button" id="614">
-        <left>16</left>
-        <top>160</top>
-        <width>448</width>
-        <height>64</height>
-        <label>Favorites</label>
-        <font>font25_title</font>
-        <textcolor>FFEDEDED</textcolor>
-        <focusedcolor>FF000000</focusedcolor>
-        <align>left</align>
-        <aligny>center</aligny>
-        <textoffsetx>24</textoffsetx>
-        <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
-        <texturenofocus/>
-        <onup>613</onup>
-        <ondown>615</ondown>
-        <onleft>614</onleft>
-        <onright>614</onright>
-      </control>
-      <control type="button" id="615">
-        <left>16</left>
-        <top>232</top>
-        <width>448</width>
-        <height>64</height>
-        <label>History</label>
-        <font>font25_title</font>
-        <textcolor>FFEDEDED</textcolor>
-        <focusedcolor>FF000000</focusedcolor>
-        <align>left</align>
-        <aligny>center</aligny>
-        <textoffsetx>24</textoffsetx>
-        <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
-        <texturenofocus/>
-        <onup>614</onup>
-        <ondown>611</ondown>
-        <onleft>615</onleft>
-        <onright>615</onright>
-      </control>
       <control type="button" id="611">
         <left>16</left>
         <top>304</top>
@@ -6627,14 +6526,14 @@
         <textoffsetx>24</textoffsetx>
         <texturefocus colordiffuse="FFEDEDED" border="16">round16.png</texturefocus>
         <texturenofocus/>
-        <onup>615</onup>
+        <onup>610</onup>
         <ondown>616</ondown>
         <onleft>611</onleft>
         <onright>611</onright>
       </control>
       <control type="button" id="616">
         <left>16</left>
-        <top>376</top>
+        <top>160</top>
         <width>448</width>
         <height>64</height>
         <label>Edit home rows</label>
@@ -6653,7 +6552,7 @@
       </control>
       <control type="button" id="617">
         <left>16</left>
-        <top>448</top>
+        <top>232</top>
         <width>448</width>
         <height>64</height>
         <label>Switch server</label>
@@ -6672,7 +6571,7 @@
       </control>
       <control type="button" id="612">
         <left>16</left>
-        <top>520</top>
+        <top>304</top>
         <width>448</width>
         <height>64</height>
         <label>Sign out</label>

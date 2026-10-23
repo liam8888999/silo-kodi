@@ -28,7 +28,6 @@ NAV_HOME = 210
 NAV_LIBRARIES = 211
 NAV_SEARCH = 201
 NAV_YOUR_STUFF = 212
-NAV_COLLECTIONS = 203
 NAV_SETTINGS = 204
 NAV_PROFILE = 230
 NAV_LOGOUT = 205
@@ -359,7 +358,7 @@ class CinematicWindow(xbmcgui.WindowXML):
 
         nav_ids = (
             NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-            NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+            NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
         )
         if focus_id in nav_ids and action_id == 4:
             self._focus_first_content()
@@ -374,7 +373,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         if (
             control_id in (
                 GRID_CONTROL, NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+                NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
             )
             or self._row_of(control_id) is not None
         ):
@@ -384,12 +383,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             if control_id in (
                 NAV_HOME, NAV_LIBRARIES, NAV_SEARCH, NAV_YOUR_STUFF,
-                NAV_COLLECTIONS, NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
+                NAV_SETTINGS, NAV_PROFILE, NAV_LOGOUT,
             ):
                 self._nav_click(control_id)
                 return
             # Profile menu controls are actual actions in the Theater skin.
-            if control_id in (610, 611, 612, 613, 614, 615, 616, 617):
+            if control_id in (610, 611, 612, 616, 617):
                 self._profile_menu_click(control_id)
                 return
             if control_id == GRID_CONTROL:
@@ -785,12 +784,6 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self._row_index = 0
                 self._initial_rows = None
                 self._refresh_current_screen(preserve_focus=False)
-        elif control_id == 613:
-            self._push("directory", {"route_action": "personal_list", "source": "watchlist", "title": "Watchlist"})
-        elif control_id == 614:
-            self._push("directory", {"route_action": "personal_list", "source": "favorites", "title": "Favorites"})
-        elif control_id == 615:
-            self._push("directory", {"route_action": "personal_list", "source": "history", "title": "History"})
         elif control_id == 616:
             self._manage_home_rows()
         elif control_id == 617:
@@ -810,8 +803,6 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self._push("search", {"query": query})
         elif control_id == NAV_YOUR_STUFF:
             self._push("your_stuff")
-        elif control_id == NAV_COLLECTIONS:
-            self._push("collections")
         elif control_id == NAV_SETTINGS:
             self._open_settings_and_refresh()
         elif control_id == NAV_SWITCH_SERVER:
@@ -1219,7 +1210,7 @@ class CinematicWindow(xbmcgui.WindowXML):
     def _active_nav_control(self):
         return {
             "home": NAV_HOME, "libraries": NAV_LIBRARIES, "search": NAV_SEARCH,
-            "your_stuff": NAV_YOUR_STUFF, "collections": NAV_COLLECTIONS,
+            "your_stuff": NAV_YOUR_STUFF, "collections": NAV_YOUR_STUFF,
         }.get(self._active_nav(), NAV_HOME)
 
     def _active_nav(self):
@@ -1233,7 +1224,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         if current in ("personal", "your_stuff"):
             return "your_stuff"
         if current in ("collections", "collection"):
-            return "collections"
+            return "your_stuff"
         if current == "search":
             return "search"
         return "home"
@@ -1245,7 +1236,6 @@ class CinematicWindow(xbmcgui.WindowXML):
             NAV_LIBRARIES: "Libraries",
             NAV_SEARCH: "",
             NAV_YOUR_STUFF: "Your Stuff",
-            NAV_COLLECTIONS: "Collections",
             NAV_SETTINGS: "Settings",
             NAV_PROFILE: "",
             NAV_LOGOUT: "Log Out",
