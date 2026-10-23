@@ -5,6 +5,7 @@ main playback route remain authoritative for authentication, versions, resume
 positions and playback progress.
 """
 import copy
+import datetime
 import json
 import os
 import shutil
@@ -1102,8 +1103,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         labels = {"movie": "MOVIE", "series": "TV SERIES", "episode": "EPISODE", "season": "SEASON", "video": "VIDEO"}
         parts = [labels.get(media_type, media_type.replace("_", " ").upper())]
         year = _value(item, "year", "release_year")
-        if year:
-            parts.append(str(year))
+        try:
+            year_number = int(str(year).strip())
+            if 1888 <= year_number <= datetime.datetime.now().year + 1:
+                parts.append(str(year_number))
+        except (TypeError, ValueError):
+            pass
         if media_type == "episode":
             try:
                 parts.append("S%02dE%02d" % (int(_value(item, "season_number")), int(_value(item, "episode_number"))))
@@ -1129,32 +1134,29 @@ class CinematicWindow(xbmcgui.WindowXML):
                     break
         if rating:
             parts.append(rating)
-        for key in ("genres", "content_rating", "premiered"):
-            value = _value(item, key)
-            if isinstance(value, (list, tuple, set)):
-                value = " / ".join(str(v).strip() for v in value if str(v).strip())
-            value = str(value or "").strip()
-            if value and value not in parts:
-                parts.append(value)
+        # Keep genres and certification in the details block/badges only.
+        # Kodi's optional premiere/first-aired fields may contain placeholder
+        # dates for unknown metadata, so don't present them as facts.
         return "   ·   ".join(part for part in parts if part)
 
     def _detail_text(self, item):
-        """Readable, deduplicated metadata for cards and the focused hero."""
+        """Secondary details without repeating genres, ratings or premiere dates."""
         fields = [
-            ("genres", "genres", "genre"),
-            ("directors", "directors", "director"),
-            ("studios", "studios", "studio", "network"),
-            ("premiered", "premiered", "first_aired", "air_date"),
-            ("content_rating", "content_rating", "official_rating", "mpaa"),
+            ("Genres", ("genres", "genre")),
+            ("Director", ("directors", "director")),
+            ("Studio", ("studios", "studio", "network")),
         ]
         parts = []
-        for label, *keys in fields:
+        seen_values = set()
+        for label, keys in fields:
             value = _value(item, *keys)
             if isinstance(value, (list, tuple, set)):
                 value = " · ".join(str(v).strip() for v in value if str(v).strip())
             value = str(value or "").strip()
-            if value and value not in parts:
-                parts.append(value)
+            if not value or value.casefold() in seen_values:
+                continue
+            seen_values.add(value.casefold())
+            parts.append("%s: %s" % (label, value))
         original_title = str(_value(item, "original_title") or "").strip()
         title = _display_title(item)
         if original_title and original_title.casefold() != title.casefold():
@@ -1197,9 +1199,10 @@ class CinematicWindow(xbmcgui.WindowXML):
         backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url", "poster_url", "poster")
         plot = str(_value(item, "overview", "plot", "description", default=""))
         details = self._detail_text(item)
+        synopsis = "\n".join(part for part in (plot, details) if part)
         meta = self._hero_meta(item)
         badges = self._hero_badges(item)
-        self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, plot
+        self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, synopsis
         self._hero_badge_values = self._hero_badge_list(item)
         self.setProperty("silo.cinematic.hero.logo", self._hero_logo)
         self.setProperty("silo.cinematic.hero.type", media_type)
@@ -1212,12 +1215,30 @@ class CinematicWindow(xbmcgui.WindowXML):
         try:
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_PLOT).setText("\\n".join(part for part in (plot, details) if part)[:1200])
+            self._set_hero_synopsis(synopsis[:2400])
             self.getControl(100).setImage(backdrop or "")
             self.getControl(HERO_LOGO).setImage(logo or "")
             self._set_hero_visible(True)
         except Exception:
             pass
+
+    def _set_hero_synopsis(self, text):
+        """Set real multiline text and restart scrolling after each selection change."""
+        try:
+            control = self.getControl(HERO_PLOT)
+            control.setText(str(text or ""))
+            try:
+                control.scroll(0)
+            except Exception:
+                pass
+            try:
+                # A new SetText() can leave skin-defined scrolling stopped;
+                # explicitly re-arm it for the new description.
+                control.autoScroll(7000, 3000, 5000)
+            except Exception:
+                pass
+        except Exception as exc:
+            xbmc.log("[plugin.video.silo] Silo Cinematic synopsis update failed: %s" % exc, xbmc.LOGDEBUG)
 
     def _set_hero_visible(self, visible):
         """Keep the hero composition separate from browse grids and search."""
@@ -1317,16 +1338,16 @@ class CinematicWindow(xbmcgui.WindowXML):
             meta = self._hero_meta(item)
             overview = str(_value(item, "overview", "plot", "description", default="") or "")
             details = self._detail_text(item)
-            synopsis = "\\n".join(part for part in (overview, details) if part)
+            synopsis = "\n".join(part for part in (overview, details) if part)
             poster = self._art(item, "poster_url", "poster", "thumb", "image", "icon")
             backdrop = self._art(item, "backdrop_url", "backdrop", "fanart", "poster_url", "poster")
             logo = self._art(item, "logo_url", "logo", "clearlogo")
             badges = self._hero_badges(item)
-            self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, overview
+            self._hero_logo, self._hero_badges_text, self._hero_overview = logo or "", badges, synopsis
             self._hero_badge_values = self._hero_badge_list(item)
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_PLOT).setText(synopsis[:1200])
+            self._set_hero_synopsis(synopsis[:2400])
             self.getControl(HERO_LOGO).setImage(logo or "")
             self.getControl(100).setImage(backdrop or poster or "")
             self.setProperty("silo.cinematic.hero.title", title)
