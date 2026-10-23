@@ -252,6 +252,13 @@ class CinematicWindow(xbmcgui.WindowXML):
         action_id = action.getId()
         focus_id = self.getFocusId()
         if action_id in (9, 10, 92, 216, 247, 257, 61448):
+            if self.getProperty("silo.menu"):
+                self.setProperty("silo.menu", "")
+                try:
+                    self.setFocusId(NAV_PROFILE)
+                except Exception:
+                    pass
+                return
             if self.stack:
                 snapshot = self.stack.pop()
                 self.screen = snapshot.get("screen", "home")
@@ -353,6 +360,10 @@ class CinematicWindow(xbmcgui.WindowXML):
             ):
                 self._nav_click(control_id)
                 return
+            # Profile menu controls are actual actions in the Theater skin.
+            if control_id in (610, 611, 612, 613, 614, 615, 616, 617):
+                self._profile_menu_click(control_id)
+                return
             if control_id == GRID_CONTROL:
                 selected = self.getControl(GRID_CONTROL).getSelectedItem()
             elif self._row_of(control_id) is not None:
@@ -369,7 +380,6 @@ class CinematicWindow(xbmcgui.WindowXML):
                 self._item_click(action, payload)
         except Exception as exc:
             self._error(exc)
-
     def _error(self, exc):
         message = str(exc or "Unable to open this screen.")
         self._last_error = message
@@ -600,7 +610,8 @@ class CinematicWindow(xbmcgui.WindowXML):
             callbacks.append(("details", "details", payload))
         if content_id:
             actions.append("Title details")
-            callbacks.append(("details", "details", payload))
+            detail_action = "series" if media_type == "series" else "details"
+            callbacks.append(("details", detail_action, payload))
         if playable:
             actions.append("Play / Resume")
             callbacks.append(("play", "play", payload))
@@ -633,7 +644,7 @@ class CinematicWindow(xbmcgui.WindowXML):
             if kind == "open":
                 self._item_click(action_name, action_payload)
             else:
-                self._item_click("details", action_payload)
+                self._item_click(action_name or "details", action_payload)
             return
         if kind == "play":
             self._item_click("play", action_payload)
@@ -671,6 +682,56 @@ class CinematicWindow(xbmcgui.WindowXML):
         except Exception as exc:
             self._error(exc)
 
+    def _close_profile_menu(self):
+        self.setProperty("silo.menu", "")
+        try:
+            self.setFocusId(NAV_PROFILE)
+        except Exception:
+            pass
+
+    def _profile_menu_click(self, control_id):
+        self._close_profile_menu()
+        if control_id == 610:
+            # The profile chooser is only opened on an explicit menu action,
+            # never merely because Kodi restores focus to the avatar.
+            old_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
+            self._modal_action_active = True
+            try:
+                self.client.select_profile(show_loading=False)
+            finally:
+                self._modal_action_active = False
+            new_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
+            if old_profile != new_profile:
+                self.screen, self.params, self.stack = "home", {}, []
+                self._row_index = 0
+                self._initial_rows = None
+            self._update_profile_properties()
+            self._refresh_current_screen(preserve_focus=old_profile == new_profile)
+        elif control_id == 611:
+            self._open_settings_and_refresh()
+        elif control_id == 612:
+            self._modal_action_active = True
+            try:
+                confirm = xbmcgui.Dialog().yesno("Silo", "Sign out of this Silo account?")
+            finally:
+                self._modal_action_active = False
+            if confirm:
+                self.client.logout()
+                self.screen, self.params, self.stack = "home", {}, []
+                self._row_index = 0
+                self._initial_rows = None
+                self._refresh_current_screen(preserve_focus=False)
+        elif control_id == 613:
+            self._push("directory", {"route_action": "personal_list", "source": "watchlist", "title": "Watchlist"})
+        elif control_id == 614:
+            self._push("directory", {"route_action": "personal_list", "source": "favorites", "title": "Favorites"})
+        elif control_id == 615:
+            self._push("directory", {"route_action": "personal_list", "source": "history", "title": "History"})
+        elif control_id == 616:
+            self._manage_home_rows()
+        elif control_id == 617:
+            self._switch_server()
+
     def _nav_click(self, control_id):
         if control_id == NAV_HOME:
             self.stack = []
@@ -693,20 +754,13 @@ class CinematicWindow(xbmcgui.WindowXML):
         elif control_id == NAV_EDIT_HOME:
             self._manage_home_rows()
         elif control_id == NAV_PROFILE:
-            old_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
-            self._modal_action_active = True
+            # Match Silo-Theater: the avatar opens the profile menu; it does not
+            # immediately trigger profile selection whenever it regains focus.
+            self.setProperty("silo.menu", "profile")
             try:
-                self.client.select_profile(show_loading=False)
-            finally:
-                self._modal_action_active = False
-            new_profile = (getattr(self.client, "cfg", {}) or {}).get("profile_id")
-            if old_profile != new_profile:
-                # Content IDs and home rows are profile scoped, so return to
-                # Home after a real profile change and discard the old route.
-                self.screen, self.params, self.stack = "home", {}, []
-                self._row_index = 0
-                self._initial_rows = None
-            self._refresh_current_screen(preserve_focus=old_profile == new_profile)
+                self.setFocusId(610)
+            except Exception:
+                pass
         elif control_id == NAV_LOGOUT:
             self._modal_action_active = True
             try:
