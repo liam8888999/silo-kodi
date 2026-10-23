@@ -9173,18 +9173,18 @@ def router(client):
     # The cinematic UI is deliberately optional. It opens only for the add-on's
     # root entry point; every existing action continues through the established
     # Kodi directory and playback handlers.
-    if ADDON.getSettingBool("theater_interface") and action in (None, "root"):
-        from resources.lib.theater import TheaterWindow
+    if ADDON.getSettingBool("cinematic_interface") and action in (None, "root"):
+        from resources.lib.cinematic import CinematicWindow
 
-        TheaterWindow.configure(client, BASE_URL)
-        window = TheaterWindow(
-            "SiloTheater.xml",
+        CinematicWindow.configure(client, BASE_URL)
+        window = CinematicWindow(
+            "SiloCinematic.xml",
             ADDON.getAddonInfo("path"),
             "Default",
             "1080i",
         )
         window.doModal()
-        if not ADDON.getSettingBool("theater_interface"):
+        if not ADDON.getSettingBool("cinematic_interface"):
             # Turning the feature off from its own Settings menu should return
             # to the normal Kodi directory, not leave an empty container behind.
             xbmc.executebuiltin("Container.Refresh")
@@ -9353,10 +9353,10 @@ def router(client):
             in ("1", "true", "yes"),
         )
         # The custom window closes before playback so Kodi's player has focus.
-        # After the existing progress monitor finishes, reopen the theater UI.
+        # After the existing progress monitor finishes, reopen the Silo Cinematic UI.
         if (
-            str(params.get("theater_return", "")).strip().lower() in ("1", "true", "yes")
-            and ADDON.getSettingBool("theater_interface")
+            str(params.get("cinematic_return", "")).strip().lower() in ("1", "true", "yes")
+            and ADDON.getSettingBool("cinematic_interface")
         ):
             xbmc.executebuiltin("Container.Update(%s)" % BASE_URL)
         return
