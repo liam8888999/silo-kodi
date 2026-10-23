@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Standalone window runner inside plugin.video.silo.
+"""Standalone WindowXML runner for the Silo cinematic interface.
 
-Kodi runs this file in its own script process so the plugin-directory request
-can finish immediately. It is not a separate add-on: every setting and module
-belongs to plugin.video.silo.
+Start the window before importing the large plugin router. The router and Silo
+Home loaders are initialized in a background thread so Kodi can paint the
+cinematic loading state immediately rather than waiting for module startup.
 """
+import importlib
+import os
 import sys
+import threading
 from urllib.parse import parse_qsl
 
 import xbmc
 import xbmcaddon
 import xbmcgui
+import xbmcvfs
 
 ADDON_ID = "plugin.video.silo"
 ADDON = xbmcaddon.Addon(ADDON_ID)
@@ -19,14 +23,13 @@ if ADDON_PATH and ADDON_PATH not in sys.path:
     sys.path.insert(0, ADDON_PATH)
 
 try:
-    import main as silo_main
-    from resources.lib.cinematic import CinematicWindow
+    from resources.lib.silo import SiloClient
+    from resources.lib.cinematic import CinematicWindow, MIN_ROW_SLOTS, WINDOW_XML
 
-    xbmc.log("[plugin.video.silo] Silo Cinematic runner: main module imported", xbmc.LOGINFO)
-    client = silo_main.SiloClient()
-    xbmc.log("[plugin.video.silo] Silo Cinematic runner: Silo client created", xbmc.LOGINFO)
-    # Direct links into Silo must use the cinematic window too. Decode the
-    # plugin route from main.router() and map it to a cinematic screen.
+    # Creating the client reads saved configuration only; network requests are
+    # made by the worker-backed Home loader after the WindowXML is visible.
+    client = SiloClient()
+
     incoming_action = str(sys.argv[1] if len(sys.argv) > 1 else "root")
     incoming_query = str(sys.argv[2] if len(sys.argv) > 2 else "").lstrip("?")
     incoming_params = dict(parse_qsl(incoming_query, keep_blank_values=True))
@@ -59,49 +62,120 @@ try:
             initial_screen = "directory"
             initial_params = dict(incoming_params, route_action=incoming_action)
 
-    # Show the WindowXML immediately. Home itself loads asynchronously, so
-    # slow server responses never expose Kodi's normal unskinned directories.
-    initial_rows = None
-    row_capacity = 32
     profile_path = ADDON.getAddonInfo("profile")
-    if profile_path and not __import__("os").path.isabs(profile_path):
-        profile_path = __import__("xbmcvfs").translatePath(profile_path)
-    skin_name, skin_path = CinematicWindow.prepare_runtime_skin(
-        ADDON_PATH, profile_path or ADDON_PATH, row_capacity
-    )
+    if profile_path and not os.path.isabs(profile_path):
+        profile_path = xbmcvfs.translatePath(profile_path)
+    profile_path = profile_path or ADDON_PATH
+
+    # Importing main.py takes longer than constructing the skin. Let the
+    # current WindowXML render first, then publish the backend module for the
+    # asynchronous loaders to use.
+    bootstrap = {"module": None, "error": None}
+    bootstrap_ready = threading.Event()
+
+    def import_backend():
+        try:
+            bootstrap["module"] = importlib.import_module("main")
+            xbmc.log(
+                "[plugin.video.silo] Cinematic backend import completed",
+                xbmc.LOGINFO,
+            )
+        except Exception as exc:
+            bootstrap["error"] = exc
+            xbmc.log(
+                "[plugin.video.silo] Cinematic backend import failed: %s" % exc,
+                xbmc.LOGERROR,
+            )
+        finally:
+            bootstrap_ready.set()
+
+    def get_backend():
+        if not bootstrap_ready.wait(120):
+            raise RuntimeError("Silo backend initialization timed out.")
+        if bootstrap["error"] is not None:
+            raise RuntimeError("Silo backend initialization failed: %s" % bootstrap["error"])
+        module = bootstrap["module"]
+        if module is None:
+            raise RuntimeError("Silo backend did not initialize.")
+        return module
+
+    def load_home(_client):
+        module = get_backend()
+        rows = module.cinematic_root_rows(client) or []
+
+        # When there are more Home rails than the bundled skin has slots,
+        # prepare the expanded layout on this worker thread. The current skin
+        # stays visible while the server rows and expanded XML are prepared.
+        row_count = sum(
+            1 for row in rows
+            if row and len(row) > 1 and row[0] and row[1]
+        )
+        if row_count > MIN_ROW_SLOTS:
+            try:
+                CinematicWindow.prepare_runtime_skin(
+                    ADDON_PATH, profile_path, row_count
+                )
+            except Exception as exc:
+                xbmc.log(
+                    "[plugin.video.silo] Background cinematic skin sizing failed: %s" % exc,
+                    xbmc.LOGWARNING,
+                )
+        return rows
+
+    def load_directory(_client, action, params=None):
+        module = get_backend()
+        return module.cinematic_load_directory(client, action, params or {}) or []
+
+    # Use the bundled skin immediately. Generating a 32-row runtime XML before
+    # doModal() was the avoidable multi-second delay on every add-on launch.
+    skin_name, skin_path = WINDOW_XML, ADDON_PATH
+    row_capacity = MIN_ROW_SLOTS
     CinematicWindow.configure(
         client,
         "plugin://plugin.video.silo/",
-        silo_main.cinematic_root_rows,
-        silo_main.cinematic_load_directory,
-        initial_rows=initial_rows,
+        load_home,
+        load_directory,
+        initial_rows=None,
         row_capacity=row_capacity,
         initial_screen=initial_screen,
         initial_params=initial_params,
     )
+
+    threading.Thread(
+        target=import_backend,
+        name="SiloCinematicBackendImport",
+        daemon=True,
+    ).start()
+
     while True:
+        xbmc.log(
+            "[plugin.video.silo] Silo Cinematic runner: opening window immediately",
+            xbmc.LOGINFO,
+        )
         window = CinematicWindow(skin_name, skin_path, "Default", "1080i")
-        xbmc.log("[plugin.video.silo] Silo Cinematic runner: window constructed; opening", xbmc.LOGINFO)
         try:
             window.doModal()
             result = getattr(window, "result", "")
         finally:
             del window
             xbmc.log("[plugin.video.silo] Silo Cinematic runner: window closed", xbmc.LOGINFO)
+
         if result != "rebuild":
             break
-        # The window publishes the loaded rows and required capacity before it
-        # closes. Reuse those results instead of issuing every Home request again.
+
         initial_rows = getattr(CinematicWindow, "_launch_initial_rows", None)
-        row_capacity = max(32, int(getattr(CinematicWindow, "_launch_row_capacity", 32) or 32))
+        row_capacity = max(
+            MIN_ROW_SLOTS,
+            int(getattr(CinematicWindow, "_launch_row_capacity", MIN_ROW_SLOTS) or MIN_ROW_SLOTS),
+        )
         skin_name, skin_path = CinematicWindow.prepare_runtime_skin(
-            ADDON_PATH, profile_path or ADDON_PATH, row_capacity
+            ADDON_PATH, profile_path, row_capacity
         )
         CinematicWindow.configure(
             client,
             "plugin://plugin.video.silo/",
-            silo_main.cinematic_root_rows,
-            silo_main.cinematic_load_directory,
+            load_home,
+            load_directory,
             initial_rows=initial_rows,
             row_capacity=row_capacity,
             initial_screen="home",
