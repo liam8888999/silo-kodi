@@ -9592,5 +9592,7 @@ def main():
         pass
 
 
-# Kodi executes main.py as the addon entry point.
-main()
+# Kodi executes main.py as the addon entry point. Keep imports side-effect free
+# so the cinematic companion script can reuse the directory renderers.
+if __name__ == "__main__":
+    main()
