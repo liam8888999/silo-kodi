@@ -972,20 +972,18 @@ def prepare_catalog_watch_state(client, items, detail_map, library_id=None):
 
         detail = detail_map.get(str(content_id))
 
-        if isinstance(detail, dict) and isinstance(detail.get("user_data"), dict):
+        # Only skip the fallback progress request when this item actually has
+        # a usable resume position or is marked completed. Merely having a
+        # user_data dictionary (often empty or containing runtime only) does
+        # not mean the API response includes the resume bookmark.
+        detail_progress = catalog_progress(detail)
+        item_progress = catalog_progress(item)
+        if has_usable_resume(detail_progress) or has_usable_resume(item_progress):
             continue
-
-        if isinstance(item.get("user_data"), dict):
-            continue
-
         if (
-            item.get("position_seconds") is not None
-            or item.get("progress_updated_at") not in (None, "")
+            (detail_progress and detail_progress.get("completed"))
+            or (item_progress and item_progress.get("completed"))
         ):
-            continue
-
-        user_state = item.get("user_state")
-        if isinstance(user_state, dict) and bool(user_state.get("played")):
             continue
 
         fallback_needed = True
@@ -1234,6 +1232,39 @@ def catalog_progress(item):
         "duration_seconds": duration,
         "updated_at": item.get("progress_updated_at") or state.get("progress_updated_at") or "",
     }
+
+
+def best_catalog_progress(server_progress, detail, catalog_item):
+    """Prefer a real server resume point over metadata-only progress records.
+
+    Catalog item details often include runtime/duration but omit position. Those
+    duration-only records are truthy, and a simple or-chain lets them mask an
+    actual in-progress record from /api/v2/progress or the original Home card.
+    """
+    detail_progress = catalog_progress(detail)
+    item_progress = catalog_progress(catalog_item)
+
+    # The explicit in-progress map is the authoritative server resume source.
+    if has_usable_resume(server_progress):
+        return server_progress
+
+    # A completed flag should prevent a stale item-level bookmark from making
+    # a fully watched item appear resumable.
+    for candidate in (detail_progress, item_progress):
+        if candidate and candidate.get("completed"):
+            return candidate
+
+    # Prefer a candidate with an actual position, not merely a duration/runtime.
+    for candidate in (item_progress, detail_progress):
+        if has_usable_resume(candidate):
+            return candidate
+
+    # Preserve whichever source has useful metadata when there is no resume.
+    if server_progress:
+        return server_progress
+    return detail_progress or item_progress
+
+
 def set_catalog_metadata(list_item, item, client):
     """Apply metadata that Silo includes directly in CatalogItem responses.
 
@@ -9560,10 +9591,10 @@ def cinematic_root_rows(client):
                 if card.get(field) in (None, "", [], {}):
                     card[field] = value
 
-        progress = (
-            progress_map.get(content_key)
-            or catalog_progress(detail)
-            or catalog_progress(card)
+        progress = best_catalog_progress(
+            progress_map.get(content_key),
+            detail,
+            card,
         )
         card["_cinematic_progress"] = progress or {}
         card["_cinematic_series_rollup"] = series_watch_map.get(content_key) or {}
