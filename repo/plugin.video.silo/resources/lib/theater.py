@@ -50,7 +50,7 @@ def _playable(item):
 
 
 def _content_id(item):
-    return _value(item, "play_content_id", "content_id", "id")
+    return _value(item, "content_id", "id", "play_content_id")
 
 
 def _display_title(item):
@@ -348,7 +348,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
                 else:
                     continue
                 payload = {
-                    "content_id": _content_id(item),
+                    "content_id": (_value(item, "play_content_id", "content_id", "id") if action == "play" else _content_id(item)),
                     "library_id": _value(item, "library_id", default=""),
                     "title": _display_title(item),
                 }
