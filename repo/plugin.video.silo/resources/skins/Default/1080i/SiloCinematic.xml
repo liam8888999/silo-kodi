@@ -154,7 +154,7 @@
     </control>
     <control type="scrollbar" id="803"><left>1854</left><top>452</top><width>18</width><height>600</height><orientation>vertical</orientation><visible>Control.HasFocus(801)</visible></control>
     <control type="group" id="3000">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3001">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -164,21 +164,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3004">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio><animation effect="zoom" start="100" end="106" time="120" reversible="true">Focus</animation></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3004)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -202,7 +204,7 @@
       </control>
     </control>
     <control type="group" id="3010">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3011">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -212,21 +214,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3014">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3014)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -250,7 +254,7 @@
       </control>
     </control>
     <control type="group" id="3020">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3021">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -260,21 +264,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3024">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3024)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -298,7 +304,7 @@
       </control>
     </control>
     <control type="group" id="3030">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3031">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -308,21 +314,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3034">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3034)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -346,7 +354,7 @@
       </control>
     </control>
     <control type="group" id="3040">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3041">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -356,21 +364,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3044">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3044)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -394,7 +404,7 @@
       </control>
     </control>
     <control type="group" id="3050">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3051">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -404,21 +414,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3054">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3054)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -442,7 +454,7 @@
       </control>
     </control>
     <control type="group" id="3060">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3061">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -452,21 +464,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3064">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3064)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -490,7 +504,7 @@
       </control>
     </control>
     <control type="group" id="3070">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3071">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -500,21 +514,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3074">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3074)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -538,7 +554,7 @@
       </control>
     </control>
     <control type="group" id="3080">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3081">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -548,21 +564,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3084">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3084)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -586,7 +604,7 @@
       </control>
     </control>
     <control type="group" id="3090">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3091">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -596,21 +614,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3094">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3094)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -634,7 +654,7 @@
       </control>
     </control>
     <control type="group" id="3100">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3101">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -644,21 +664,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3104">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3104)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
@@ -682,7 +704,7 @@
       </control>
     </control>
     <control type="group" id="3110">
-      <left>0</left><top>485</top><width>1920</width><height>300</height>
+      <left>0</left><top>460</top><width>1920</width><height>320</height>
       <control type="label" id="3111">
         <left>82</left><top>0</top><width>1620</width><height>38</height>
         <font>font27</font><textcolor>FFF4F7F8</textcolor><label></label>
@@ -692,21 +714,23 @@
         <texture>icon_play_circle.png</texture><visible>false</visible>
       </control>
       <control type="list" id="3114">
-        <left>66</left><top>42</top><width>1800</width><height>270</height>
+        <left>66</left><top>42</top><width>1800</width><height>278</height>
         <orientation>horizontal</orientation><scrolltime>180</scrolltime><focusposition>0</focusposition>
-        <itemlayout width="184" height="258">
+        <itemlayout width="184" height="278">
           <control type="image"><left>8</left><top>0</top><width>168</width><height>230</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>233</top><width>184</width><height>25</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>233</top><width>184</width><height>23</height><font>font12</font><textcolor>EFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>20</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>225</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </itemlayout>
-        <focusedlayout width="184" height="258">
+        <focusedlayout width="184" height="278">
           <control type="image"><left>0</left><top>0</top><width>184</width><height>236</height><texture>card_focus.png</texture><visible>Control.HasFocus(3114)</visible></control>
           <control type="image"><left>8</left><top>4</top><width>168</width><height>228</height><texture diffuse="mask_poster.png">$INFO[ListItem.Art(poster)]</texture><aspectratio>keep</aspectratio></control>
           <control type="image"><left>8</left><top>8</top><width>120</width><height>24</height><texture border="12">pill_idle.png</texture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
           <control type="label"><left>12</left><top>8</top><width>112</width><height>24</height><font>font10</font><textcolor>FFF4F7F8</textcolor><label>$INFO[ListItem.Property(Silo.Cinematic.Badges)]</label><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Badges))</visible></control>
-          <control type="label"><left>0</left><top>235</top><width>184</width><height>23</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>234</top><width>184</width><height>22</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+          <control type="label"><left>0</left><top>256</top><width>184</width><height>21</height><font>font10</font><textcolor>FFB7C1C4</textcolor><label>$INFO[ListItem.Label2]</label></control>
           <control type="progress"><left>10</left><top>226</top><width>164</width><height>5</height><info>ListItem.PercentPlayed</info><texturebg colordiffuse="99000000">white.png</texturebg><midtexture colordiffuse="FF20D0C4">white.png</midtexture><visible>!String.IsEmpty(ListItem.Property(Silo.Cinematic.Progress))</visible></control>
         </focusedlayout>
       </control>
