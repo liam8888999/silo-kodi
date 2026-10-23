@@ -1245,6 +1245,10 @@ class CinematicWindow(xbmcgui.WindowXML):
                 except Exception:
                     value = ""
                 if value:
+                    value = str(value).strip()
+                    lower = value.lower()
+                    if lower.startswith("script://") or lower in ("plugin://", "plugin:///"):
+                        continue
                     art[key] = value
             poster = art.get("poster") or art.get("thumb") or art.get("landscape") or art.get("icon")
             backdrop = art.get("fanart") or art.get("landscape") or art.get("banner") or poster
@@ -1414,14 +1418,21 @@ class CinematicWindow(xbmcgui.WindowXML):
                             break
             if isinstance(value, dict):
                 value = _value(value, "url", "src", "path", "href")
-            if value not in (None, ""):
-                value = str(value)
-                try:
-                    return self.client.abs_url(value)
-                except Exception:
-                    return value
+            if value in (None, ""):
+                continue
+            value = str(value).strip()
+            lower = value.lower()
+            # These are Kodi's script fallback placeholders, not artwork URLs.
+            # Asking Kodi to load them emits repeated unsupported-protocol errors.
+            if lower.startswith("script://") or lower in ("plugin://", "plugin:///"):
+                continue
+            try:
+                value = self.client.abs_url(value)
+            except Exception:
+                pass
+            if value and value.lower() not in ("plugin://", "plugin:///"):
+                return value
         return ""
-
     def _with_action(self, item, action, **payload):
         result = dict(item or {})
         result["_cinematic_action"] = action
