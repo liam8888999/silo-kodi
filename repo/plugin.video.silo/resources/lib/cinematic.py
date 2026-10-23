@@ -1305,6 +1305,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         # loader, so build those through the same shared catalog ListItem
         # pipeline here on the WindowXML/UI thread.
         source = item.get("_cinematic_source")
+        display_progress = None
         if source is None and _content_id(item) and _item_type(item) in (
             "movie", "series", "season", "episode", "video"
         ):
@@ -1314,16 +1315,30 @@ class CinematicWindow(xbmcgui.WindowXML):
                 catalog_item = dict(item)
                 detail = item.get("_cinematic_detail")
                 progress = item.get("_cinematic_progress")
+                # Home stores an empty dict when its prefetch has no progress
+                # record. Passing that dict suppresses the shared builder's
+                # catalog fallback (it only falls back when progress is None).
+                # Prefer the same detail/catalog normalizer used by unskinned
+                # directory rows before building this ListItem.
+                if not isinstance(progress, dict) or not progress:
+                    progress = (
+                        silo_main.catalog_progress(detail)
+                        if isinstance(detail, dict) else None
+                    ) or silo_main.catalog_progress(catalog_item)
                 source, media_type, content_id, built_title, display_progress = (
                     silo_main.build_catalog_list_item(
                         self.client,
                         catalog_item,
                         detail=detail if isinstance(detail, dict) else None,
-                        progress=progress if isinstance(progress, dict) else None,
+                        progress=progress if isinstance(progress, dict) and progress else None,
                         series_rollup=item.get("_cinematic_series_rollup") or None,
                         season_rollup=item.get("_cinematic_season_rollup") or None,
                     )
                 )
+                # Make the shared unskinned resume-state application explicit
+                # for Home cards. This sets both Kodi's resume point and
+                # duration on the actual ListItem Kodi will display.
+                silo_main.set_watch_state(source, display_progress, media_type)
 
                 # Keep the cinematic card label/layout, while Kodi's VideoInfoTag
                 # receives all fields from the regular shared catalog pipeline.
@@ -1421,21 +1436,23 @@ class CinematicWindow(xbmcgui.WindowXML):
                 source.setProperty("Silo.Cinematic.Progress", "")
                 resume = tag.getResumePoint()
                 progress_state = (
-                    item.get("_cinematic_progress")
+                    display_progress
+                    if isinstance(display_progress, dict) and display_progress
+                    else item.get("_cinematic_progress")
                     if isinstance(item.get("_cinematic_progress"), dict)
                     else {}
                 )
                 position = _positive_number(
-                    resume.timeInSeconds() if resume else 0,
                     progress_state.get("position_seconds"),
                     progress_state.get("position"),
+                    resume.timeInSeconds() if resume else 0,
                     item.get("position_seconds"),
                     source.getProperty("Silo.PositionSeconds"),
                 )
                 duration = _positive_number(
-                    resume.totalTimeInSeconds() if resume else 0,
                     progress_state.get("duration_seconds"),
                     progress_state.get("duration"),
+                    resume.totalTimeInSeconds() if resume else 0,
                     item.get("duration_seconds"),
                     source.getProperty("Silo.DurationSeconds"),
                     tag.getDuration(),
