@@ -1177,13 +1177,18 @@ def catalog_progress(item):
     overlay = overlay if isinstance(overlay, dict) else {}
     state = user_state or user_data
 
-    def first_present(*values):
+    def first_positive(*values):
         for value in values:
-            if value not in (None, ""):
-                return value
+            try:
+                if float(value or 0) > 0:
+                    return value
+            except (TypeError, ValueError):
+                continue
         return 0
 
-    position = first_present(
+    # Some API responses include a zero-valued top-level field while the
+    # active resume position is present inside user_state/user_data.
+    position = first_positive(
         item.get("position_seconds"),
         state.get("position_seconds"),
         state.get("position"),
@@ -1192,7 +1197,7 @@ def catalog_progress(item):
         overlay.get("position_seconds"),
         overlay.get("position"),
     )
-    duration = first_present(
+    duration = first_positive(
         item.get("duration_seconds"),
         state.get("duration_seconds"),
         state.get("duration"),
