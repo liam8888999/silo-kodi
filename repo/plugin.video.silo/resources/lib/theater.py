@@ -406,7 +406,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             else:
                 continue
             payload = {
-                "content_id": content_id,
+                "content_id": (_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
                 "library_id": library_id,
                 "title": _display_title(item),
             }
@@ -587,7 +587,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             action = "series" if media_type == "series" else "play" if _playable(item) else ""
             if action:
                 cards.append(self._with_action(
-                    item, action, content_id=content_id,
+                    item, action, content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id),
                     library_id=_value(item, "library_id", default=""),
                     title=_display_title(item),
                 ))
@@ -617,7 +617,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
             action = "series" if media_type == "series" else "play" if _playable(item) else ""
             if action:
                 cards.append(self._with_action(item, action,
-                    content_id=content_id, library_id=_value(item, "library_id", default=""),
+                    content_id=(_value(item, "play_content_id", "content_id", "id") if action == "play" else content_id), library_id=_value(item, "library_id", default=""),
                     title=_display_title(item)))
         if next_cursor:
             cards.append(self._menu_item("Next page  ›", "person_page",
@@ -696,7 +696,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
         try:
             self.getControl(HERO_TITLE).setLabel(title)
             self.getControl(HERO_META).setLabel(meta)
-            self.getControl(HERO_PLOT).setLabel(plot[:360])
+            self.getControl(HERO_PLOT).setText(plot[:360])
             self.getControl(100).setImage(backdrop or "")
         except Exception:
             pass
@@ -711,7 +711,7 @@ class TheaterWindow(xbmcgui.WindowXMLDialog):
                 return
             self.getControl(HERO_TITLE).setLabel(item.getLabel())
             self.getControl(HERO_META).setLabel(item.getProperty("Silo.Theater.Type").replace("_", " ").title())
-            self.getControl(HERO_PLOT).setLabel(item.getProperty("Silo.Theater.Overview")[:360])
+            self.getControl(HERO_PLOT).setText(item.getProperty("Silo.Theater.Overview")[:360])
             backdrop = item.getArt("fanart") or item.getArt("poster") or item.getArt("thumb")
             self.getControl(100).setImage(backdrop or "")
         except Exception:
