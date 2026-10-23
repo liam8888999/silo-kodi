@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <window>
-  <defaultcontrol always="true">3004</defaultcontrol>
+  <defaultcontrol always="true">110</defaultcontrol>
   <backgroundcolor>FF040D0F</backgroundcolor>
   <coordinates><system>1</system><left>0</left><top>0</top></coordinates>
   <controls>
