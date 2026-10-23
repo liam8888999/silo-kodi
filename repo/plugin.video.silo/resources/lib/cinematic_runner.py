@@ -24,10 +24,10 @@ try:
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: main module imported", xbmc.LOGINFO)
     client = silo_main.SiloClient()
     xbmc.log("[plugin.video.silo] Silo Cinematic runner: Silo client created", xbmc.LOGINFO)
-    # Load the actual home rows before constructing the WindowXML so the
-    # skin can allocate enough row controls for this server/profile.
-    initial_rows = silo_main.cinematic_root_rows(client) or []
-    row_capacity = max(12, len(initial_rows))
+    # Show the WindowXML immediately. Its Home loader fetches sections in the
+    # background, so slow server endpoints cannot delay the whole UI.
+    initial_rows = None
+    row_capacity = 32
     profile_path = ADDON.getAddonInfo("profile")
     if profile_path and not __import__("os").path.isabs(profile_path):
         profile_path = __import__("xbmcvfs").translatePath(profile_path)
@@ -53,8 +53,10 @@ try:
             xbmc.log("[plugin.video.silo] Silo Cinematic runner: window closed", xbmc.LOGINFO)
         if result != "rebuild":
             break
-        initial_rows = silo_main.cinematic_root_rows(client) or []
-        row_capacity = max(12, len(initial_rows))
+        # The window publishes the loaded rows and required capacity before it
+        # closes. Reuse those results instead of issuing every Home request again.
+        initial_rows = getattr(CinematicWindow, "_launch_initial_rows", None)
+        row_capacity = max(32, int(getattr(CinematicWindow, "_launch_row_capacity", 32) or 32))
         skin_name, skin_path = CinematicWindow.prepare_runtime_skin(
             ADDON_PATH, profile_path or ADDON_PATH, row_capacity
         )
