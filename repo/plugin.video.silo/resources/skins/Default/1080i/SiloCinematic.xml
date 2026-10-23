@@ -171,11 +171,11 @@
       <font>font13</font><textcolor>B3EDEDED</textcolor><label></label><autoscroll time="3000" delay="7000" repeat="5000">true</autoscroll>
     </control>
     <control type="label" id="800">
-      <left>88</left><top>402</top><width>1700</width><height>40</height>
+      <left>88</left><top>126</top><width>1700</width><height>40</height>
       <font>font27</font><textcolor>FFFFFFFF</textcolor><label>LIBRARY</label>
     </control>
     <control type="panel" id="801">
-      <left>62</left><top>452</top><width>1790</width><height>600</height>
+      <left>62</left><top>176</top><width>1790</width><height>874</height>
       <orientation>vertical</orientation><scrolltime>220</scrolltime>
       <itemlayout width="286" height="390">
         <control type="image"><left>8</left><top>0</top><width>270</width><height>338</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
@@ -185,16 +185,16 @@
         <control type="label"><left>8</left><top>368</top><width>270</width><height>22</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
       </itemlayout>
       <focusedlayout width="286" height="390">
-        <control type="image"><left>7</left><top>0</top><width>272</width><height>338</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
-        <control type="image"><left>7</left><top>0</top><width>272</width><height>338</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+        <control type="image"><left>8</left><top>4</top><width>270</width><height>330</height><texture border="16" colordiffuse="FF15171C">round16.png</texture></control>
+        <control type="image"><left>8</left><top>4</top><width>270</width><height>330</height><texture diffuse="mask_poster.png" background="true">$INFO[ListItem.Art(poster)]</texture><aspectratio>scale</aspectratio><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
         <control type="image"><left>232</left><top>8</top><width>32</width><height>32</height><texture>icon_check.png</texture><visible>String.IsEqual(ListItem.Property(Silo.Cinematic.Watched),true)</visible></control>
-        <control type="image"><left>3</left><top>-4</top><width>280</width><height>346</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(801)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
+        <control type="image"><left>2</left><top>0</top><width>282</width><height>340</height><texture border="24" colordiffuse="E6FFFFFF">ring16.png</texture><visible>Control.HasFocus(801)</visible><animation effect="zoom" start="100" end="103" time="140" tween="cubic" easing="out" center="auto">Focus</animation></control>
         <control type="label"><left>8</left><top>345</top><width>270</width><height>28</height><font>font27</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label><scroll>true</scroll></control>
         <control type="label"><left>8</left><top>372</top><width>270</width><height>18</height><font>font12</font><textcolor>B3EDEDED</textcolor><label>$INFO[ListItem.Label2]</label></control>
       </focusedlayout>
     </control>
     <control type="label" id="802">
-      <left>90</left><top>490</top><width>1400</width><height>80</height><font>font20_title</font>
+      <left>90</left><top>226</top><width>1400</width><height>80</height><font>font20_title</font>
       <textcolor>FFAAAAAA</textcolor><label>No titles to show</label><visible>false</visible>
     </control>
         <control type="group" id="3000">
