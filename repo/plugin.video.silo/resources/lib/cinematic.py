@@ -668,6 +668,7 @@ class CinematicWindow(xbmcgui.WindowXML):
                 json.dumps(payload, separators=(",", ":"), ensure_ascii=True),
             )
             source.setProperty("Silo.Cinematic.Type", str(item.get("type") or "video"))
+            source.setProperty("Silo.Cinematic.ArtWide", "true" if item.get("_cinematic_art_wide") else "")
             source.setProperty("Silo.Cinematic.HeroTitle", title)
             source.setProperty("Silo.Cinematic.Overview", str(item.get("overview") or ""))
             source.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
@@ -686,8 +687,8 @@ class CinematicWindow(xbmcgui.WindowXML):
                 if value:
                     art[key] = value
             poster = art.get("poster") or art.get("thumb") or art.get("landscape") or art.get("icon")
-            backdrop = art.get("fanart") or art.get("landscape") or poster
-            if item.get("_cinematic_wide"):
+            backdrop = art.get("fanart") or art.get("landscape") or art.get("banner") or poster
+            if item.get("_cinematic_wide") or item.get("_cinematic_art_wide"):
                 poster = backdrop or poster
             if poster:
                 art.update({"poster": poster, "thumb": poster, "icon": poster})
@@ -715,6 +716,7 @@ class CinematicWindow(xbmcgui.WindowXML):
 
         media_type = _item_type(item)
         wide = bool(item.get("_cinematic_wide"))
+        art_wide = bool(item.get("_cinematic_art_wide"))
         raw_title = _display_title(item)
         if wide and media_type == "episode" and _value(item, "series_title", "series_name"):
             title = str(_value(item, "series_title", "series_name"))
@@ -744,7 +746,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         poster = self._art(item, "poster_url", "poster", "image", "thumbnail", "still_url", "still")
         backdrop = self._art(item, "backdrop_url", "backdrop", "fanart_url", "still_url", "still")
         logo = self._art(item, "logo_url", "logo")
-        if wide:
+        if wide or art_wide:
             poster = backdrop or poster
         art = {}
         if poster:
@@ -761,6 +763,7 @@ class CinematicWindow(xbmcgui.WindowXML):
         list_item.setProperty("Silo.Cinematic.Action", str(action))
         list_item.setProperty("Silo.Cinematic.Payload", json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
         list_item.setProperty("Silo.Cinematic.Type", media_type)
+        list_item.setProperty("Silo.Cinematic.ArtWide", "true" if art_wide else "")
         list_item.setProperty("Silo.Cinematic.HeroTitle", title)
         list_item.setProperty("Silo.Cinematic.Overview", str(_value(item, "overview", "plot", "description")))
         list_item.setProperty("Silo.Cinematic.Meta", self._hero_meta(item))
