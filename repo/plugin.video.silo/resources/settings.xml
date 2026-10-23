@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <settings>
   <category label="Interface">
-    <setting id="theater_interface" type="bool" label="Use cinematic Silo interface" default="false" />
+    <setting id="cinematic_interface" type="bool" label="Enable Silo Cinematic interface" default="false" />
   </category>
 
   <category label="Pagination">
