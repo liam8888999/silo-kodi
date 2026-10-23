@@ -9116,6 +9116,34 @@ def kodi_requested_resume():
 
 
 
+def _cinematic_tag_value(tag, *method_names):
+    """Read optional Kodi VideoInfoTag fields without breaking older Kodi builds."""
+    for method_name in method_names:
+        try:
+            method = getattr(tag, method_name, None)
+            value = method() if callable(method) else ""
+        except Exception:
+            continue
+        if value in (None, ""):
+            continue
+        if isinstance(value, (list, tuple, set)):
+            parts = []
+            for entry in value:
+                if isinstance(entry, str):
+                    text = entry.strip()
+                elif isinstance(entry, dict):
+                    text = str(entry.get("name") or entry.get("title") or entry.get("label") or "").strip()
+                else:
+                    text = str(entry).strip()
+                if text and text not in parts:
+                    parts.append(text)
+            value = " · ".join(parts)
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
 def cinematic_cards_from_directory(batch):
     """Keep existing Kodi directory URLs and rich ListItems; only change presentation."""
     cards = []
@@ -9145,8 +9173,23 @@ def cinematic_cards_from_directory(batch):
             media_type = tag.getMediaType() or ""
             year = tag.getYear()
             duration = tag.getDuration()
+            tagline = _cinematic_tag_value(tag, "getTagLine", "getTagline")
+            plot_outline = _cinematic_tag_value(tag, "getPlotOutline")
+            genres = _cinematic_tag_value(tag, "getGenres", "getGenre")
+            directors = _cinematic_tag_value(tag, "getDirectors", "getDirector")
+            studios = _cinematic_tag_value(tag, "getStudios", "getStudio")
+            certification = _cinematic_tag_value(tag, "getMpaa", "getMPAA")
+            rating_text = _cinematic_tag_value(tag, "getRating")
+            premiered = _cinematic_tag_value(tag, "getPremiered", "getFirstAired")
+            tv_show_title = _cinematic_tag_value(tag, "getTVShowTitle")
+            season_number = _cinematic_tag_value(tag, "getSeason")
+            episode_number = _cinematic_tag_value(tag, "getEpisode")
+            original_title = _cinematic_tag_value(tag, "getOriginalTitle")
         except Exception:
             title, overview, media_type, year, duration = "Untitled", "", "", "", ""
+            tagline, plot_outline, genres, directors, studios = "", "", "", "", ""
+            certification, rating_text, premiered, tv_show_title = "", "", "", ""
+            season_number, episode_number, original_title = "", "", ""
         media_type = {"movie":"movie", "tvshow":"series", "episode":"episode", "season":"season"}.get(media_type, media_type)
         # Episode stills and landscape-only artwork should remain landscape.
         # Prefer the portrait poster for films and series whenever one exists.
@@ -9162,9 +9205,16 @@ def cinematic_cards_from_directory(batch):
             else (art.get("landscape") or art.get("fanart") or art.get("banner") or art.get("thumb"))
         )
         cards.append({
-            "title": str(title), "name": str(title), "overview": str(overview or ""),
+            "title": str(title), "name": str(title), "overview": str(overview or plot_outline or tagline or ""),
+            "tagline": tagline, "plot_outline": plot_outline,
             "type": media_type or ("directory" if is_folder else "video"),
             "year": year, "duration_seconds": duration,
+            "runtime_minutes": (float(duration) / 60.0) if duration else 0,
+            "genres": genres, "directors": directors, "studios": studios,
+            "content_rating": certification, "rating_label": rating_text,
+            "premiered": premiered, "series_title": tv_show_title,
+            "season_number": season_number, "episode_number": episode_number,
+            "original_title": original_title,
             "poster_url": art.get("poster") or (art.get("thumb") if not art_wide else "") or art.get("icon") or art.get("landscape") or "",
             "backdrop_url": backdrop or art.get("poster") or "",
             "logo_url": art.get("clearlogo") or "",
