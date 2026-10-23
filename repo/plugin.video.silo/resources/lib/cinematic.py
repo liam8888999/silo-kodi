@@ -34,7 +34,7 @@ HERO_LOGO = 133
 HERO_BADGES = 134
 MAX_ROWS = 12
 SLOT_BASE = 3000
-ROWS_TOP = 455
+ROWS_TOP = 530
 WIDE_PITCH = 170
 POSTER_PITCH = 230
 SCREEN_HEIGHT = 1080
@@ -721,12 +721,19 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _home_rows(self):
-        """Root content comes from main.py's existing directory renderers."""
+        """Load Silo's home rails, with a useful fallback when the server has none."""
         if callable(self.root_loader):
-            return self.root_loader(self.client) or []
-        return [("SILO", [
+            rows = self.root_loader(self.client) or []
+            # An empty home response should never leave the user staring at a
+            # hero backdrop with no content or way to continue navigating.
+            if rows:
+                return rows
+        return [("GET STARTED", [
             self._menu_item("Browse libraries", "libraries"),
-            self._menu_item("Search", "search"),
+            self._menu_item("Search Silo", "search"),
+            self._menu_item("Your stuff", "your_stuff"),
+            self._menu_item("Collections", "collections"),
+            self._menu_item("Refresh home", "refresh_home"),
             self._menu_item("Settings", "settings"),
         ], "poster")]
 
