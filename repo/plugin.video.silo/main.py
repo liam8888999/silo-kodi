@@ -9671,67 +9671,6 @@ def router(client):
 
     action = params.get("action")
 
-    # A cinematic card cannot invoke Kodi's native resume chooser directly
-    # from WindowXML. Route it through a real one-item plugin directory so the
-    # next click is handled by Kodi's native VideoNav selection code.
-    if action == "cinematic_native_select":
-        content_id = params.get("content_id")
-        if not content_id:
-            raise SiloError("No content ID was supplied for native playback selection.")
-
-        library_id = resolve_playback_library_id(client, content_id, params.get("library_id"))
-        try:
-            progress = client.get_progress(content_id, library_id)
-        except SiloError as exc:
-            progress = None
-            log("Unable to load fresh resume state for native selection: %s" % exc, xbmc.LOGWARNING)
-
-        position, progress_duration = get_progress_position(progress)
-        duration = progress_duration
-        if duration <= 0:
-            try:
-                duration = max(0.0, float(params.get("duration_seconds") or 0))
-            except (TypeError, ValueError):
-                duration = 0.0
-
-        title = str(params.get("title") or "Play")
-        item = xbmcgui.ListItem(label=title)
-        tag = item.getVideoInfoTag()
-        tag.setTitle(title)
-        if params.get("plot"):
-            tag.setPlot(str(params.get("plot")))
-        if duration > 0:
-            tag.setDuration(int(round(duration)))
-        resumable = has_usable_resume(progress) and position > 0 and duration > 0
-        if resumable:
-            tag.setPlaycount(0)
-            tag.setResumePoint(position, duration)
-
-        poster_url = params.get("poster_url")
-        if poster_url:
-            item.setArt({"poster": poster_url, "thumb": poster_url, "icon": poster_url})
-
-        play_params = {
-            "action": "play",
-            "content_id": content_id,
-            "library_id": library_id,
-            "file_id": params.get("file_id"),
-            "duration_seconds": duration or params.get("duration_seconds"),
-            "title": title,
-            "resume_available": "1" if resumable else "0",
-            "cinematic_return": "1",
-        }
-        play_url = build_url(**play_params)
-        item.setProperty("IsPlayable", "true")
-        item.setPath(play_url)
-        xbmcplugin.setContent(HANDLE, "videos")
-        xbmcplugin.addDirectoryItem(HANDLE, play_url, item, False)
-        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
-        # The one-item native container now exists. Queue Select so Kodi
-        # runs its own video-item activation and resume chooser without
-        # asking the user to navigate an intermediate browser screen.
-        xbmc.executebuiltin("Action(Select)")
-        return
     # When cinematic mode is enabled, all normal browse routes stay in the
     # WindowXML presentation. Previously only the root entry point was
     # intercepted, so a deep link or older directory URL could fall through to
@@ -9936,14 +9875,8 @@ def router(client):
             cached_resume_position=params.get("cached_resume_position"),
             display_title=params.get("title"),
         )
-        # The native-selection handoff closes the WindowXML before Kodi
-        # opens its VideoNav directory. Reopen the cinematic interface after
-        # playback completes so the user returns to the Silo presentation.
-        if str(params.get("cinematic_return") or "").strip().lower() in ("1", "true", "yes"):
-            runner_path = os.path.join(
-                ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py"
-            )
-            xbmc.executebuiltin("RunScript(%s)" % runner_path)
+        # The modal cinematic window remains open below the player, so Kodi
+        # returns to it naturally when playback ends. Do not start a second runner.
         return
 
     if action == "switch_profile":
