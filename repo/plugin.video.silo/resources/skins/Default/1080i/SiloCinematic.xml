@@ -43,7 +43,7 @@
       <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     </control>
     <control type="button" id="113">
-      <posx>812</posy><posy>34</posy><width>162</width><height>46</height><label>YOUR STUFF</label>
+      <posx>812</posx><posy>34</posy><width>162</width><height>46</height><label>YOUR STUFF</label>
       <font>font13</font><textcolor>FFEDEDED</textcolor><focusedcolor>FFFFFFFF</focusedcolor>
       <texturefocus colordiffuse="FF20A89F">white.png</texturefocus><texturenofocus colordiffuse="00000000">white.png</texturenofocus>
     </control>
