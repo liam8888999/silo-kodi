@@ -1916,8 +1916,9 @@ class CinematicWindow(xbmcgui.WindowXML):
         if not url.endswith("/"):
             url += "/"
         url += "?" + urlencode(params)
-        self.close()
-        xbmc.sleep(100)
+        # Keep the modal cinematic window alive underneath Kodi's player.
+        # Closing it before PlayMedia exposes the plugin directory and makes
+        # the first playback launch race the skin's return path.
         xbmc.executebuiltin("PlayMedia(%s)" % url)
 
     def _hero_meta(self, item):
