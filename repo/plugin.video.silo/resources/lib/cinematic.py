@@ -1878,13 +1878,15 @@ class CinematicWindow(xbmcgui.WindowXML):
         )
 
     def _play(self, payload, start_over=False, resume_choice=None, list_item=None):
-        # File/version selection and server-authoritative progress remain in
-        # main.py. Forward the selected ListItem to Kodi's own Player API so
-        # the core receives the real VideoInfoTag, including its resume point.
-        # WindowXML doesn't expose Kodi's native resume chooser as a callable
-        # dialog; do not substitute an add-on-created yes/no prompt here.
+        """Hand a playable card to Kodi's native video-item selection flow.
+
+        WindowXML controls do not run Kodi's normal video-browser click
+        handler, so calling Player.play() directly cannot display the core
+        Resume / Play from beginning chooser. Open a short native directory
+        containing the selected item; its normal click is handled by Kodi.
+        """
         payload = dict(payload or {})
-        params = {"action": "play", "cinematic_return": 1}
+        params = {"action": "cinematic_native_select"}
         for key in (
             "content_id", "library_id", "file_id", "duration_seconds",
             "cached_resume_position", "title", "resume_available",
@@ -1892,48 +1894,56 @@ class CinematicWindow(xbmcgui.WindowXML):
             value = payload.get(key)
             if value not in (None, ""):
                 params[key] = value
+
+        if list_item is not None:
+            params.setdefault("title", str(list_item.getLabel() or list_item.getLabel2() or ""))
+            try:
+                params["media_type"] = str(
+                    list_item.getProperty("Silo.Cinematic.Type") or ""
+                ).lower()
+            except Exception:
+                pass
+            try:
+                params.setdefault(
+                    "plot",
+                    str(list_item.getProperty("Silo.Cinematic.Overview") or ""),
+                )
+            except Exception:
+                pass
+            try:
+                art = list_item.getArt() or {}
+                poster = (
+                    art.get("poster")
+                    or art.get("thumb")
+                    or art.get("landscape")
+                    or art.get("icon")
+                )
+                if poster:
+                    params["poster_url"] = str(poster)
+            except Exception:
+                pass
+
         if resume_choice is not None:
             params["resume_choice"] = str(int(bool(resume_choice)))
-            params["resume_available"] = "1"
         elif start_over:
             params["resume_choice"] = "0"
-            params["resume_available"] = "1"
+
         if not params.get("content_id"):
             self._error("This item does not have a playable Silo content ID.")
             return
+
         url = self.base_url
         if not url.endswith("/"):
             url += "/"
         url += "?" + urlencode(params)
-        # Pass the actual item to Kodi's core player. Player.play() copies
-        # its InfoTag/properties onto the playback item and replaces only the
-        # path with the plugin route. This preserves the native resume marker
-        # that is lost when PlayMedia() is given only a URL string.
+
+        # Close the custom window before opening VideoNav. Kodi must own the
+        # subsequent item selection for its native resume chooser to run.
         try:
-            if list_item is not None:
-                list_item.setProperty("IsPlayable", "true")
-                list_item.setProperty("ForceResolvePlugin", "true")
-                tag = list_item.getVideoInfoTag()
-                resume = tag.getResumePoint()
-                if resume and float(resume.timeInSeconds() or 0) > 0:
-                    xbmc.log(
-                        "[plugin.video.silo] Starting cinematic item through Kodi Player with InfoTag resume "
-                        "%.3fs / %.3fs"
-                        % (
-                            float(resume.timeInSeconds()),
-                            float(resume.totalTimeInSeconds()),
-                        ),
-                        xbmc.LOGDEBUG,
-                    )
-                xbmc.Player().play(url, listitem=list_item)
-            else:
-                xbmc.Player().play(url)
-        except Exception as exc:
-            xbmc.log(
-                "[plugin.video.silo] Kodi Player handoff failed; using PlayMedia fallback: %s" % exc,
-                xbmc.LOGWARNING,
-            )
-            xbmc.executebuiltin("PlayMedia(%s)" % url)
+            self.close()
+        except Exception:
+            pass
+        xbmc.executebuiltin("ActivateWindow(Videos,%s)" % url)
 
     def _hero_meta(self, item):
         media_type = _item_type(item)
