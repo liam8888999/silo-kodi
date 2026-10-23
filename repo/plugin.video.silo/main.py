@@ -9644,9 +9644,17 @@ def router(client):
     if ADDON.getSettingBool("cinematic_interface") and (
         action in (None, "root") or action in cinematic_directory_actions
     ):
+        log("Silo Cinematic: routing %s into the in-addon window runner" % (action or "root"))
+        # Keep Kodi from showing the plugin's empty directory while the modal
+        # WindowXML skin is starting or returning from playback. A temporary
+        # loading item is preferable to ending the directory with zero rows.
+        loading_item = xbmcgui.ListItem(label="Loading Silo…")
+        loading_item.setArt({"icon": "DefaultFolder.png", "thumb": ""})
+        xbmcplugin.addDirectoryItem(
+            HANDLE, BASE_URL, loading_item, isFolder=False
+        )
         xbmcplugin.setContent(HANDLE, "files")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True, cacheToDisc=False)
-        log("Silo Cinematic: routing %s into the in-addon window runner" % (action or "root"))
         runner_path = os.path.join(
             ADDON.getAddonInfo("path"), "resources", "lib", "cinematic_runner.py"
         )
@@ -9657,6 +9665,9 @@ def router(client):
             command = "RunScript(%s,%s,%s)" % (
                 runner_path, action, urlencode(route_params)
             )
+        # RunScript is queued after the directory is completed, so wait for
+        # the modal skin's first render to avoid an empty-container transition.
+        xbmcgui.Window(10000).clearProperty("Silo.Cinematic.WindowReady")
         xbmc.executebuiltin(command)
         return
 
