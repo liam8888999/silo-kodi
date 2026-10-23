@@ -458,6 +458,10 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "rails"
         self.setProperty("silo.cinematic.view", "rails")
+        self.getControl(GRID_HEADING).setPosition(88, 402)
+        self.getControl(GRID_CONTROL).setPosition(62, 452)
+        self.getControl(GRID_EMPTY).setPosition(90, 490)
+        self.getControl(803).setPosition(1854, 452)
         self.getControl(GRID_HEADING).setVisible(False)
         self.getControl(GRID_CONTROL).setVisible(False)
         self.getControl(GRID_EMPTY).setVisible(False)
@@ -505,6 +509,12 @@ class CinematicWindow(xbmcgui.WindowXML):
         self._grid_items = []
         self._view_mode = "grid"
         self.setProperty("silo.cinematic.view", "grid")
+        # Browsing screens use a compact layout; reserve the tall hero only for
+        # Home, series and detail screens so results begin directly below the nav.
+        self.getControl(GRID_HEADING).setPosition(88, 150)
+        self.getControl(GRID_CONTROL).setPosition(62, 205)
+        self.getControl(GRID_EMPTY).setPosition(90, 240)
+        self.getControl(803).setPosition(1854, 205)
         self.getControl(GRID_HEADING).setVisible(True)
         self.getControl(GRID_CONTROL).setVisible(True)
         for index in range(self._row_capacity):
