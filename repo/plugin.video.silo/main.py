@@ -9131,7 +9131,7 @@ def cinematic_cards_from_directory(batch):
         if not action:
             continue
         art = {}
-        for key in ("poster", "thumb", "fanart", "clearlogo", "icon"):
+        for key in ("poster", "thumb", "fanart", "landscape", "banner", "clearlogo", "icon"):
             try:
                 value = item.getArt(key)
             except Exception:
@@ -9148,12 +9148,27 @@ def cinematic_cards_from_directory(batch):
         except Exception:
             title, overview, media_type, year, duration = "Untitled", "", "", "", ""
         media_type = {"movie":"movie", "tvshow":"series", "episode":"episode", "season":"season"}.get(media_type, media_type)
+        # Episode stills and landscape-only artwork should remain landscape.
+        # Prefer the portrait poster for films and series whenever one exists.
+        landscape_art = art.get("landscape") or art.get("fanart") or art.get("thumb") or art.get("banner")
+        has_portrait_art = bool(art.get("poster"))
+        art_wide = bool(
+            (media_type == "episode" and landscape_art)
+            or (not has_portrait_art and landscape_art)
+        )
+        backdrop = (
+            (art.get("thumb") or art.get("landscape") or art.get("fanart") or art.get("banner"))
+            if media_type == "episode"
+            else (art.get("landscape") or art.get("fanart") or art.get("banner") or art.get("thumb"))
+        )
         cards.append({
             "title": str(title), "name": str(title), "overview": str(overview or ""),
             "type": media_type or ("directory" if is_folder else "video"),
             "year": year, "duration_seconds": duration,
-            "poster_url": art.get("poster") or art.get("thumb") or art.get("icon") or "",
-            "backdrop_url": art.get("fanart") or "", "logo_url": art.get("clearlogo") or "",
+            "poster_url": art.get("poster") or (art.get("thumb") if not art_wide else "") or art.get("icon") or art.get("landscape") or "",
+            "backdrop_url": backdrop or art.get("poster") or "",
+            "logo_url": art.get("clearlogo") or "",
+            "_cinematic_art_wide": art_wide,
             "_cinematic_source": item, "_cinematic_url": str(url),
             "_cinematic_folder": bool(is_folder), "_cinematic_action": action,
             "_cinematic_payload": params,
