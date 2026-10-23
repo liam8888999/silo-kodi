@@ -143,32 +143,35 @@ _LOGIN_LOADING_PROPERTY = "Silo.LoginLoading"
 
 
 def _show_login_loading():
-    """Show Kodi's native non-cancelable busy spinner once for the login flow."""
+    """Show the Silo skin's loading state instead of Kodi's native busy dialog."""
     window = xbmcgui.Window(10000)
 
-    # The login flow can pass through automatic profile selection, an explicit
-    # profile chooser, and a post-login Container.Refresh. Keep one continuous
-    # spinner instead of activating the busy dialog more than once.
-    if window.getProperty(_LOGIN_LOADING_PROPERTY) == "true":
+    # CinematicWindow.xml owns the loading animation in cinematic mode. Do not
+    # activate busydialognocancel here: that dialog is rendered by Kodi's skin
+    # and escapes the Silo visual style.
+    if ADDON.getSettingBool("cinematic_interface"):
+        window.setProperty(_LOGIN_LOADING_PROPERTY, "true")
+        window.setProperty("Silo.Cinematic.Loading", "true")
+        xbmc.sleep(50)
         return
 
+    if window.getProperty(_LOGIN_LOADING_PROPERTY) == "true":
+        return
     window.setProperty(_LOGIN_LOADING_PROPERTY, "true")
-
-    # DialogBusy was removed as a usable Python class in Kodi 18+. The
-    # supported workaround is to activate the non-cancelable busy-dialog
-    # window explicitly.
     xbmc.executebuiltin("ActivateWindow(busydialognocancel)")
-
-    # Allow Kodi's GUI thread to process and display the dialog before the
-    # synchronous network request immediately following this call starts.
     xbmc.sleep(100)
 
 
 def _hide_login_loading():
-    """Close the login busy spinner and clear its refresh-state marker."""
+    """Close the appropriate loading indicator and clear its state."""
+    window = xbmcgui.Window(10000)
+    if ADDON.getSettingBool("cinematic_interface"):
+        window.clearProperty("Silo.Cinematic.Loading")
+        window.clearProperty(_LOGIN_LOADING_PROPERTY)
+        return
     xbmc.executebuiltin("Dialog.Close(busydialognocancel)")
     xbmc.sleep(50)
-    xbmcgui.Window(10000).clearProperty(_LOGIN_LOADING_PROPERTY)
+    window.clearProperty(_LOGIN_LOADING_PROPERTY)
 
 
 # Load saved server/login/device/profile settings from Kodi's addon profile.
