@@ -274,23 +274,33 @@ class CinematicWindow(xbmcgui.WindowXML):
             rows = [("Silo", [])]
 
         self._set_active_nav()
+        # Start on an always-visible control. Poster rails can be hidden or
+        # empty during the first XML layout, so never force focus prematurely.
+        self.setFocusId(self._active_nav_control())
         if self.screen in ("home", "series", "details"):
             self._show_rails(rows)
             if self._rows:
                 self._row_index = min(max(0, self._row_index), len(self._rows) - 1)
                 self._layout_rows()
-                self.setFocusId(self._focus_control_for_row(self._row_index))
+                control_id = self._focus_control_for_row(self._row_index)
+                items = self._row_items.get(control_id) or []
+                if items:
+                    try:
+                        self.getControl(control_id).selectItem(0)
+                        self.setFocusId(control_id)
+                    except Exception:
+                        self.setFocusId(self._active_nav_control())
                 if self.screen not in ("details", "series"):
                     self._update_hero_from_focus()
-            else:
-                self.setFocusId(self._active_nav_control())
         else:
             self._show_grid(rows)
             if self._grid_items:
-                self.setFocusId(GRID_CONTROL)
-                self._update_hero_from_focus()
-            else:
-                self.setFocusId(self._active_nav_control())
+                try:
+                    self.getControl(GRID_CONTROL).selectItem(0)
+                    self.setFocusId(GRID_CONTROL)
+                    self._update_hero_from_focus()
+                except Exception:
+                    self.setFocusId(self._active_nav_control())
 
     def _show_rails(self, rows):
         """Dynamic poster and wide-art rails with the active row anchored near the top."""
