@@ -644,6 +644,21 @@ class CinematicWindow(xbmcgui.WindowXML):
         payload.setdefault("library_id", library_id)
         payload.setdefault("title", title)
         payload.setdefault("type", media_type)
+        # Context-menu playback must carry the same cached ResumePoint as a
+        # normal click before this WindowXML closes.
+        try:
+            tag = selected.getVideoInfoTag()
+            resume_point = tag.getResumePoint()
+            position = float(resume_point.timeInSeconds()) if resume_point else 0.0
+            duration = float(resume_point.totalTimeInSeconds()) if resume_point else 0.0
+            if position > 0:
+                payload.setdefault("cached_resume_position", position)
+            if duration > 0:
+                payload.setdefault("duration_seconds", duration)
+            elif tag.getDuration():
+                payload.setdefault("duration_seconds", tag.getDuration())
+        except Exception:
+            pass
 
         watchlist = str(selected.getProperty("Silo.UserState.InWatchlist") or "").lower() == "true"
         favorite = str(selected.getProperty("Silo.UserState.IsFavorite") or "").lower() == "true"
