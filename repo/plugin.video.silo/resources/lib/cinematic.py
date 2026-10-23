@@ -7,6 +7,7 @@ positions and playback progress.
 import copy
 import json
 import os
+import shutil
 import threading
 import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
@@ -37,9 +38,9 @@ HERO_LOGO = 133
 HERO_BADGES = 134
 MIN_ROW_SLOTS = 12
 SLOT_BASE = 3000
-ROWS_TOP = 530
-WIDE_PITCH = 170
-POSTER_PITCH = 230
+ROWS_TOP = 485
+WIDE_PITCH = 175
+POSTER_PITCH = 300
 SCREEN_HEIGHT = 1080
 GRID_HEADING = 800
 GRID_CONTROL = 801
@@ -136,13 +137,29 @@ class CinematicWindow(xbmcgui.WindowXML):
                 old_id = element.get("id")
                 if old_id and old_id.isdigit() and SLOT_BASE <= int(old_id) <= SLOT_BASE + 4:
                     element.set("id", str(base + int(old_id) - SLOT_BASE))
+                if element.text:
+                    element.text = element.text.replace(
+                        "Control.HasFocus(3003)", "Control.HasFocus({})".format(base + 3)
+                    ).replace(
+                        "Control.HasFocus(3004)", "Control.HasFocus({})".format(base + 4)
+                    )
             controls.append(clone)
 
         target_root = os.path.join(profile_path, "cinematic_skin")
         target_dir = os.path.join(
             target_root, "resources", "skins", "Default", "1080i"
         )
+        target_media = os.path.join(
+            target_root, "resources", "skins", "Default", "media"
+        )
+        source_media = os.path.join(addon_path, "resources", "skins", "Default", "media")
         os.makedirs(target_dir, exist_ok=True)
+        os.makedirs(target_media, exist_ok=True)
+        if os.path.isdir(source_media):
+            for filename in os.listdir(source_media):
+                source = os.path.join(source_media, filename)
+                if os.path.isfile(source):
+                    shutil.copy2(source, os.path.join(target_media, filename))
         target_name = "SiloCinematicRuntime.xml"
         tree.write(
             os.path.join(target_dir, target_name),
