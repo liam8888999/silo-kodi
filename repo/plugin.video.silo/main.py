@@ -5379,6 +5379,18 @@ def _start_watch_party_guest_playback(
     """Start the host-selected item using the normal Silo Kodi playback path."""
     library_id = resolve_playback_library_id(client, content_id, library_id)
 
+    # The cinematic poster may have a newer/local resume point than the
+    # server's progress response. Keep it as a fallback so the actual resolved
+    # playback item can start where the visible card says it should.
+    try:
+        cinematic_position = max(0.0, float(cinematic_resume_position or 0.0))
+    except (TypeError, ValueError):
+        cinematic_position = 0.0
+    try:
+        cinematic_duration = max(0.0, float(cinematic_resume_duration or 0.0))
+    except (TypeError, ValueError):
+        cinematic_duration = 0.0
+
     if not file_id:
         file_id = choose_file(client, content_id, library_id)
 
@@ -7558,6 +7570,8 @@ def play(
     resume_available=False,
     explicit_resume_choice=None,
     cached_resume_position=None,
+    cinematic_resume_position=None,
+    cinematic_resume_duration=None,
     display_title=None,
 ):
     """Play media using Kodi's native Resume/Start-over choice.
@@ -7825,6 +7839,25 @@ def play(
                 resolved_item,
                 synthetic_progress,
                 fallback_duration=resume_duration,
+            )
+        elif cinematic_position > 0:
+            # Server progress was unavailable or not resumable, but the
+            # cinematic card itself has a resume point. Use that point on the
+            # final playback ListItem instead of discarding it at resolution.
+            fallback_duration = cinematic_duration or max(0.0, float(duration_seconds or 0))
+            apply_fresh_resume_to_resolved_item(
+                resolved_item,
+                {
+                    "completed": False,
+                    "position_seconds": cinematic_position,
+                    "duration_seconds": fallback_duration,
+                },
+                fallback_duration=fallback_duration,
+            )
+            resolved_item.setProperty("StartOffset", "%.3f" % cinematic_position)
+            log(
+                "Applied cinematic ListItem resume fallback %.3fs for content %s"
+                % (cinematic_position, content_id)
             )
         else:
             try:
@@ -9873,6 +9906,8 @@ def router(client):
             in ("1", "true", "yes"),
             explicit_resume_choice=explicit_resume_choice,
             cached_resume_position=params.get("cached_resume_position"),
+            cinematic_resume_position=params.get("cinematic_resume_position"),
+            cinematic_resume_duration=params.get("cinematic_resume_duration"),
             display_title=params.get("title"),
         )
         # The modal cinematic window remains open below the player, so Kodi
