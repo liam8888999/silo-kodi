@@ -2331,6 +2331,7 @@ def add_catalog_item(client, item, library_id):
     media_type = (item.get("type") or item.get("media_type") or "").lower()
 
     list_item = xbmcgui.ListItem(label=title)
+    list_item.setProperty("Silo.AccessedFromParent", "true")
     tag = list_item.getVideoInfoTag()
     tag.setTitle(title)
 
@@ -2724,8 +2725,13 @@ def _silo_mark_state(list_item, catalog_item, key):
 
 
 def add_catalog_context_menu(list_item, catalog_item):
-    """Add individual Silo-server actions to a supported catalog item."""
+    """Add Silo title actions and, when relevant, a parent-navigation action."""
     if not isinstance(catalog_item, dict):
+        return
+
+    # Catalog and detail metadata both pass through this function. Attach
+    # context items once so metadata enrichment cannot duplicate the menu.
+    if str(list_item.getProperty("Silo.ContextMenuActionsAdded") or "").lower() == "true":
         return
 
     content_id = get_content_id(catalog_item)
@@ -2754,19 +2760,55 @@ def add_catalog_context_menu(list_item, catalog_item):
             "RunPlugin(%s)" % command_url,
         ))
 
+    accessed_from_parent = (
+        str(list_item.getProperty("Silo.AccessedFromParent") or "").strip().lower()
+        in ("true", "1", "yes")
+    )
+    if not accessed_from_parent:
+        library_id = (
+            catalog_item.get("library_id")
+            or list_item.getProperty("Silo.LibraryID")
+            or list_item.getProperty("Silo.HomeOriginLibraryID")
+        )
+        series_id = (
+            catalog_item.get("series_id")
+            or catalog_item.get("parent_series_id")
+            or list_item.getProperty("Silo.SeriesID")
+        )
+        parent_params = {
+            "action": "open_parent",
+            "content_id": content_id,
+            "media_type": media_type,
+        }
+        if library_id not in (None, "", "None", "null"):
+            parent_params["library_id"] = library_id
+        if series_id:
+            parent_params["series_id"] = series_id
+
+        if media_type in ("episode", "season"):
+            parent_label = "Open parent show"
+        else:
+            parent_label = "Open parent library"
+        menu_items.append((
+            parent_label,
+            "RunPlugin(%s)" % build_url(**parent_params),
+        ))
+
     try:
         list_item.addContextMenuItems(menu_items)
+        list_item.setProperty("Silo.ContextMenuActionsAdded", "true")
     except (AttributeError, RuntimeError, TypeError) as exc:
         log("Unable to attach Silo title actions: %s" % exc, xbmc.LOGDEBUG)
 
-
-def build_catalog_list_item(client, catalog_item, detail=None, progress=None, series_rollup=None, season_rollup=None):
+def build_catalog_list_item(client, catalog_item, detail=None, progress=None, series_rollup=None, season_rollup=None, accessed_from_parent=False):
     """Build a Kodi ListItem using the same metadata/watch pipeline everywhere."""
     content_id = get_content_id(catalog_item)
     title = catalog_item.get("title") or catalog_item.get("name") or "Unknown"
     media_type = (catalog_item.get("type") or catalog_item.get("media_type") or "").lower()
 
     item = xbmcgui.ListItem(label=display_title_for_catalog_item(catalog_item))
+    if accessed_from_parent:
+        item.setProperty("Silo.AccessedFromParent", "true")
     item.getVideoInfoTag().setTitle(title)
 
     set_catalog_metadata(item, catalog_item, client)
@@ -6868,6 +6910,7 @@ def list_library_letter(client, library_id, letter, page=None, expected_count=No
             detail=detail,
             progress=display_progress,
             series_rollup=series_watch_map.get(str(content_id)),
+            accessed_from_parent=True,
         )
 
         if media_type in PLAYABLE:
@@ -7002,6 +7045,7 @@ def list_seasons(client, series_id, library_id, page=None):
 
         title = season.get("title") or "Season %s" % season_number
         item = xbmcgui.ListItem(label=title)
+        item.setProperty("Silo.AccessedFromParent", "true")
 
         set_season_metadata(
             item,
@@ -7167,6 +7211,7 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             metadata_episode.get("episode_number"),
         )
         item = xbmcgui.ListItem(label=display_title)
+        item.setProperty("Silo.AccessedFromParent", "true")
         tag = item.getVideoInfoTag()
         tag.setTitle(title)
 
@@ -9438,6 +9483,46 @@ def router(client):
             )
         else:
             search_silo(client)
+        return
+
+    if action == "open_parent":
+        content_id = str(params.get("content_id") or "").strip()
+        media_type = str(params.get("media_type") or "").strip().lower()
+        library_id = params.get("library_id")
+        series_id = str(params.get("series_id") or "").strip()
+
+        if not content_id:
+            raise SiloError("No Silo content ID was supplied.")
+
+        if media_type in ("episode", "season"):
+            if not series_id:
+                item_library_id = resolve_playback_library_id(
+                    client, content_id, library_id
+                )
+                detail = client.item_detail(content_id, item_library_id) or {}
+                series_id = str(
+                    detail.get("series_id")
+                    or detail.get("parent_series_id")
+                    or ""
+                ).strip()
+                library_id = item_library_id
+
+            if not series_id:
+                raise SiloError("Unable to determine the parent show for this item.")
+
+            library_id = resolve_playback_library_id(client, series_id, library_id)
+            destination = build_url(
+                action="seasons",
+                series_id=series_id,
+                library_id=library_id,
+            )
+        elif media_type in ("movie", "series"):
+            library_id = resolve_playback_library_id(client, content_id, library_id)
+            destination = build_url(action="library", library_id=library_id)
+        else:
+            raise SiloError("This item does not have a supported parent destination.")
+
+        xbmc.executebuiltin("Container.Update(%s)" % destination)
         return
 
     if action == "set_mark":
