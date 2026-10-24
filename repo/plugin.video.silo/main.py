@@ -5910,6 +5910,96 @@ def list_collection(client, collection_id, title=None, cursor=None):
     )
 
 
+
+def list_saved_servers(client):
+    """Show saved Silo servers and actions to add or remove one."""
+    records = client.list_saved_servers()
+    labels = []
+    for record in records:
+        host = record.get("server") or "Silo"
+        username = record.get("username") or ""
+        active = (
+            str(ADDON.getSetting("server") or "").rstrip("/").casefold()
+            == host.rstrip("/").casefold()
+            and str(ADDON.getSetting("username") or "").casefold()
+            == username.casefold()
+        )
+        labels.append(
+            ("%s  —  %s%s" % (
+                username, host, "  (current)" if active else ""
+            ))
+        )
+
+    choices = ["Add server / sign in", "Remove a saved server"]
+    choices.extend(labels)
+    selected = xbmcgui.Dialog().select("Silo servers", choices)
+    if selected < 0:
+        return
+
+    if selected == 0:
+        client.login_full()
+        client.remember_current_server()
+        notify("Silo server saved")
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if selected == 1:
+        if not records:
+            xbmcgui.Dialog().ok("Silo servers", "There are no saved servers to remove.")
+            return
+        remove_index = xbmcgui.Dialog().select(
+            "Remove saved server",
+            [
+                "%s — %s" % (r.get("username"), r.get("server"))
+                for r in records
+            ],
+        )
+        if remove_index < 0:
+            return
+        record = records[remove_index]
+        active = (
+            str(ADDON.getSetting("server") or "").rstrip("/").casefold()
+            == str(record.get("server") or "").rstrip("/").casefold()
+            and str(ADDON.getSetting("username") or "").casefold()
+            == str(record.get("username") or "").casefold()
+        )
+        if not xbmcgui.Dialog().yesno(
+            "Remove saved server",
+            "Remove %s at %s from the saved server list?"
+            % (record.get("username"), record.get("server")),
+        ):
+            return
+        if active:
+            client.forget_current_server()
+            client.logout()
+        else:
+            from resources.lib.silo import _load_saved_servers, _save_saved_servers
+            target_key = record.get("key")
+            _save_saved_servers([
+                item for item in _load_saved_servers()
+                if item.get("key") != target_key
+            ])
+        notify("Saved server removed")
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    record = records[selected - 2]
+    current_key = (
+        str(ADDON.getSetting("server") or "").rstrip("/").casefold(),
+        str(ADDON.getSetting("username") or "").casefold(),
+    )
+    target_key = (
+        str(record.get("server") or "").rstrip("/").casefold(),
+        str(record.get("username") or "").casefold(),
+    )
+    if current_key == target_key:
+        xbmcgui.Dialog().ok("Silo servers", "This server is already active.")
+        return
+    client.switch_to_server(record.get("server"), record.get("username"))
+    notify("Switched Silo server")
+    xbmc.executebuiltin("Container.Refresh")
+
+
 def list_root(client, page=None):
     """Display the initial screen or the logged-in Silo libraries.
 
@@ -5955,6 +6045,15 @@ def list_root(client, page=None):
             xbmcplugin.setContent(HANDLE, "files")
             xbmcplugin.endOfDirectory(HANDLE)
             return
+
+    server_item = xbmcgui.ListItem(label="Switch / Add Server")
+    server_item.setArt({"icon": "DefaultNetwork.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="servers"),
+        server_item,
+        False,
+    )
 
     search_item = xbmcgui.ListItem(label="Search")
     xbmcplugin.addDirectoryItem(
@@ -9813,6 +9912,10 @@ def router(client):
 
     if action == "settings":
         open_settings(client)
+        return
+
+    if action == "servers":
+        list_saved_servers(client)
         return
 
     if action == "login":
