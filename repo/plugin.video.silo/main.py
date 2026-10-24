@@ -1565,6 +1565,8 @@ def set_catalog_metadata(list_item, item, client):
                     str(value),
                 )
 
+    add_catalog_context_menu(list_item, item)
+
 
 def _detail_version(detail, file_id=None):
     """Select the Silo file version Kodi should use for pre-play details."""
@@ -2192,6 +2194,8 @@ def set_season_metadata(list_item, season, client, series_id=None):
             )
             list_item.setProperty(property_name, str(value))
 
+    add_catalog_context_menu(list_item, dict(season, type="season"))
+
 
 def set_watch_state(list_item, progress, content_type=None):
     """Apply Silo's current watched/resume state to a Kodi ListItem.
@@ -2284,7 +2288,6 @@ def add_catalog_item(client, item, library_id):
         catalog_progress(item),
         media_type,
     )
-    add_catalog_context_menu(list_item, item)
 
     is_playable = media_type in PLAYABLE
     play_content_id = item.get("play_content_id") or content_id
@@ -2611,30 +2614,8 @@ def display_title_for_catalog_item(catalog_item):
     return title
 
 
-def _catalog_mark_state(catalog_item, detail, key):
-    """Read the current Silo mark from the catalog or detail user-state data."""
-    for source_item in (detail, catalog_item):
-        if not isinstance(source_item, dict):
-            continue
-        for state_name in ("user_state", "user_data"):
-            state = source_item.get(state_name)
-            if isinstance(state, dict) and key in state:
-                value = state.get(key)
-                if isinstance(value, str):
-                    return value.strip().lower() in ("1", "true", "yes", "on")
-                return bool(value)
-
-    if key == "played":
-        for source_item in (detail, catalog_item):
-            if isinstance(source_item, dict):
-                progress = catalog_progress(source_item)
-                if isinstance(progress, dict) and progress.get("completed") is not None:
-                    return bool(progress.get("completed"))
-    return False
-
-
-def add_catalog_context_menu(list_item, catalog_item, detail=None):
-    """Add Silo-server actions without replacing the skin's own context items."""
+def add_catalog_context_menu(list_item, catalog_item):
+    """Attach one Silo actions dialog entry to a supported catalog item."""
     if not isinstance(catalog_item, dict):
         return
 
@@ -2645,30 +2626,15 @@ def add_catalog_context_menu(list_item, catalog_item, detail=None):
     if not content_id or media_type not in ("movie", "series", "season", "episode"):
         return
 
-    # Kodi does not expose a supported way to move add-on entries ahead of the
-    # skin's native entries. Keep our own entries ordered, and do not replace
-    # the rest of the user's context menu.
-    actions = (
-        ("played", "watched", "Mark as unwatched in Silo", "Mark as watched in Silo"),
-        ("is_favorite", "favorite", "Remove from Silo Favourites", "Add to Silo Favourites"),
-        ("in_watchlist", "watchlist", "Remove from Silo Watchlist", "Add to Silo Watchlist"),
-    )
-    menu_items = []
-    for state_key, action_name, remove_label, add_label in actions:
-        current = _catalog_mark_state(catalog_item, detail, state_key)
-        label = remove_label if current else add_label
-        command_url = build_url(
-            action="set_mark",
-            content_id=content_id,
-            mark=action_name,
-            value="0" if current else "1",
-        )
-        menu_items.append((label, "RunPlugin(%s)" % command_url))
-
+    # The dialog fetches current profile state from Silo when opened, so the
+    # menu only needs to carry a stable content ID.
+    command_url = build_url(action="actions", id=content_id)
     try:
-        list_item.addContextMenuItems(menu_items)
+        list_item.addContextMenuItems([
+            ("Silo actions...", "RunPlugin(%s)" % command_url),
+        ])
     except (AttributeError, RuntimeError, TypeError) as exc:
-        log("Unable to attach Silo title actions: %s" % exc, xbmc.LOGDEBUG)
+        log("Unable to attach Silo actions menu: %s" % exc, xbmc.LOGDEBUG)
 
 
 def build_catalog_list_item(client, catalog_item, detail=None, progress=None, series_rollup=None, season_rollup=None):
@@ -2703,7 +2669,6 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
     elif media_type == "season":
         set_container_watch_state(item, season_rollup)
 
-    add_catalog_context_menu(item, catalog_item, detail=detail)
     return item, media_type, content_id, title, display_progress
 
 
@@ -9270,6 +9235,15 @@ def router(client):
             )
         else:
             search_silo(client)
+        return
+
+    if action == "actions":
+        from resources.lib.actions_dialog import show_actions
+
+        content_id = str(params.get("id") or params.get("content_id") or "").strip()
+        if not content_id:
+            raise SiloError("No Silo content ID was supplied.")
+        show_actions(client, content_id)
         return
 
     if action == "set_mark":
