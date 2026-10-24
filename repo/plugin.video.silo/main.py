@@ -1113,39 +1113,58 @@ def _art_url(client, value):
     return client.abs_url(str(value))
 
 
-def set_art(list_item, client, poster=None, backdrop=None, logo=None, still=None):
-    """Apply Silo artwork to the Kodi ListItem.
+def set_art(
+    list_item,
+    client,
+    poster=None,
+    backdrop=None,
+    logo=None,
+    still=None,
+    banner=None,
+    clearart=None,
+    discart=None,
+    landscape=None,
+):
+    """Apply Silo artwork to Kodi's common skin-independent art slots.
 
-    Current Silo CatalogItem responses expose poster_url, backdrop_url and
-    logo_url. Older field names and dictionary-style artwork values are also
-    accepted as fallbacks so artwork remains compatible with older servers.
+    Silo image URLs may be absolute or server-relative. Route every value
+    through _art_url so presigned and relative URLs behave consistently.
     """
     poster_url = _art_url(client, poster)
     backdrop_url = _art_url(client, backdrop)
     logo_url = _art_url(client, logo)
     still_url = _art_url(client, still)
+    banner_url = _art_url(client, banner)
+    clearart_url = _art_url(client, clearart)
+    discart_url = _art_url(client, discart)
+    landscape_url = _art_url(client, landscape)
 
     art = {}
-
     if poster_url:
         art.update({
             "thumb": poster_url,
             "poster": poster_url,
             "icon": poster_url,
         })
-
     if backdrop_url:
         art["fanart"] = backdrop_url
-
     if logo_url:
         art["clearlogo"] = logo_url
+    if banner_url:
+        art["banner"] = banner_url
+    if clearart_url:
+        art["clearart"] = clearart_url
+    if discart_url:
+        art["discart"] = discart_url
+    if landscape_url:
+        art["landscape"] = landscape_url
 
-    # Episode stills are useful as thumbnails when no poster is available.
-    if still_url and not poster_url:
-        art.update({
-            "thumb": still_url,
-            "icon": still_url,
-        })
+    # Episode stills/landscape images are useful wide artwork. Do not replace
+    # a real poster with a still when a poster exists.
+    if still_url:
+        art.setdefault("landscape", still_url)
+        if not poster_url:
+            art.update({"thumb": still_url, "icon": still_url})
 
     if art:
         list_item.setArt(art)
@@ -1910,6 +1929,22 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
         client,
     )
 
+    # Detail responses can contain artwork absent from the compact browse card.
+    # Only supplied fields are applied, so missing details do not clear existing
+    # card art. Accept both current v2 names and older aliases.
+    set_art(
+        list_item,
+        client,
+        poster=detail.get("poster_url") or detail.get("poster") or detail.get("image"),
+        backdrop=detail.get("backdrop_url") or detail.get("backdrop"),
+        logo=detail.get("logo_url") or detail.get("logo"),
+        still=detail.get("still_url") or detail.get("still"),
+        banner=detail.get("banner_url") or detail.get("banner"),
+        clearart=detail.get("clear_art_url") or detail.get("clearart_url") or detail.get("clearart"),
+        discart=detail.get("disc_url") or detail.get("discart_url") or detail.get("discart"),
+        landscape=detail.get("landscape_url") or detail.get("landscape") or detail.get("thumb_url"),
+    )
+
     tag = list_item.getVideoInfoTag()
 
     if detail.get("sort_title"):
@@ -2238,15 +2273,26 @@ def set_season_metadata(list_item, season, client, series_id=None):
         "true" if bool(season.get("is_specials", False)) else "false",
     )
 
-    poster_url = season.get("poster_url")
+    poster_url = (
+        season.get("poster_url")
+        or season.get("poster")
+        or season.get("image")
+        or season.get("thumbnail")
+    )
     poster_thumbhash = season.get("poster_thumbhash")
 
-    if poster_url:
-        set_art(
-            list_item,
-            client,
-            poster=poster_url,
-        )
+    set_art(
+        list_item,
+        client,
+        poster=poster_url,
+        backdrop=season.get("backdrop_url") or season.get("backdrop"),
+        logo=season.get("logo_url") or season.get("logo"),
+        still=season.get("still_url") or season.get("still"),
+        banner=season.get("banner_url") or season.get("banner"),
+        clearart=season.get("clear_art_url") or season.get("clearart_url") or season.get("clearart"),
+        discart=season.get("disc_url") or season.get("discart_url") or season.get("discart"),
+        landscape=season.get("landscape_url") or season.get("landscape") or season.get("thumb_url"),
+    )
 
     if poster_thumbhash:
         list_item.setProperty(
@@ -2350,16 +2396,14 @@ def add_catalog_item(client, item, library_id):
     set_art(
         list_item,
         client,
-        # Current Silo v2 artwork fields.
-        poster=(
-            item.get("poster_url")
-            or item.get("poster")
-            or item.get("image")
-            or item.get("artwork")
-            or item.get("thumbnail")
-        ),
-        backdrop=item.get("backdrop_url"),
-        logo=item.get("logo_url"),
+        poster=item.get("poster_url") or item.get("poster") or item.get("image") or item.get("artwork") or item.get("thumbnail"),
+        backdrop=item.get("backdrop_url") or item.get("backdrop"),
+        logo=item.get("logo_url") or item.get("logo"),
+        still=item.get("still_url") or item.get("still"),
+        banner=item.get("banner_url") or item.get("banner"),
+        clearart=item.get("clear_art_url") or item.get("clearart_url") or item.get("clearart"),
+        discart=item.get("disc_url") or item.get("discart_url") or item.get("discart"),
+        landscape=item.get("landscape_url") or item.get("landscape") or item.get("thumb_url"),
     )
 
     # Use the watched/resume state already included in the catalog response.
@@ -2414,9 +2458,11 @@ def build_person_list_item(client, person):
 
     photo = person.get("photo_url") or person.get("photo")
     if photo:
+        photo_url = client.abs_url(str(photo))
         item.setArt({
-            "thumb": client.abs_url(str(photo)),
-            "icon": client.abs_url(str(photo)),
+            "thumb": photo_url,
+            "icon": photo_url,
+            "poster": photo_url,
         })
 
     tag = item.getVideoInfoTag()
@@ -2815,12 +2861,23 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
     set_art(
         item,
         client,
-        poster=(catalog_item.get("poster_url") or catalog_item.get("poster")
-                or catalog_item.get("image") or catalog_item.get("artwork")
-                or catalog_item.get("thumbnail")),
-        backdrop=catalog_item.get("backdrop_url"),
-        logo=catalog_item.get("logo_url"),
-        still=catalog_item.get("still_url") or catalog_item.get("still"),
+        poster=(
+            catalog_item.get("poster_url")
+            or catalog_item.get("poster")
+            or catalog_item.get("image")
+            or catalog_item.get("artwork")
+            or catalog_item.get("thumbnail")
+            or (detail or {}).get("poster_url")
+            or (detail or {}).get("poster")
+            or (detail or {}).get("image")
+        ),
+        backdrop=catalog_item.get("backdrop_url") or catalog_item.get("backdrop") or (detail or {}).get("backdrop_url") or (detail or {}).get("backdrop"),
+        logo=catalog_item.get("logo_url") or catalog_item.get("logo") or (detail or {}).get("logo_url") or (detail or {}).get("logo"),
+        still=catalog_item.get("still_url") or catalog_item.get("still") or (detail or {}).get("still_url") or (detail or {}).get("still"),
+        banner=catalog_item.get("banner_url") or catalog_item.get("banner") or (detail or {}).get("banner_url") or (detail or {}).get("banner"),
+        clearart=catalog_item.get("clear_art_url") or catalog_item.get("clearart_url") or catalog_item.get("clearart") or (detail or {}).get("clear_art_url") or (detail or {}).get("clearart_url") or (detail or {}).get("clearart"),
+        discart=catalog_item.get("disc_url") or catalog_item.get("discart_url") or catalog_item.get("discart") or (detail or {}).get("disc_url") or (detail or {}).get("discart_url") or (detail or {}).get("discart"),
+        landscape=catalog_item.get("landscape_url") or catalog_item.get("landscape") or (detail or {}).get("landscape_url") or (detail or {}).get("landscape") or (detail or {}).get("thumb_url"),
     )
 
     if detail:
@@ -5758,9 +5815,30 @@ def list_collections(client):
         label = "%s - %s" % (group_name, name) if group_name else name
 
         item = xbmcgui.ListItem(label=label)
-        poster = collection.get("poster_url")
-        if poster:
-            item.setArt({"thumb": poster, "poster": poster})
+        # Collection posters may be presigned URLs or server-relative paths.
+        # Use the same URL resolver as catalog artwork instead of setArt(raw).
+        set_art(
+            item,
+            client,
+            poster=(
+                collection.get("poster_url")
+                or collection.get("poster")
+                or collection.get("image")
+                or collection.get("thumbnail")
+            ),
+            backdrop=collection.get("backdrop_url") or collection.get("backdrop"),
+            logo=collection.get("logo_url") or collection.get("logo"),
+            banner=collection.get("banner_url") or collection.get("banner"),
+            clearart=collection.get("clear_art_url") or collection.get("clearart_url"),
+            landscape=collection.get("landscape_url") or collection.get("landscape"),
+        )
+        if collection.get("poster_thumbhash"):
+            item.setProperty("Silo.PosterThumbhash", str(collection["poster_thumbhash"]))
+        if collection.get("poster_is_collage") is not None:
+            item.setProperty(
+                "Silo.PosterIsCollage",
+                "true" if collection.get("poster_is_collage") else "false",
+            )
 
         item.setInfo(
             "video",
@@ -6475,7 +6553,11 @@ def list_libraries(client):
         set_art(
             item,
             client,
-            poster=library.get("poster_url"),
+            poster=library.get("poster_url") or library.get("poster") or library.get("image") or library.get("thumbnail"),
+            backdrop=library.get("backdrop_url") or library.get("backdrop"),
+            logo=library.get("logo_url") or library.get("logo"),
+            banner=library.get("banner_url") or library.get("banner"),
+            landscape=library.get("landscape_url") or library.get("landscape"),
         )
 
         batch.append(
