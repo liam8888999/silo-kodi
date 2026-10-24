@@ -353,6 +353,7 @@ def _load_saved_servers():
         }
         record["server"] = record["server"].strip().rstrip("/")
         record["username"] = record["username"].strip()
+        record["server_name"] = str(item.get("server_name") or "").strip()
         if not record["server"] or not record["username"]:
             continue
         record["key"] = _server_profile_key(
@@ -370,7 +371,10 @@ def _save_saved_servers(records):
     payload = {
         "version": 1,
         "servers": [
-            {key: str(record.get(key) or "") for key in _SERVER_PROFILE_KEYS}
+            dict(
+                {key: str(record.get(key) or "") for key in _SERVER_PROFILE_KEYS},
+                server_name=str(record.get("server_name") or ""),
+            )
             for record in records
             if isinstance(record, dict)
             and record.get("server")
@@ -465,20 +469,45 @@ class SiloClient:
 
     # ------------------------------------------------------------ helpers
 
-    def server_display_name(self):
-        """Return the custom public server name, or its URL when unbranded."""
-        server_url = str(self.base or _setting("server") or "").strip().rstrip("/")
+    def server_display_name(self, server_url=None):
+        """Return the same branded name used by the root menu, or the URL."""
+        server_url = str(
+            server_url if server_url is not None else self.base or _setting("server") or ""
+        ).strip().rstrip("/")
         if not server_url:
             return "Silo"
 
-        branding = self._get_public_json("/api/v2/theme/branding") or {}
+        # Reuse a previously discovered custom name for alternate servers so
+        # the selector stays responsive even when a server is temporarily offline.
+        records = _load_saved_servers()
+        target = server_url.casefold()
+        for record in records:
+            if str(record.get("server") or "").rstrip("/").casefold() == target:
+                cached_name = str(record.get("server_name") or "").strip()
+                if cached_name and cached_name.casefold() != "silo":
+                    return cached_name
+
+        branding = self._get_public_json(
+            "/api/v2/theme/branding",
+            base_url=server_url,
+            timeout=4,
+        ) or {}
         name = str(branding.get("server_name") or "").strip() if isinstance(branding, dict) else ""
 
-        # "Silo" is the server's stock branding. Use the URL in that case so
-        # users can distinguish multiple default-branded Silo installations.
-        if name and name.casefold() != "silo":
-            return name
-        return server_url
+        # "Silo" is the server's stock branding. Use its URL in that case so
+        # multiple default-branded installations remain distinguishable.
+        if not name or name.casefold() == "silo":
+            return server_url
+
+        # Cache the discovered name without changing the server's auth data.
+        changed = False
+        for record in records:
+            if str(record.get("server") or "").rstrip("/").casefold() == target:
+                record["server_name"] = name
+                changed = True
+        if changed:
+            _save_saved_servers(records)
+        return name
 
     # Base server URL used for every Silo API request.
     @property
@@ -851,15 +880,18 @@ class SiloClient:
 
     # Fetch an unauthenticated JSON document, or None when the server does
     # not answer it (an older server without the endpoint, or a network error).
-    def _get_public_json(self, path):
+    def _get_public_json(self, path, base_url=None, timeout=15):
+        request_base = str(base_url or self.base or "").rstrip("/")
+        if not request_base:
+            return None
         try:
             r = self.session.get(
-                self.base + path,
+                request_base + path,
                 headers=self._client_headers(),
-                timeout=15,
+                timeout=timeout,
             )
         except requests.RequestException as e:
-            log("GET %s unavailable: %s" % (path, e), xbmc.LOGWARNING)
+            log("GET %s unavailable: %s" % (path, e), xbmc.LOGDEBUG)
             return None
 
         if not r.ok:
@@ -1091,6 +1123,14 @@ class SiloClient:
         record["key"] = _server_profile_key(server, username)
 
         records = _load_saved_servers()
+        existing = next(
+            (item for item in records if item.get("key") == record["key"]),
+            None,
+        )
+        record["server_name"] = (
+            (existing or {}).get("server_name")
+            or self.server_display_name(server)
+        )
         records = [
             item for item in records
             if item.get("key") != record["key"]
