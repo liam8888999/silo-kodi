@@ -9243,6 +9243,15 @@ def router(client):
         content_id = str(params.get("id") or params.get("content_id") or "").strip()
         if not content_id:
             raise SiloError("No Silo content ID was supplied.")
+        library_id = params.get("library_id")
+        show_actions(client, content_id, library_id=library_id)
+        return
+
+        from resources.lib.actions_dialog import show_actions
+
+        content_id = str(params.get("id") or params.get("content_id") or "").strip()
+        if not content_id:
+            raise SiloError("No Silo content ID was supplied.")
         show_actions(client, content_id)
         return
 
