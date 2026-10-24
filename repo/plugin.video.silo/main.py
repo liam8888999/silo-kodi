@@ -2646,10 +2646,13 @@ def add_catalog_context_menu(list_item, catalog_item, detail=None):
     if not content_id or media_type not in ("movie", "series", "season", "episode"):
         return
 
+    # Kodi skins commonly contribute their own "Mark as watched" and
+    # "Add to favourites" actions. These entries call Kodi's local actions,
+    # not Silo's API, so label our server-backed alternatives explicitly.
     actions = (
-        ("played", "watched", "Mark as unwatched", "Mark as watched"),
-        ("is_favorite", "favorite", "Remove from Favourites", "Add to Favourites"),
-        ("in_watchlist", "watchlist", "Remove from Watchlist", "Add to Watchlist"),
+        ("played", "watched", "Mark as unwatched in Silo", "Mark as watched in Silo"),
+        ("is_favorite", "favorite", "Remove from Silo Favourites", "Add to Silo Favourites"),
+        ("in_watchlist", "watchlist", "Remove from Silo Watchlist", "Add to Silo Watchlist"),
     )
     menu_items = []
     for state_key, action_name, remove_label, add_label in actions:
