@@ -465,6 +465,21 @@ class SiloClient:
 
     # ------------------------------------------------------------ helpers
 
+    def server_display_name(self):
+        """Return the custom public server name, or its URL when unbranded."""
+        server_url = str(self.base or _setting("server") or "").strip().rstrip("/")
+        if not server_url:
+            return "Silo"
+
+        branding = self._get_public_json("/api/v2/theme/branding") or {}
+        name = str(branding.get("server_name") or "").strip() if isinstance(branding, dict) else ""
+
+        # "Silo" is the server's stock branding. Use the URL in that case so
+        # users can distinguish multiple default-branded Silo installations.
+        if name and name.casefold() != "silo":
+            return name
+        return server_url
+
     # Base server URL used for every Silo API request.
     @property
     def base(self):
@@ -1336,8 +1351,14 @@ class SiloClient:
     # being forced to reuse the previous account. The stable Kodi device ID is
     # intentionally retained so Silo still recognises this Kodi installation
     # as the same device after logging into another account.
-    def logout(self):
-        # Keep the saved server profile so it can be selected again later.
+    def logout(self, forget_saved=False):
+        # Save the latest rotating refresh token and profile state before
+        # clearing the active settings. Explicit removal skips this save.
+        if forget_saved:
+            self.forget_current_server()
+        else:
+            self.remember_current_server()
+
         # Clear the editable account settings from Kodi itself as well as the
         # in-memory client state. Keeping these values would cause the next
         # addon launch to use the settings-first login path and ask only for
