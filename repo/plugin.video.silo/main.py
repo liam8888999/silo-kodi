@@ -6153,7 +6153,17 @@ def list_root(client, page=None):
         False,
     )
 
-    profile_item = xbmcgui.ListItem(label="Switch Profile")
+    try:
+        current_profile_name = client.current_profile_name()
+    except Exception as exc:
+        current_profile_name = ""
+        log("Unable to retrieve current Silo profile name: %s" % exc, xbmc.LOGDEBUG)
+    profile_label = (
+        "Switch Profile (%s)" % current_profile_name
+        if current_profile_name
+        else "Switch Profile"
+    )
+    profile_item = xbmcgui.ListItem(label=profile_label)
     xbmcplugin.addDirectoryItem(
         HANDLE,
         build_url(action="switch_profile"),
@@ -10177,8 +10187,9 @@ def router(client):
         return
 
     if action == "switch_profile":
-        client.select_profile()
-        xbmc.executebuiltin("Container.Refresh")
+        changed = client.select_profile(cancel_if_current=True)
+        if changed:
+            xbmc.executebuiltin("Container.Refresh")
         return
 
     if action == "logout":
