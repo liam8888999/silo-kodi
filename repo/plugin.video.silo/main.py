@@ -5638,11 +5638,36 @@ def _directory_art(list_item, name, client=None, server_art=None):
     if art_url:
         set_art(list_item, client, poster=art_url)
         return
+
+    # On Windows, Addon.getAddonInfo("path") may be a special:// VFS URL.
+    # os.path.join would insert backslashes into that URL, producing paths
+    # Kodi cannot resolve. Translate to a native filesystem path first.
+    addon_path = xbmcvfs.translatePath(ADDON.getAddonInfo("path"))
+    media_dir = os.path.join(addon_path, "resources", "media")
     filename = name if name.endswith(".png") else name + ".png"
-    path = os.path.join(ADDON.getAddonInfo("path"), "resources", "media", filename)
+    path = os.path.normpath(os.path.join(media_dir, filename))
     if not xbmcvfs.exists(path):
-        path = os.path.join(ADDON.getAddonInfo("path"), "resources", "media", "folder-generic.png")
-    list_item.setArt({"icon": path, "thumb": path, "poster": path})
+        path = os.path.normpath(os.path.join(media_dir, "folder-generic.png"))
+
+    if xbmcvfs.exists(path):
+        list_item.setArt({
+            "icon": path,
+            "thumb": path,
+            "poster": path,
+        })
+        log("Using bundled Silo directory art: %s" % path, xbmc.LOGDEBUG)
+    else:
+        # Last-resort Kodi texture if the bundled artwork was not installed.
+        log(
+            "Bundled directory art is missing (%s); using Kodi folder texture"
+            % path,
+            xbmc.LOGWARNING,
+        )
+        list_item.setArt({
+            "icon": "DefaultFolder.png",
+            "thumb": "DefaultFolder.png",
+            "poster": "DefaultFolder.png",
+        })
 
 
 def list_your_stuff(client):
