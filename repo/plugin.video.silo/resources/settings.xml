@@ -10,6 +10,10 @@
 
   <category label="Playback">
     <setting id="direct_play_only" type="bool" label="Only allow direct play" default="false" />
+    <setting id="skip_segments_enabled" type="bool" label="Enable intro, recap and credits skipping" default="true" />
+    <setting id="auto_skip_intro" type="bool" label="Automatically skip intros" default="false" />
+    <setting id="auto_skip_recap" type="bool" label="Automatically skip recaps" default="false" />
+    <setting id="auto_skip_credits" type="bool" label="Automatically skip credits" default="false" />
   </category>
 
   <category label="Advanced">

@@ -51,6 +51,7 @@ import xbmcplugin
 import xbmcvfs
 import xbmcaddon
 
+from resources.lib.skipping import SkipTracker, segments as skip_segments
 from resources.lib.silo import (
     SiloClient,
     SiloError,
@@ -5910,6 +5911,103 @@ def list_collection(client, collection_id, title=None, cursor=None):
     )
 
 
+
+def list_saved_servers(client):
+    """Show saved Silo servers and actions to add or remove one."""
+    records = client.list_saved_servers()
+    labels = []
+    for record in records:
+        host = record.get("server") or "Silo"
+        username = record.get("username") or ""
+        active = (
+            str(ADDON.getSetting("server") or "").rstrip("/").casefold()
+            == host.rstrip("/").casefold()
+            and str(ADDON.getSetting("username") or "").casefold()
+            == username.casefold()
+        )
+        try:
+            display_name = client.server_display_name(host)
+        except Exception as exc:
+            display_name = host
+            log("Unable to get saved server name for %s: %s" % (host, exc), xbmc.LOGDEBUG)
+        if active:
+            labels.append(
+                "Reconnect to current server (%s)" % display_name
+            )
+        else:
+            labels.append(
+                "Connect to %s (%s)" % (username, display_name)
+            )
+
+    choices = ["Add server / sign in"]
+    if records:
+        choices.append("Remove a saved server")
+    choices.extend(labels)
+    selected = xbmcgui.Dialog().select("Silo servers", choices)
+    if selected < 0:
+        return
+
+    if selected == 0:
+        client.login_full()
+        client.remember_current_server()
+        notify("Silo server saved")
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if records and selected == 1:
+        remove_index = xbmcgui.Dialog().select(
+            "Remove saved server",
+            [
+                "%s — %s" % (r.get("username"), r.get("server"))
+                for r in records
+            ],
+        )
+        if remove_index < 0:
+            return
+        record = records[remove_index]
+        active = (
+            str(ADDON.getSetting("server") or "").rstrip("/").casefold()
+            == str(record.get("server") or "").rstrip("/").casefold()
+            and str(ADDON.getSetting("username") or "").casefold()
+            == str(record.get("username") or "").casefold()
+        )
+        if not xbmcgui.Dialog().yesno(
+            "Remove saved server",
+            "Remove %s at %s from the saved server list?"
+            % (record.get("username"), record.get("server")),
+        ):
+            return
+        if active:
+            client.logout(forget_saved=True)
+        else:
+            from resources.lib.silo import _load_saved_servers, _save_saved_servers
+            target_key = record.get("key")
+            _save_saved_servers([
+                item for item in _load_saved_servers()
+                if item.get("key") != target_key
+            ])
+        notify("Saved server removed")
+        xbmc.executebuiltin("Container.Refresh")
+        return
+
+    record_index = selected - (2 if records else 1)
+    record = records[record_index]
+    current_key = (
+        str(ADDON.getSetting("server") or "").rstrip("/").casefold(),
+        str(ADDON.getSetting("username") or "").casefold(),
+    )
+    target_key = (
+        str(record.get("server") or "").rstrip("/").casefold(),
+        str(record.get("username") or "").casefold(),
+    )
+    if current_key == target_key:
+        xbmcgui.Dialog().ok("Silo servers", "This server is already active.")
+        return
+    client.switch_to_server(record.get("server"), record.get("username"))
+    notify("Switched Silo server")
+    xbmc.executebuiltin("Container.Refresh")
+
+
 def list_root(client, page=None):
     """Display the initial screen or the logged-in Silo libraries.
 
@@ -5932,6 +6030,7 @@ def list_root(client, page=None):
             # profile or show the normal profile selector.
             if not client.cfg.get("profile_id"):
                 client.select_profile()
+            client.remember_current_server()
         else:
             # No saved account details: retain the Login button behaviour.
             login_item = xbmcgui.ListItem(label="Login")
@@ -5941,6 +6040,23 @@ def list_root(client, page=None):
                 login_item,
                 False,
             )
+
+            # A logged-out session can still connect to any previously saved
+            # account/server without forcing a new login flow.
+            try:
+                saved_servers = client.list_saved_servers()
+            except Exception as exc:
+                log("Unable to load saved Silo servers: %s" % exc, xbmc.LOGDEBUG)
+                saved_servers = []
+            if saved_servers:
+                servers_item = xbmcgui.ListItem(label="Connect to Saved Server")
+                servers_item.setArt({"icon": "DefaultNetwork.png"})
+                xbmcplugin.addDirectoryItem(
+                    HANDLE,
+                    build_url(action="servers"),
+                    servers_item,
+                    False,
+                )
 
             # Settings is deliberately available before login so the user can
             # enter the server/username/profile without using the Login button.
@@ -6020,6 +6136,22 @@ def list_root(client, page=None):
     else:
         for section in home_sections:
             add_home_section_folder(section)
+
+    try:
+        current_server_name = client.server_display_name()
+    except Exception as exc:
+        current_server_name = str(client.base or "Silo").rstrip("/")
+        log("Unable to retrieve Silo server branding: %s" % exc, xbmc.LOGDEBUG)
+    server_item = xbmcgui.ListItem(
+        label="Change Server (%s)" % current_server_name
+    )
+    server_item.setArt({"icon": "DefaultNetwork.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="servers"),
+        server_item,
+        False,
+    )
 
     profile_item = xbmcgui.ListItem(label="Switch Profile")
     xbmcplugin.addDirectoryItem(
@@ -8330,6 +8462,41 @@ def play(
         resolved_item,
     )
 
+    # Fetch version markers before entering the playback monitor. The monitor
+    # receives prepared spans rather than reaching back into play()'s local
+    # variables (content_id, file_id, library_id, detail).
+    if ADDON.getSettingBool("skip_segments_enabled"):
+        try:
+            versions = client.versions(content_id, library_id) or []
+            selected_version = next(
+                (
+                    version for version in versions
+                    if str(version.get("id") or version.get("file_id") or "") == str(file_id)
+                ),
+                None,
+            )
+            if selected_version is None and isinstance(detail, dict):
+                selected_version = (
+                    detail.get("file_version")
+                    or detail.get("version")
+                    or detail
+                )
+            timeline = (info.get("playback_plan") or {}).get("timeline") or {}
+            try:
+                timeline_offset = float(timeline.get("timeline_offset_seconds") or 0.0)
+            except (TypeError, ValueError):
+                timeline_offset = 0.0
+            spans = skip_segments(selected_version, offset=timeline_offset)
+            if spans:
+                info["_silo_skip_spans"] = spans
+                info["_silo_content_id"] = str(content_id)
+        except Exception as exc:
+            log(
+                "Unable to load Silo skip markers for %s: %s"
+                % (content_id, exc),
+                xbmc.LOGDEBUG,
+            )
+
     session_id = info.get("session_id")
 
     if session_id:
@@ -8841,6 +9008,22 @@ def track_progress(
     known_good_quality = playback_info["adaptive_quality"]
     known_good_since = time.time()
 
+    auto_skip = {
+        "intro": ADDON.getSettingBool("auto_skip_intro"),
+        "recap": ADDON.getSettingBool("auto_skip_recap"),
+        "credits": ADDON.getSettingBool("auto_skip_credits"),
+    }
+    skip_tracker = None
+    if ADDON.getSettingBool("skip_segments_enabled"):
+        spans = playback_info.get("_silo_skip_spans") or []
+        if spans:
+            skip_tracker = SkipTracker(spans)
+            log(
+                "Loaded %d Silo skip markers for %s"
+                % (len(spans), playback_info.get("_silo_content_id") or "current item"),
+                xbmc.LOGDEBUG,
+            )
+
     sequence = 0
     last_position = 0.0
     last_progress_position = None
@@ -8891,6 +9074,48 @@ def track_progress(
             break
 
         now = time.time()
+
+        if skip_tracker is not None and not _watch_party_connection_active():
+            try:
+                skip_position = float(player.getTime())
+                skip_span = skip_tracker.observe(skip_position)
+                if skip_span:
+                    kind = str(skip_span.get("kind") or "")
+                    label = {
+                        "intro": "Skip Intro",
+                        "recap": "Skip Recap",
+                        "credits": "Skip Credits",
+                    }.get(kind, "Skip")
+                    if auto_skip.get(kind):
+                        should_skip = True
+                    else:
+                        should_skip = xbmcgui.Dialog().yesno(
+                            label,
+                            "%s detected. Skip to %s?"
+                            % (
+                                kind.capitalize(),
+                                format_position(skip_span.get("end") or 0),
+                            ),
+                        )
+                    if should_skip and player.isPlaying():
+                        try:
+                            target = max(0.0, float(skip_span.get("end") or 0.0))
+                            duration = float(player.getTotalTime() or 0.0)
+                            if duration > 0:
+                                target = min(target, max(0.0, duration - 0.5))
+                            player.seekTime(target)
+                            last_position = target
+                            last_observed_position = target
+                            last_progress_position = target
+                            last_progress_change_at = time.time()
+                            caching_started_at = None
+                            stall_started_at = None
+                            seek_grace_until = time.time() + 8.0
+                            log("Skipped %s to %.1fs" % (kind, target), xbmc.LOGINFO)
+                        except Exception as exc:
+                            log("Unable to skip %s: %s" % (kind, exc), xbmc.LOGWARNING)
+            except Exception as exc:
+                log("Skip-marker check failed: %s" % exc, xbmc.LOGDEBUG)
 
         if not player.isPlaying():
             # A true stop removes the media from Kodi. A temporary false
@@ -9813,6 +10038,10 @@ def router(client):
 
     if action == "settings":
         open_settings(client)
+        return
+
+    if action == "servers":
+        list_saved_servers(client)
         return
 
     if action == "login":

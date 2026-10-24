@@ -42,11 +42,12 @@ Endpoints used by this addon:
 import base64
 import datetime
 import json
+import os
 import re
 import uuid
 import threading
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 # requests is used for all API communication made by the addon itself.
 import requests
@@ -277,6 +278,120 @@ def save_config(cfg):
         _set_setting(key, cfg[key])
 
 
+# Saved server profiles retain each server/account's independently rotating
+# tokens and selected profile. The Kodi installation ID remains global so every
+# server sees the same stable client device.
+_SERVER_PROFILE_KEYS = (
+    "server",
+    "username",
+    "auth_method",
+    "token",
+    "refresh_token",
+    "profile_id",
+    "profile_token",
+    "bandwidth_estimate_cache",
+)
+
+
+def _server_profile_key(server, username):
+    server = str(server or "").strip().rstrip("/")
+    username = str(username or "").strip()
+    try:
+        parts = urlsplit(server)
+        normalized_server = (
+            parts.scheme.lower() + "://" + parts.netloc.lower()
+            + parts.path.rstrip("/")
+        )
+    except Exception:
+        normalized_server = server
+    return normalized_server + "\n" + username.casefold()
+
+
+def _saved_servers_path():
+    folder = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
+    if not folder:
+        folder = xbmcvfs.translatePath(
+            "special://profile/addon_data/plugin.video.silo/"
+        )
+    xbmcvfs.mkdirs(folder)
+    return os.path.join(folder, "servers.json")
+
+
+def _load_saved_servers():
+    path = _saved_servers_path()
+    if not xbmcvfs.exists(path):
+        return []
+    handle = None
+    try:
+        handle = xbmcvfs.File(path, "r")
+        raw = handle.read()
+    except Exception as exc:
+        log("Unable to read saved Silo servers: %s" % exc, xbmc.LOGWARNING)
+        return []
+    finally:
+        if handle:
+            handle.close()
+
+    try:
+        data = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        log("Saved Silo server list is invalid JSON; starting with an empty list.", xbmc.LOGWARNING)
+        return []
+
+    items = data.get("servers", []) if isinstance(data, dict) else []
+    if not isinstance(items, list):
+        return []
+
+    result = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        record = {
+            key: str(item.get(key) or "")
+            for key in _SERVER_PROFILE_KEYS
+        }
+        record["server"] = record["server"].strip().rstrip("/")
+        record["username"] = record["username"].strip()
+        record["server_name"] = str(item.get("server_name") or "").strip()
+        if not record["server"] or not record["username"]:
+            continue
+        record["key"] = _server_profile_key(
+            record["server"], record["username"]
+        )
+        if record["key"] in seen:
+            continue
+        seen.add(record["key"])
+        result.append(record)
+    return result
+
+
+def _save_saved_servers(records):
+    path = _saved_servers_path()
+    payload = {
+        "version": 1,
+        "servers": [
+            dict(
+                {key: str(record.get(key) or "") for key in _SERVER_PROFILE_KEYS},
+                server_name=str(record.get("server_name") or ""),
+            )
+            for record in records
+            if isinstance(record, dict)
+            and record.get("server")
+            and record.get("username")
+        ],
+    }
+    handle = None
+    try:
+        handle = xbmcvfs.File(path, "w")
+        handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
+    except Exception as exc:
+        log("Unable to save Silo server list: %s" % exc, xbmc.LOGWARNING)
+    finally:
+        if handle:
+            handle.close()
+
+
 # Custom exception used for errors that should be shown/logged by Kodi.
 class SiloError(Exception):
     def __init__(self, msg, status=None, problem=None, retry_after=None):
@@ -353,6 +468,46 @@ class SiloClient:
 
 
     # ------------------------------------------------------------ helpers
+
+    def server_display_name(self, server_url=None):
+        """Return the same branded name used by the root menu, or the URL."""
+        server_url = str(
+            server_url if server_url is not None else self.base or _setting("server") or ""
+        ).strip().rstrip("/")
+        if not server_url:
+            return "Silo"
+
+        # Reuse a previously discovered custom name for alternate servers so
+        # the selector stays responsive even when a server is temporarily offline.
+        records = _load_saved_servers()
+        target = server_url.casefold()
+        for record in records:
+            if str(record.get("server") or "").rstrip("/").casefold() == target:
+                cached_name = str(record.get("server_name") or "").strip()
+                if cached_name and cached_name.casefold() != "silo":
+                    return cached_name
+
+        branding = self._get_public_json(
+            "/api/v2/theme/branding",
+            base_url=server_url,
+            timeout=4,
+        ) or {}
+        name = str(branding.get("server_name") or "").strip() if isinstance(branding, dict) else ""
+
+        # "Silo" is the server's stock branding. Use its URL in that case so
+        # multiple default-branded installations remain distinguishable.
+        if not name or name.casefold() == "silo":
+            return server_url
+
+        # Cache the discovered name without changing the server's auth data.
+        changed = False
+        for record in records:
+            if str(record.get("server") or "").rstrip("/").casefold() == target:
+                record["server_name"] = name
+                changed = True
+        if changed:
+            _save_saved_servers(records)
+        return name
 
     # Base server URL used for every Silo API request.
     @property
@@ -725,15 +880,18 @@ class SiloClient:
 
     # Fetch an unauthenticated JSON document, or None when the server does
     # not answer it (an older server without the endpoint, or a network error).
-    def _get_public_json(self, path):
+    def _get_public_json(self, path, base_url=None, timeout=15):
+        request_base = str(base_url or self.base or "").rstrip("/")
+        if not request_base:
+            return None
         try:
             r = self.session.get(
-                self.base + path,
+                request_base + path,
                 headers=self._client_headers(),
-                timeout=15,
+                timeout=timeout,
             )
         except requests.RequestException as e:
-            log("GET %s unavailable: %s" % (path, e), xbmc.LOGWARNING)
+            log("GET %s unavailable: %s" % (path, e), xbmc.LOGDEBUG)
             return None
 
         if not r.ok:
@@ -944,6 +1102,94 @@ class SiloClient:
         except requests.RequestException as e:
             log("Device sign-in cancel unavailable: %s" % e, xbmc.LOGWARNING)
 
+
+    # --------------------------------------------------------- saved servers
+
+    def remember_current_server(self):
+        """Persist the active server/account after a successful sign-in."""
+        server = _setting("server").strip().rstrip("/")
+        username = _setting("username").strip()
+        if not server or not username:
+            return None
+        if not (_setting("token") or _setting("refresh_token")):
+            return None
+
+        record = {
+            key: _setting(key)
+            for key in _SERVER_PROFILE_KEYS
+        }
+        record["server"] = server
+        record["username"] = username
+        record["key"] = _server_profile_key(server, username)
+
+        records = _load_saved_servers()
+        existing = next(
+            (item for item in records if item.get("key") == record["key"]),
+            None,
+        )
+        record["server_name"] = (
+            (existing or {}).get("server_name")
+            or self.server_display_name(server)
+        )
+        records = [
+            item for item in records
+            if item.get("key") != record["key"]
+        ]
+        records.append(record)
+        _save_saved_servers(records)
+        return record
+
+    def list_saved_servers(self):
+        """Return saved server/account records, refreshing the active record."""
+        self.remember_current_server()
+        records = _load_saved_servers()
+        return sorted(
+            records,
+            key=lambda item: (
+                item.get("server", "").casefold(),
+                item.get("username", "").casefold(),
+            ),
+        )
+
+    def switch_to_server(self, server, username):
+        """Load a saved server's own token/profile state into Kodi settings."""
+        self.remember_current_server()
+        target_key = _server_profile_key(server, username)
+        target = next(
+            (item for item in _load_saved_servers()
+             if item.get("key") == target_key),
+            None,
+        )
+        if not target:
+            raise SiloError("That saved Silo server could not be found.")
+        if not (target.get("token") or target.get("refresh_token")):
+            raise SiloError("That saved server has no reusable sign-in. Add it again.")
+
+        for key in _SERVER_PROFILE_KEYS:
+            _set_setting(key, target.get(key, ""))
+
+        # Device ID deliberately stays global. Reload every server-scoped value
+        # and clear caches which could otherwise leak across server boundaries.
+        self.cfg = load_config()
+        self._caps = None
+        self._details = {}
+        self._requested_profile_name = ""
+        return target
+
+    def forget_current_server(self):
+        """Remove the active server/account from the saved switcher."""
+        key = _server_profile_key(
+            _setting("server"),
+            _setting("username"),
+        )
+        if not key.strip():
+            return
+        records = [
+            item for item in _load_saved_servers()
+            if item.get("key") != key
+        ]
+        _save_saved_servers(records)
+
     # Complete interactive login used by the Kodi Login button.
     #
     # This intentionally performs the whole initial-login sequence in one
@@ -953,6 +1199,11 @@ class SiloClient:
         # Explicit login starts with no busy spinner so the server, username
         # and password prompts are unobstructed.
         _hide_login_loading()
+
+        # Preserve the current account before the fresh-login flow clears the
+        # active settings. This also makes Add Server safe while another server
+        # is already configured.
+        self.remember_current_server()
 
         # Every explicit Kodi login starts as a completely fresh attempt.
         # Do not reuse a previously entered server, username, token or profile
@@ -989,6 +1240,7 @@ class SiloClient:
             # profile automatically. select_profile() pauses it only when Kodi
             # actually needs to display a profile or PIN prompt.
             self.select_profile()
+            self.remember_current_server()
 
         except SiloError:
             # Always close the loading indicator on a failed or cancelled login.
@@ -1139,7 +1391,14 @@ class SiloClient:
     # being forced to reuse the previous account. The stable Kodi device ID is
     # intentionally retained so Silo still recognises this Kodi installation
     # as the same device after logging into another account.
-    def logout(self):
+    def logout(self, forget_saved=False):
+        # Save the latest rotating refresh token and profile state before
+        # clearing the active settings. Explicit removal skips this save.
+        if forget_saved:
+            self.forget_current_server()
+        else:
+            self.remember_current_server()
+
         # Clear the editable account settings from Kodi itself as well as the
         # in-memory client state. Keeping these values would cause the next
         # addon launch to use the settings-first login path and ask only for
