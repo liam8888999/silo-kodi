@@ -2284,6 +2284,7 @@ def add_catalog_item(client, item, library_id):
         catalog_progress(item),
         media_type,
     )
+    add_catalog_context_menu(list_item, item)
 
     is_playable = media_type in PLAYABLE
     play_content_id = item.get("play_content_id") or content_id
@@ -2610,6 +2611,66 @@ def display_title_for_catalog_item(catalog_item):
     return title
 
 
+def _catalog_mark_state(catalog_item, detail, key):
+    """Read the current Silo mark from the catalog or detail user-state data."""
+    for source_item in (detail, catalog_item):
+        if not isinstance(source_item, dict):
+            continue
+        for state_name in ("user_state", "user_data"):
+            state = source_item.get(state_name)
+            if isinstance(state, dict) and key in state:
+                value = state.get(key)
+                if isinstance(value, str):
+                    return value.strip().lower() in ("1", "true", "yes", "on")
+                return bool(value)
+
+    if key == "played":
+        for source_item in (detail, catalog_item):
+            if isinstance(source_item, dict):
+                progress = catalog_progress(source_item)
+                if isinstance(progress, dict) and progress.get("completed") is not None:
+                    return bool(progress.get("completed"))
+    return False
+
+
+def add_catalog_context_menu(list_item, catalog_item, detail=None):
+    """Add Silo-server actions without replacing the skin's own context items."""
+    if not isinstance(catalog_item, dict):
+        return
+
+    content_id = get_content_id(catalog_item)
+    media_type = str(
+        catalog_item.get("type") or catalog_item.get("media_type") or ""
+    ).lower()
+    if not content_id or media_type not in ("movie", "series", "season", "episode"):
+        return
+
+    # Kodi does not expose a supported way to move add-on entries ahead of the
+    # skin's native entries. Keep our own entries ordered, and do not replace
+    # the rest of the user's context menu.
+    actions = (
+        ("played", "watched", "Mark as unwatched in Silo", "Mark as watched in Silo"),
+        ("is_favorite", "favorite", "Remove from Silo Favourites", "Add to Silo Favourites"),
+        ("in_watchlist", "watchlist", "Remove from Silo Watchlist", "Add to Silo Watchlist"),
+    )
+    menu_items = []
+    for state_key, action_name, remove_label, add_label in actions:
+        current = _catalog_mark_state(catalog_item, detail, state_key)
+        label = remove_label if current else add_label
+        command_url = build_url(
+            action="set_mark",
+            content_id=content_id,
+            mark=action_name,
+            value="0" if current else "1",
+        )
+        menu_items.append((label, "RunPlugin(%s)" % command_url))
+
+    try:
+        list_item.addContextMenuItems(menu_items)
+    except (AttributeError, RuntimeError, TypeError) as exc:
+        log("Unable to attach Silo title actions: %s" % exc, xbmc.LOGDEBUG)
+
+
 def build_catalog_list_item(client, catalog_item, detail=None, progress=None, series_rollup=None, season_rollup=None):
     """Build a Kodi ListItem using the same metadata/watch pipeline everywhere."""
     content_id = get_content_id(catalog_item)
@@ -2642,6 +2703,7 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
     elif media_type == "season":
         set_container_watch_state(item, season_rollup)
 
+    add_catalog_context_menu(item, catalog_item, detail=detail)
     return item, media_type, content_id, title, display_progress
 
 
