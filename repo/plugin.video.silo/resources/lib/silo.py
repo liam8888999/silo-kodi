@@ -1337,7 +1337,7 @@ class SiloClient:
     # intentionally retained so Silo still recognises this Kodi installation
     # as the same device after logging into another account.
     def logout(self):
-        self.forget_current_server()
+        # Keep the saved server profile so it can be selected again later.
         # Clear the editable account settings from Kodi itself as well as the
         # in-memory client state. Keeping these values would cause the next
         # addon launch to use the settings-first login path and ask only for
