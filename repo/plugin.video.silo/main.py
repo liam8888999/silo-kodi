@@ -421,7 +421,7 @@ def add_previous_page(library_id=None, series_id=None, season_number=None,
         params["letter"] = letter
 
     item = xbmcgui.ListItem(label="Previous Page")
-    item.setArt({"icon": "DefaultFolder.png"})
+    _directory_art(item, "folder-page")
     xbmcplugin.addDirectoryItem(
         HANDLE,
         build_url(**params),
@@ -453,7 +453,7 @@ def add_next_page(library_id=None, series_id=None, season_number=None,
         params["letter"] = letter
 
     item = xbmcgui.ListItem(label="Next Page")
-    item.setArt({"icon": "DefaultFolder.png"})
+    _directory_art(item, "folder-page")
     xbmcplugin.addDirectoryItem(
         HANDLE,
         build_url(**params),
@@ -5632,27 +5632,33 @@ def _start_watch_party_guest_playback(
     return info.get("session_id")
 
 
+def _directory_art(list_item, name, client=None, server_art=None):
+    """Use bundled Silo artwork when a directory has no server-provided image."""
+    art_url = _art_url(client, server_art) if server_art is not None and client else ""
+    if art_url:
+        set_art(list_item, client, poster=art_url)
+        return
+    filename = name if name.endswith(".png") else name + ".png"
+    path = os.path.join(ADDON.getAddonInfo("path"), "resources", "media", filename)
+    if not xbmcvfs.exists(path):
+        path = os.path.join(ADDON.getAddonInfo("path"), "resources", "media", "folder-generic.png")
+    list_item.setArt({"icon": path, "thumb": path, "poster": path})
+
+
 def list_your_stuff(client):
     """Display the personal destinations shown under Silo's web Your Stuff menu."""
     # Use Kodi texture names that actually exist in its default icon set.
     # DefaultFavorites.png and DefaultRecentlyWatched.png are not standard
     # Kodi default textures, so those entries can appear completely blank.
     entries = (
-        ("Favorites", "favorites", "DefaultMovies.png"),
-        ("Watchlist", "watchlist", "DefaultVideo.png"),
-        ("History", "history", "DefaultVideo.png"),
+        ("Favorites", "favorites", "folder-favorites"),
+        ("Watchlist", "watchlist", "folder-watchlist"),
+        ("History", "history", "folder-history"),
     )
 
     for title, source, icon in entries:
         item = xbmcgui.ListItem(label=title)
-        # Some skins render these folder shortcuts in poster/thumb layouts
-        # rather than the icon slot. Populate all common slots to keep them
-        # visible across different Kodi skins.
-        item.setArt({
-            "icon": icon,
-            "thumb": icon,
-            "poster": icon,
-        })
+        _directory_art(item, icon)
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="personal_list", source=source),
@@ -5661,11 +5667,7 @@ def list_your_stuff(client):
         )
 
     collections_item = xbmcgui.ListItem(label="Collections")
-    collections_item.setArt({
-        "icon": "DefaultFolder.png",
-        "thumb": "DefaultFolder.png",
-        "poster": "DefaultFolder.png",
-    })
+    _directory_art(collections_item, "folder-collections")
     xbmcplugin.addDirectoryItem(
         HANDLE,
         build_url(action="collections"),
@@ -5846,6 +5848,8 @@ def list_collections(client):
             clearart=collection.get("clear_art_url") or collection.get("clearart_url"),
             landscape=collection.get("landscape_url") or collection.get("landscape"),
         )
+        if not any(collection.get(k) for k in ("poster_url", "poster", "image", "thumbnail")):
+            _directory_art(item, "folder-collections")
         if collection.get("poster_thumbhash"):
             item.setProperty("Silo.PosterThumbhash", str(collection["poster_thumbhash"]))
         if collection.get("poster_is_collage") is not None:
@@ -6564,15 +6568,18 @@ def list_libraries(client):
         if library.get("sort_order") is not None:
             item.setProperty("Silo.LibrarySortOrder", str(library.get("sort_order")))
 
+        server_poster = library.get("poster_url") or library.get("poster") or library.get("image") or library.get("thumbnail")
         set_art(
             item,
             client,
-            poster=library.get("poster_url") or library.get("poster") or library.get("image") or library.get("thumbnail"),
+            poster=server_poster,
             backdrop=library.get("backdrop_url") or library.get("backdrop"),
             logo=library.get("logo_url") or library.get("logo"),
             banner=library.get("banner_url") or library.get("banner"),
             landscape=library.get("landscape_url") or library.get("landscape"),
         )
+        if not server_poster:
+            _directory_art(item, "folder-libraries")
 
         batch.append(
             (
@@ -6603,6 +6610,10 @@ def add_home_section_folder(section):
 
     title = section.get("title") or section.get("section_type") or section_id
     item = xbmcgui.ListItem(label=title)
+    section_kind = str(section.get("section_type") or "").lower().replace("_", "-")
+    fallback_icon = "folder-search" if "search" in section_kind else "folder-home"
+    server_poster = section.get("poster_url") or section.get("poster") or section.get("image")
+    _directory_art(item, fallback_icon, server_art=server_poster)
     item.setProperty("Silo.HomeSectionID", str(section_id))
     item.setProperty("Silo.HomeSectionTitle", str(title))
 
