@@ -1560,19 +1560,6 @@ class SiloClient:
         )
 
     # Return the profile's visible personal collections and collection groups.
-    def title_action_state(self, content_id, library_id=None):
-        """Return current user-state flags for a catalog title."""
-        detail = self.item_detail(content_id, library_id=library_id) or {}
-        state = detail.get("user_state") or detail.get("user_data") or {}
-        if not isinstance(state, dict):
-            state = {}
-        return {
-            "played": bool(state.get("played", state.get("watched", False))),
-            "is_favorite": bool(state.get("is_favorite", state.get("favorite", False))),
-            "in_watchlist": bool(state.get("in_watchlist", state.get("watchlist", False))),
-            "detail": detail,
-        }
-
     def set_watchlist(self, content_id, enabled=True):
         """Add or remove a title from the active profile's Watchlist."""
         item_id = quote(str(content_id or ""), safe="")
