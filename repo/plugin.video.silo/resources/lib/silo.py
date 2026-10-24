@@ -1375,6 +1375,53 @@ class SiloClient:
 
         return data
 
+    # Return the profile-scoped recommendation rows shown on Silo Discover.
+    def discover_sections(self, image_size="medium"):
+        data = self._json(
+            "GET",
+            "/api/v2/recommendations/discover",
+            params={"image_size": image_size},
+        ) or {}
+
+        # V2 normally returns a collection with items; accept the older rows
+        # envelope too so the client remains tolerant of server versions.
+        if isinstance(data, dict) and isinstance(data.get("body"), dict):
+            data = data["body"]
+        if not isinstance(data, dict):
+            return []
+
+        rows = data.get("items") or data.get("rows") or []
+        return rows if isinstance(rows, list) else []
+
+    # Return the complete contents of one Discover row where the server
+    # exposes a dedicated section route.
+    def recommendation_section(self, kind, key=None, image_size="medium", limit=60):
+        kind = str(kind or "").strip()
+        if not kind:
+            return {}
+
+        try:
+            limit = max(1, min(int(limit or 60), 60))
+        except (TypeError, ValueError):
+            limit = 60
+
+        params = {
+            "limit": limit,
+            "image_size": image_size,
+        }
+        if key not in (None, ""):
+            params["key"] = str(key)
+
+        data = self._json(
+            "GET",
+            "/api/v2/recommendations/section/%s" % quote(kind, safe=""),
+            params=params,
+        ) or {}
+
+        if isinstance(data, dict) and isinstance(data.get("body"), dict):
+            data = data["body"]
+        return data if isinstance(data, dict) else {}
+
     # Search the profile-visible catalog across all accessible libraries.
     # Silo performs the search server-side, so the addon does not need to
     # download and scan every library itself.

@@ -5994,6 +5994,18 @@ def list_root(client, page=None):
         True,
     )
 
+    # Keep Discover separate from Home: it is the server's profile-level
+    # recommendation experience, with its own rows and full-section pages.
+    discover_item = xbmcgui.ListItem(label="Discover")
+    _directory_art(discover_item, "folder-search")
+    discover_item.setProperty("Silo.DiscoverFolder", "true")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="discover"),
+        discover_item,
+        True,
+    )
+
     # Silo Home sections are profile-wide: they combine content across all
     # libraries visible to the selected profile. This keeps Continue Watching,
     # Recently Added, Recommended, Next Up, etc. from being split by library.
@@ -6485,6 +6497,133 @@ def list_home_section_group(client, group_key):
         section_title=title,
         merged_group_key=str(group_key or ""),
     )
+
+def list_discover_sections(client):
+    """Display the recommendation rows supplied by Silo's Discover endpoint."""
+    try:
+        rows = client.discover_sections(image_size="medium")
+    except SiloError as exc:
+        log("Unable to load Silo Discover sections: %s" % exc, xbmc.LOGWARNING)
+        notify("Discover unavailable")
+        xbmcplugin.setPluginCategory(HANDLE, "Discover")
+        xbmcplugin.setContent(HANDLE, "files")
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+
+    xbmcplugin.setPluginCategory(HANDLE, "Discover")
+    xbmcplugin.setContent(HANDLE, "files")
+    batch = []
+
+    for index, row in enumerate(rows or []):
+        if not isinstance(row, dict):
+            continue
+
+        title = row.get("title") or row.get("label") or row.get("type") or "Discover"
+        items = row.get("items") or []
+        if not items:
+            continue
+
+        kind = str(row.get("kind") or row.get("section_kind") or "").strip()
+        key = str(row.get("key") or row.get("section_key") or "")
+        row_type = str(row.get("type") or "").strip().lower().replace("_", "-")
+
+        item = xbmcgui.ListItem(label=title)
+        fallback_icon = (
+            "folder-home"
+            if kind in ("popular", "recently-added", "top-rated")
+            or row_type in ("popular", "recently-added", "top-rated")
+            else "folder-search"
+        )
+        _directory_art(item, fallback_icon)
+        item.setProperty("Silo.DiscoverSectionTitle", str(title))
+        item.setProperty("Silo.DiscoverSectionType", str(row.get("type") or ""))
+        item.setProperty("Silo.DiscoverSectionKind", kind)
+        item.setProperty("Silo.DiscoverSectionKey", key)
+        item.setProperty("Silo.DiscoverSectionIndex", str(index))
+        item.setProperty("Silo.DiscoverItemCount", str(len(items)))
+
+        batch.append(
+            (
+                build_url(
+                    action="discover_section",
+                    kind=kind,
+                    key=key,
+                    title=title,
+                    row_index=index,
+                ),
+                item,
+                True,
+            )
+        )
+
+    if batch:
+        xbmcplugin.addDirectoryItems(HANDLE, batch, totalItems=len(batch))
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def list_discover_section(client, kind, key=None, title=None, row_index=None):
+    """Display a full Discover row, falling back to its initial cards if needed."""
+    kind = str(kind or "").strip()
+    key = str(key or "")
+    title = str(title or "").strip()
+    data = {}
+
+    # Prefer the dedicated section route because it can return more cards than
+    # the compact rows returned by the main Discover endpoint.
+    if kind:
+        try:
+            data = client.recommendation_section(
+                kind,
+                key=key,
+                image_size="medium",
+                limit=60,
+            ) or {}
+        except SiloError as exc:
+            log(
+                "Unable to load Discover section %s/%s: %s"
+                % (kind, key, exc),
+                xbmc.LOGWARNING,
+            )
+
+    items = data.get("items") if isinstance(data, dict) else []
+    section_title = (
+        (data.get("title") or data.get("label"))
+        if isinstance(data, dict)
+        else None
+    ) or title
+
+    # Rows without a dedicated section key (or rows not yet available through
+    # that route) still show the cards supplied by the main Discover endpoint.
+    if not items:
+        try:
+            rows = client.discover_sections(image_size="medium")
+        except SiloError as exc:
+            log("Unable to reload Silo Discover rows: %s" % exc, xbmc.LOGWARNING)
+            rows = []
+
+        try:
+            index = int(row_index)
+        except (TypeError, ValueError):
+            index = -1
+
+        if 0 <= index < len(rows):
+            row = rows[index]
+            if isinstance(row, dict):
+                items = row.get("items") or []
+                section_title = (
+                    row.get("title")
+                    or row.get("label")
+                    or row.get("type")
+                    or section_title
+                )
+
+    _render_catalog_items(
+        client,
+        {"title": section_title or "Discover", "items": items or []},
+        section_title=section_title or "Discover",
+    )
+
 
 def list_home_section(client, section_id):
     """Display one profile-wide Silo Home section with resilient source metadata."""
@@ -9682,6 +9821,20 @@ def router(client):
         # the Silo profile before returning to the library screen.
         client.login_full()
         xbmc.executebuiltin("Container.Refresh")
+        return
+
+    if action == "discover":
+        list_discover_sections(client)
+        return
+
+    if action == "discover_section":
+        list_discover_section(
+            client,
+            params.get("kind"),
+            params.get("key"),
+            params.get("title"),
+            params.get("row_index"),
+        )
         return
 
     if action == "home_section":
