@@ -7069,6 +7069,22 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         library_id,
     )
 
+    # Episode detail responses hold episode-specific metadata. Fields such as
+    # genres, studios, networks, language and series artwork may only exist on
+    # the parent series. Fetch that once per season page and use it only as a
+    # fallback, never replacing episode-specific values.
+    series_detail = {}
+    try:
+        series_detail = client.item_detail(series_id, library_id) or {}
+    except SiloError as exc:
+        log(
+            "Unable to load parent-series metadata for episodes %s: %s"
+            % (series_id, exc),
+            xbmc.LOGDEBUG,
+        )
+    if not isinstance(series_detail, dict):
+        series_detail = {}
+
     progress_map, _series_watch_map, _season_watch_map = prepare_catalog_watch_state(
         client,
         episodes,
@@ -7101,10 +7117,48 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
                 if current is None or current == "" or current == [] or current == {}:
                     metadata_episode[key] = value
 
+        # Fill fields that belong to the show as a whole. Episode-level
+        # values always win; episode ratings, dates, numbering, runtime and
+        # synopsis are deliberately not replaced by series values.
+        inherited_fields = (
+            "genres",
+            "keywords",
+            "studios",
+            "networks",
+            "countries",
+            "content_rating",
+            "original_language",
+            "show_status",
+            "tagline",
+            "cast",
+            "crew",
+            "poster_thumbhash",
+            "backdrop_thumbhash",
+        )
+        for key in inherited_fields:
+            current = metadata_episode.get(key)
+            candidate = series_detail.get(key)
+            if current in (None, "", [], {}) and candidate not in (None, "", [], {}):
+                metadata_episode[key] = candidate
+
+        # Use the episode still as the thumbnail when it exists. Only fall
+        # back to the series poster when the episode has no poster or still.
+        if not any(metadata_episode.get(key) for key in ("poster_url", "poster", "image", "thumbnail", "still_url", "still")):
+            for key in ("poster_url", "poster", "image", "thumbnail"):
+                if series_detail.get(key):
+                    metadata_episode[key] = series_detail[key]
+                    break
+        if not metadata_episode.get("backdrop_url"):
+            metadata_episode["backdrop_url"] = series_detail.get("backdrop_url")
+        if not metadata_episode.get("logo_url"):
+            metadata_episode["logo_url"] = series_detail.get("logo_url")
+
         if not metadata_episode.get("series_title"):
             metadata_episode["series_title"] = (
                 metadata_episode.get("series_name")
                 or metadata_episode.get("parent_title")
+                or series_detail.get("title")
+                or series_detail.get("name")
             )
 
         title = metadata_episode.get("title") or metadata_episode.get("name") or "Episode"
