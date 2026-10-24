@@ -5931,7 +5931,9 @@ def list_saved_servers(client):
             ))
         )
 
-    choices = ["Add server / sign in", "Remove a saved server"]
+    choices = ["Add server / sign in"]
+    if records:
+        choices.append("Remove a saved server")
     choices.extend(labels)
     selected = xbmcgui.Dialog().select("Silo servers", choices)
     if selected < 0:
@@ -5944,10 +5946,7 @@ def list_saved_servers(client):
         xbmc.executebuiltin("Container.Refresh")
         return
 
-    if selected == 1:
-        if not records:
-            xbmcgui.Dialog().ok("Silo servers", "There are no saved servers to remove.")
-            return
+    if records and selected == 1:
         remove_index = xbmcgui.Dialog().select(
             "Remove saved server",
             [
@@ -5971,8 +5970,7 @@ def list_saved_servers(client):
         ):
             return
         if active:
-            client.forget_current_server()
-            client.logout()
+            client.logout(forget_saved=True)
         else:
             from resources.lib.silo import _load_saved_servers, _save_saved_servers
             target_key = record.get("key")
@@ -5984,7 +5982,8 @@ def list_saved_servers(client):
         xbmc.executebuiltin("Container.Refresh")
         return
 
-    record = records[selected - 2]
+    record_index = selected - (2 if records else 1)
+    record = records[record_index]
     current_key = (
         str(ADDON.getSetting("server") or "").rstrip("/").casefold(),
         str(ADDON.getSetting("username") or "").casefold(),
@@ -6034,6 +6033,23 @@ def list_root(client, page=None):
                 False,
             )
 
+            # A logged-out session can still connect to any previously saved
+            # account/server without forcing a new login flow.
+            try:
+                saved_servers = client.list_saved_servers()
+            except Exception as exc:
+                log("Unable to load saved Silo servers: %s" % exc, xbmc.LOGDEBUG)
+                saved_servers = []
+            if saved_servers:
+                servers_item = xbmcgui.ListItem(label="Connect to Saved Server")
+                servers_item.setArt({"icon": "DefaultNetwork.png"})
+                xbmcplugin.addDirectoryItem(
+                    HANDLE,
+                    build_url(action="servers"),
+                    servers_item,
+                    False,
+                )
+
             # Settings is deliberately available before login so the user can
             # enter the server/username/profile without using the Login button.
             settings_item = xbmcgui.ListItem(label="Settings")
@@ -6047,15 +6063,6 @@ def list_root(client, page=None):
             xbmcplugin.setContent(HANDLE, "files")
             xbmcplugin.endOfDirectory(HANDLE)
             return
-
-    server_item = xbmcgui.ListItem(label="Switch / Add Server")
-    server_item.setArt({"icon": "DefaultNetwork.png"})
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="servers"),
-        server_item,
-        False,
-    )
 
     search_item = xbmcgui.ListItem(label="Search")
     xbmcplugin.addDirectoryItem(
@@ -6121,6 +6128,22 @@ def list_root(client, page=None):
     else:
         for section in home_sections:
             add_home_section_folder(section)
+
+    try:
+        current_server_name = client.server_display_name()
+    except Exception as exc:
+        current_server_name = str(client.base or "Silo").rstrip("/")
+        log("Unable to retrieve Silo server branding: %s" % exc, xbmc.LOGDEBUG)
+    server_item = xbmcgui.ListItem(
+        label="Change Server (%s)" % current_server_name
+    )
+    server_item.setArt({"icon": "DefaultNetwork.png"})
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="servers"),
+        server_item,
+        False,
+    )
 
     profile_item = xbmcgui.ListItem(label="Switch Profile")
     xbmcplugin.addDirectoryItem(
