@@ -5978,6 +5978,18 @@ def list_root(client, page=None):
     # Keep personal lists and collections immediately below Libraries.
     add_your_stuff_folder()
 
+    # Keep Discover separate from Home: it is the server's profile-level
+    # recommendation experience, with its own rows and full-section pages.
+    discover_item = xbmcgui.ListItem(label="Discover")
+    _directory_art(discover_item, "folder-search")
+    discover_item.setProperty("Silo.DiscoverFolder", "true")
+    xbmcplugin.addDirectoryItem(
+        HANDLE,
+        build_url(action="discover"),
+        discover_item,
+        True,
+    )
+
     # Keep Watch Party directly underneath Your Stuff in the root list.
     watch_party_item = xbmcgui.ListItem(
         label=(
@@ -5991,18 +6003,6 @@ def list_root(client, page=None):
         HANDLE,
         build_url(action="watch_party_join"),
         watch_party_item,
-        True,
-    )
-
-    # Keep Discover separate from Home: it is the server's profile-level
-    # recommendation experience, with its own rows and full-section pages.
-    discover_item = xbmcgui.ListItem(label="Discover")
-    _directory_art(discover_item, "folder-search")
-    discover_item.setProperty("Silo.DiscoverFolder", "true")
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="discover"),
-        discover_item,
         True,
     )
 
