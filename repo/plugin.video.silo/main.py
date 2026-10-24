@@ -1220,14 +1220,64 @@ def catalog_progress(item):
     }
 
 
+def _metadata_property_name(key):
+    """Convert an API key to the add-on's stable CamelCase property format."""
+    return "".join(part[:1].upper() + part[1:] for part in str(key).split("_") if part)
+
+
+def set_metadata_passthrough(list_item, item):
+    """Expose metadata fields from Silo even when Kodi has no native setter.
+
+    Native VideoInfoTag fields are still populated by the functions below.
+    These properties preserve additional metadata for skins, widgets and
+    integrations without requiring a newer version of this add-on to know
+    every field added to Silo's API.
+    """
+    if not isinstance(item, dict):
+        return
+
+    # File-version/playback payloads are handled by the playback metadata
+    # pipeline and can be very large (tracks, chapters and individual files).
+    # Everything else from the catalog/detail document is preserved.
+    excluded = {"versions", "playback_variants", "files", "folder_paths"}
+    for key, value in item.items():
+        if key in excluded or value is None or value == "" or value == [] or value == {}:
+            continue
+
+        if isinstance(value, (dict, list, tuple)):
+            try:
+                value = json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                    default=str,
+                )
+            except (TypeError, ValueError):
+                value = str(value)
+        elif isinstance(value, bool):
+            value = "true" if value else "false"
+        else:
+            value = str(value)
+
+        try:
+            list_item.setProperty("Silo.Metadata.%s" % _metadata_property_name(key), value)
+        except (AttributeError, RuntimeError, TypeError):
+            # Kodi properties are an optional compatibility surface; one
+            # unusual API value must never prevent the rest of the metadata.
+            continue
+
+
 def set_catalog_metadata(list_item, item, client):
     """Apply metadata that Silo includes directly in CatalogItem responses.
 
     This deliberately uses only catalog data so opening a large library does
     not trigger one detail request per movie or episode.
     """
-    if not item:
+    if not isinstance(item, dict) or not item:
         return
+
+    set_metadata_passthrough(list_item, item)
 
     tag = list_item.getVideoInfoTag()
     media_type = (item.get("type") or item.get("media_type") or "").lower()
@@ -1322,8 +1372,14 @@ def set_catalog_metadata(list_item, item, client):
                 str(item["original_language"]),
             )
 
-    if item.get("series_title"):
-        tag.setTvShowTitle(item["series_title"])
+    series_title = (
+        item.get("series_title")
+        or item.get("series_name")
+        or item.get("parent_title")
+    )
+    if series_title:
+        tag.setTvShowTitle(str(series_title))
+        list_item.setProperty("Silo.SeriesTitle", str(series_title))
 
     if item.get("show_status"):
         tag.setTvShowStatus(item["show_status"])
@@ -1341,11 +1397,30 @@ def set_catalog_metadata(list_item, item, client):
             pass
 
     release_date = item.get("release_date")
-    if release_date:
-        if media_type == "episode":
-            tag.setFirstAired(str(release_date))
-        else:
-            tag.setPremiered(str(release_date))
+    air_date = item.get("air_date")
+    first_air_date = item.get("first_air_date")
+
+    if media_type in ("episode", "podcast_episode"):
+        # Silo episode records generally use air_date. Only looking at
+        # release_date caused FirstAired to be blank for those episodes.
+        episode_date = air_date or release_date or first_air_date
+        if episode_date:
+            try:
+                tag.setFirstAired(str(episode_date))
+            except Exception:
+                pass
+    else:
+        premiered = release_date or air_date
+        if premiered:
+            try:
+                tag.setPremiered(str(premiered))
+            except Exception:
+                pass
+        if first_air_date:
+            try:
+                tag.setFirstAired(str(first_air_date))
+            except Exception:
+                pass
 
     if item.get("runtime"):
         try:
@@ -1857,7 +1932,11 @@ def set_detail_metadata(list_item, detail, client, file_id=None):
 
     if detail.get("air_date"):
         try:
-            tag.setPremiered(str(detail["air_date"]))
+            detail_type = str(detail.get("type") or "").lower()
+            if detail_type in ("episode", "podcast_episode"):
+                tag.setFirstAired(str(detail["air_date"]))
+            else:
+                tag.setPremiered(str(detail["air_date"]))
         except Exception:
             pass
 
@@ -2091,6 +2170,7 @@ def set_season_metadata(list_item, season, client, series_id=None):
     if not isinstance(season, dict):
         return
 
+    set_metadata_passthrough(list_item, season)
     tag = list_item.getVideoInfoTag()
     tag.setMediaType("season")
 
@@ -7003,50 +7083,75 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
         if not content_id:
             continue
 
-        title = episode.get("title") or episode.get("name") or "Episode"
+        # The episodes endpoint provides the compact card while the detail
+        # endpoint adds full credits, identifiers, dates, ratings and other
+        # metadata. Merge both before setting Kodi fields so missing card
+        # fields can be supplied by the detail response.
+        detail = detail_map.get(str(content_id))
+        metadata_episode = dict(episode)
+        metadata_episode.setdefault("type", "episode")
+        metadata_episode.setdefault("series_id", series_id)
+        metadata_episode.setdefault("season_number", season_number)
+
+        if isinstance(detail, dict):
+            for key, value in detail.items():
+                if value is None or value == "" or value == [] or value == {}:
+                    continue
+                current = metadata_episode.get(key)
+                if current is None or current == "" or current == [] or current == {}:
+                    metadata_episode[key] = value
+
+        if not metadata_episode.get("series_title"):
+            metadata_episode["series_title"] = (
+                metadata_episode.get("series_name")
+                or metadata_episode.get("parent_title")
+            )
+
+        title = metadata_episode.get("title") or metadata_episode.get("name") or "Episode"
         display_title = episode_display_label(
             title,
-            episode.get("episode_number"),
+            metadata_episode.get("episode_number"),
         )
         item = xbmcgui.ListItem(label=display_title)
         tag = item.getVideoInfoTag()
         tag.setTitle(title)
 
-        set_catalog_metadata(item, episode, client)
+        set_catalog_metadata(item, metadata_episode, client)
 
-        if episode.get("episode_number") is not None:
+        if metadata_episode.get("episode_number") is not None:
             try:
-                tag.setEpisode(int(episode["episode_number"]))
+                tag.setEpisode(int(metadata_episode["episode_number"]))
             except (TypeError, ValueError):
                 pass
 
-        if episode.get("season_number") is not None:
+        if metadata_episode.get("season_number") is not None:
             try:
-                tag.setSeason(int(episode["season_number"]))
+                tag.setSeason(int(metadata_episode["season_number"]))
             except (TypeError, ValueError):
                 pass
 
-        if episode.get("plot"):
-            tag.setPlot(episode["plot"])
+        plot = metadata_episode.get("overview") or metadata_episode.get("plot")
+        if plot:
+            tag.setPlot(str(plot))
+            tag.setPlotOutline(str(plot))
 
         set_art(
             item,
             client,
             poster=(
-                episode.get("poster_url")
-                or episode.get("poster")
-                or episode.get("image")
-                or episode.get("thumbnail")
+                metadata_episode.get("poster_url")
+                or metadata_episode.get("poster")
+                or metadata_episode.get("image")
+                or metadata_episode.get("thumbnail")
             ),
-            backdrop=episode.get("backdrop_url"),
-            logo=episode.get("logo_url"),
+            backdrop=metadata_episode.get("backdrop_url"),
+            logo=metadata_episode.get("logo_url"),
             still=(
-                episode.get("still_url")
-                or episode.get("still")
+                metadata_episode.get("still_url")
+                or metadata_episode.get("still")
             ),
         )
 
-        detail = detail_map.get(str(content_id))
         if detail:
             set_detail_metadata(item, detail, client)
 
@@ -7072,8 +7177,9 @@ def list_episodes(client, series_id, season_number, library_id, page=None):
             if file_id:
                 params["file_id"] = file_id
 
-        if episode.get("duration_seconds") is not None:
-            params["duration_seconds"] = episode.get("duration_seconds")
+        duration_seconds = metadata_episode.get("duration_seconds")
+        if duration_seconds is not None:
+            params["duration_seconds"] = duration_seconds
 
         batch.append((build_url(**params), item, False))
 
