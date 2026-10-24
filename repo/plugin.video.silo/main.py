@@ -8431,6 +8431,41 @@ def play(
         resolved_item,
     )
 
+    # Fetch version markers before entering the playback monitor. The monitor
+    # receives prepared spans rather than reaching back into play()'s local
+    # variables (content_id, file_id, library_id, detail).
+    if ADDON.getSettingBool("skip_segments_enabled"):
+        try:
+            versions = client.versions(content_id, library_id) or []
+            selected_version = next(
+                (
+                    version for version in versions
+                    if str(version.get("id") or version.get("file_id") or "") == str(file_id)
+                ),
+                None,
+            )
+            if selected_version is None and isinstance(detail, dict):
+                selected_version = (
+                    detail.get("file_version")
+                    or detail.get("version")
+                    or detail
+                )
+            timeline = (info.get("playback_plan") or {}).get("timeline") or {}
+            try:
+                timeline_offset = float(timeline.get("timeline_offset_seconds") or 0.0)
+            except (TypeError, ValueError):
+                timeline_offset = 0.0
+            spans = skip_segments(selected_version, offset=timeline_offset)
+            if spans:
+                info["_silo_skip_spans"] = spans
+                info["_silo_content_id"] = str(content_id)
+        except Exception as exc:
+            log(
+                "Unable to load Silo skip markers for %s: %s"
+                % (content_id, exc),
+                xbmc.LOGDEBUG,
+            )
+
     session_id = info.get("session_id")
 
     if session_id:
@@ -8942,36 +8977,21 @@ def track_progress(
     known_good_quality = playback_info["adaptive_quality"]
     known_good_since = time.time()
 
-    skip_enabled = ADDON.getSettingBool("skip_segments_enabled")
     auto_skip = {
         "intro": ADDON.getSettingBool("auto_skip_intro"),
         "recap": ADDON.getSettingBool("auto_skip_recap"),
         "credits": ADDON.getSettingBool("auto_skip_credits"),
     }
     skip_tracker = None
-    if skip_enabled:
-        try:
-            versions = client.versions(content_id, library_id) or []
-            selected_version = next(
-                (
-                    version for version in versions
-                    if str(version.get("id") or version.get("file_id") or "") == str(file_id)
-                ),
-                None,
+    if ADDON.getSettingBool("skip_segments_enabled"):
+        spans = playback_info.get("_silo_skip_spans") or []
+        if spans:
+            skip_tracker = SkipTracker(spans)
+            log(
+                "Loaded %d Silo skip markers for %s"
+                % (len(spans), playback_info.get("_silo_content_id") or "current item"),
+                xbmc.LOGDEBUG,
             )
-            if selected_version is None and isinstance(detail, dict):
-                selected_version = detail.get("file_version") or detail.get("version")
-            timeline = (info.get("playback_plan") or {}).get("timeline") or {}
-            try:
-                timeline_offset = float(timeline.get("timeline_offset_seconds") or 0.0)
-            except (TypeError, ValueError):
-                timeline_offset = 0.0
-            spans = skip_segments(selected_version, offset=timeline_offset)
-            if spans:
-                skip_tracker = SkipTracker(spans)
-                log("Loaded %d Silo skip markers for %s" % (len(spans), content_id), xbmc.LOGDEBUG)
-        except Exception as exc:
-            log("Unable to load Silo skip markers for %s: %s" % (content_id, exc), xbmc.LOGDEBUG)
 
     sequence = 0
     last_position = 0.0
