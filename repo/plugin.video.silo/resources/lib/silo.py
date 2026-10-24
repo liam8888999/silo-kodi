@@ -1560,6 +1560,36 @@ class SiloClient:
         )
 
     # Return the profile's visible personal collections and collection groups.
+    def set_watchlist(self, content_id, enabled=True):
+        """Add or remove a title from the active profile's Watchlist."""
+        item_id = quote(str(content_id or ""), safe="")
+        if not item_id:
+            raise SiloError("No content ID was supplied.")
+        return self._json(
+            "PUT" if enabled else "DELETE",
+            "/api/v2/watchlist/%s" % item_id,
+        )
+
+    def set_favorite(self, content_id, enabled=True):
+        """Add or remove a title from the active profile's Favorites."""
+        item_id = quote(str(content_id or ""), safe="")
+        if not item_id:
+            raise SiloError("No content ID was supplied.")
+        return self._json(
+            "PUT" if enabled else "DELETE",
+            "/api/v2/favorites/%s" % item_id,
+        )
+
+    def set_watched(self, content_id, enabled=True):
+        """Mark a title watched or unwatched on the active profile."""
+        item_id = quote(str(content_id or ""), safe="")
+        if not item_id:
+            raise SiloError("No content ID was supplied.")
+        return self._json(
+            "POST" if enabled else "DELETE",
+            "/api/v2/watched/%s" % item_id,
+        )
+
     def collections(self):
         data = self._json(
             "GET",
