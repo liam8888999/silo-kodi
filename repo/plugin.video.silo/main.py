@@ -5634,15 +5634,25 @@ def _start_watch_party_guest_playback(
 
 def list_your_stuff(client):
     """Display the personal destinations shown under Silo's web Your Stuff menu."""
+    # Use Kodi texture names that actually exist in its default icon set.
+    # DefaultFavorites.png and DefaultRecentlyWatched.png are not standard
+    # Kodi default textures, so those entries can appear completely blank.
     entries = (
-        ("Favorites", "favorites", "DefaultFavorites.png"),
+        ("Favorites", "favorites", "DefaultMovies.png"),
         ("Watchlist", "watchlist", "DefaultVideo.png"),
-        ("History", "history", "DefaultRecentlyWatched.png"),
+        ("History", "history", "DefaultVideo.png"),
     )
 
     for title, source, icon in entries:
         item = xbmcgui.ListItem(label=title)
-        item.setArt({"icon": icon})
+        # Some skins render these folder shortcuts in poster/thumb layouts
+        # rather than the icon slot. Populate all common slots to keep them
+        # visible across different Kodi skins.
+        item.setArt({
+            "icon": icon,
+            "thumb": icon,
+            "poster": icon,
+        })
         xbmcplugin.addDirectoryItem(
             HANDLE,
             build_url(action="personal_list", source=source),
@@ -5651,7 +5661,11 @@ def list_your_stuff(client):
         )
 
     collections_item = xbmcgui.ListItem(label="Collections")
-    collections_item.setArt({"icon": "DefaultFolder.png"})
+    collections_item.setArt({
+        "icon": "DefaultFolder.png",
+        "thumb": "DefaultFolder.png",
+        "poster": "DefaultFolder.png",
+    })
     xbmcplugin.addDirectoryItem(
         HANDLE,
         build_url(action="collections"),
