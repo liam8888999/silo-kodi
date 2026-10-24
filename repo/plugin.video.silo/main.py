@@ -2284,6 +2284,7 @@ def add_catalog_item(client, item, library_id):
         catalog_progress(item),
         media_type,
     )
+    add_catalog_context_menu(list_item, item)
 
     is_playable = media_type in PLAYABLE
     play_content_id = item.get("play_content_id") or content_id
@@ -2610,6 +2611,65 @@ def display_title_for_catalog_item(catalog_item):
     return title
 
 
+def _catalog_mark_state(catalog_item, detail, key):
+    """Read a title's current mark from either catalog or detail user state."""
+    for source_item in (detail, catalog_item):
+        if not isinstance(source_item, dict):
+            continue
+        for state_name in ("user_state", "user_data"):
+            state = source_item.get(state_name)
+            if isinstance(state, dict) and key in state:
+                value = state.get(key)
+                if isinstance(value, str):
+                    return value.strip().lower() in ("1", "true", "yes", "on")
+                return bool(value)
+
+    # The detailed progress object can still tell us that a title is completed
+    # on servers that omit the duplicated user_state.played field.
+    if key == "played":
+        for source_item in (detail, catalog_item):
+            if isinstance(source_item, dict):
+                progress = catalog_progress(source_item)
+                if isinstance(progress, dict) and progress.get("completed") is not None:
+                    return bool(progress.get("completed"))
+    return False
+
+
+def add_catalog_context_menu(list_item, catalog_item, detail=None):
+    """Expose the Silo profile's watch/favorite/watchlist actions for a title."""
+    content_id = get_content_id(catalog_item if isinstance(catalog_item, dict) else {})
+    media_type = str(
+        (catalog_item or {}).get("type")
+        or (catalog_item or {}).get("media_type")
+        or ""
+    ).lower()
+    if not content_id or media_type not in ("movie", "series", "season", "episode"):
+        return
+
+    actions = (
+        ("played", "watched", "Mark as unwatched", "Mark as watched"),
+        ("is_favorite", "favorite", "Remove from Favourites", "Add to Favourites"),
+        ("in_watchlist", "watchlist", "Remove from Watchlist", "Add to Watchlist"),
+    )
+    menu_items = []
+    for state_key, action_name, remove_label, add_label in actions:
+        current = _catalog_mark_state(catalog_item, detail, state_key)
+        label = remove_label if current else add_label
+        value = "0" if current else "1"
+        command_url = build_url(
+            action="set_mark",
+            content_id=content_id,
+            mark=action_name,
+            value=value,
+        )
+        menu_items.append((label, "RunPlugin(%s)" % command_url))
+
+    try:
+        list_item.addContextMenuItems(menu_items)
+    except (AttributeError, RuntimeError, TypeError) as exc:
+        log("Unable to attach Silo title actions: %s" % exc, xbmc.LOGDEBUG)
+
+
 def build_catalog_list_item(client, catalog_item, detail=None, progress=None, series_rollup=None, season_rollup=None):
     """Build a Kodi ListItem using the same metadata/watch pipeline everywhere."""
     content_id = get_content_id(catalog_item)
@@ -2642,6 +2702,7 @@ def build_catalog_list_item(client, catalog_item, detail=None, progress=None, se
     elif media_type == "season":
         set_container_watch_state(item, season_rollup)
 
+    add_catalog_context_menu(item, catalog_item, detail=detail)
     return item, media_type, content_id, title, display_progress
 
 
@@ -9208,6 +9269,29 @@ def router(client):
             )
         else:
             search_silo(client)
+        return
+
+    if action == "set_mark":
+        content_id = str(params.get("content_id") or "").strip()
+        mark = str(params.get("mark") or "").strip().lower()
+        value = str(params.get("value") or "").strip().lower() in ("1", "true", "yes", "on")
+        if not content_id:
+            raise SiloError("No content ID was supplied.")
+
+        if mark == "watched":
+            client.set_watched(content_id, value)
+            message = "Marked as watched" if value else "Marked as unwatched"
+        elif mark == "favorite":
+            client.set_favorite(content_id, value)
+            message = "Added to Favourites" if value else "Removed from Favourites"
+        elif mark == "watchlist":
+            client.set_watchlist(content_id, value)
+            message = "Added to Watchlist" if value else "Removed from Watchlist"
+        else:
+            raise SiloError("Unsupported title action.")
+
+        notify(message)
+        xbmc.executebuiltin("Container.Refresh")
         return
 
     if action == "settings":
