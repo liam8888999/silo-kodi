@@ -51,6 +51,7 @@ import xbmcplugin
 import xbmcvfs
 import xbmcaddon
 
+from resources.lib.skipping import SkipTracker, segments as skip_segments
 from resources.lib.silo import (
     SiloClient,
     SiloError,
@@ -8940,6 +8941,37 @@ def track_progress(
     known_good_quality = playback_info["adaptive_quality"]
     known_good_since = time.time()
 
+    skip_enabled = ADDON.getSettingBool("skip_segments_enabled")
+    auto_skip = {
+        "intro": ADDON.getSettingBool("auto_skip_intro"),
+        "recap": ADDON.getSettingBool("auto_skip_recap"),
+        "credits": ADDON.getSettingBool("auto_skip_credits"),
+    }
+    skip_tracker = None
+    if skip_enabled:
+        try:
+            versions = client.versions(content_id, library_id) or []
+            selected_version = next(
+                (
+                    version for version in versions
+                    if str(version.get("id") or version.get("file_id") or "") == str(file_id)
+                ),
+                None,
+            )
+            if selected_version is None and isinstance(detail, dict):
+                selected_version = detail.get("file_version") or detail.get("version")
+            timeline = (info.get("playback_plan") or {}).get("timeline") or {}
+            try:
+                timeline_offset = float(timeline.get("timeline_offset_seconds") or 0.0)
+            except (TypeError, ValueError):
+                timeline_offset = 0.0
+            spans = skip_segments(selected_version, offset=timeline_offset)
+            if spans:
+                skip_tracker = SkipTracker(spans)
+                log("Loaded %d Silo skip markers for %s" % (len(spans), content_id), xbmc.LOGDEBUG)
+        except Exception as exc:
+            log("Unable to load Silo skip markers for %s: %s" % (content_id, exc), xbmc.LOGDEBUG)
+
     sequence = 0
     last_position = 0.0
     last_progress_position = None
@@ -8990,6 +9022,48 @@ def track_progress(
             break
 
         now = time.time()
+
+        if skip_tracker is not None and not _watch_party_connection_active():
+            try:
+                skip_position = float(player.getTime())
+                skip_span = skip_tracker.observe(skip_position)
+                if skip_span:
+                    kind = str(skip_span.get("kind") or "")
+                    label = {
+                        "intro": "Skip Intro",
+                        "recap": "Skip Recap",
+                        "credits": "Skip Credits",
+                    }.get(kind, "Skip")
+                    if auto_skip.get(kind):
+                        should_skip = True
+                    else:
+                        should_skip = xbmcgui.Dialog().yesno(
+                            label,
+                            "%s detected. Skip to %s?"
+                            % (
+                                kind.capitalize(),
+                                format_position(skip_span.get("end") or 0),
+                            ),
+                        )
+                    if should_skip and player.isPlaying():
+                        try:
+                            target = max(0.0, float(skip_span.get("end") or 0.0))
+                            duration = float(player.getTotalTime() or 0.0)
+                            if duration > 0:
+                                target = min(target, max(0.0, duration - 0.5))
+                            player.seekTime(target)
+                            last_position = target
+                            last_observed_position = target
+                            last_progress_position = target
+                            last_progress_change_at = time.time()
+                            caching_started_at = None
+                            stall_started_at = None
+                            seek_grace_until = time.time() + 8.0
+                            log("Skipped %s to %.1fs" % (kind, target), xbmc.LOGINFO)
+                        except Exception as exc:
+                            log("Unable to skip %s: %s" % (kind, exc), xbmc.LOGWARNING)
+            except Exception as exc:
+                log("Skip-marker check failed: %s" % exc, xbmc.LOGDEBUG)
 
         if not player.isPlaying():
             # A true stop removes the media from Kodi. A temporary false
