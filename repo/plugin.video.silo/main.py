@@ -6023,6 +6023,7 @@ def list_root(client, page=None):
             # profile or show the normal profile selector.
             if not client.cfg.get("profile_id"):
                 client.select_profile()
+            client.remember_current_server()
         else:
             # No saved account details: retain the Login button behaviour.
             login_item = xbmcgui.ListItem(label="Login")
