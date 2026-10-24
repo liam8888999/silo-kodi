@@ -1483,7 +1483,7 @@ class SiloClient:
         if not profiles:
             raise SiloError("This account has no profiles")
 
-        requested_name = str(
+        requested_name = "" if cancel_if_current else str(
             getattr(self, "_requested_profile_name", "")
             or self.cfg.get("profile_name", "")
             or ""
