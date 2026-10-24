@@ -5925,11 +5925,14 @@ def list_saved_servers(client):
             and str(ADDON.getSetting("username") or "").casefold()
             == username.casefold()
         )
-        labels.append(
-            ("%s  —  %s%s" % (
-                username, host, "  (current)" if active else ""
-            ))
-        )
+        if active:
+            labels.append(
+                "Reconnect to current server (%s)" % host
+            )
+        else:
+            labels.append(
+                "Connect to %s (%s)" % (username, host)
+            )
 
     choices = ["Add server / sign in"]
     if records:
