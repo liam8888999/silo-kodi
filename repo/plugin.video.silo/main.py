@@ -5925,13 +5925,18 @@ def list_saved_servers(client):
             and str(ADDON.getSetting("username") or "").casefold()
             == username.casefold()
         )
+        try:
+            display_name = client.server_display_name(host)
+        except Exception as exc:
+            display_name = host
+            log("Unable to get saved server name for %s: %s" % (host, exc), xbmc.LOGDEBUG)
         if active:
             labels.append(
-                "Reconnect to current server (%s)" % host
+                "Reconnect to current server (%s)" % display_name
             )
         else:
             labels.append(
-                "Connect to %s (%s)" % (username, host)
+                "Connect to %s (%s)" % (username, display_name)
             )
 
     choices = ["Add server / sign in"]
