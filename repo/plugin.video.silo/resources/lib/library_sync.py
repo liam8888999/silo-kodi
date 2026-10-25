@@ -664,9 +664,10 @@ def sync_current_profile(client, monitor=None, progress=None):
     touched = set()
     removals = []
 
-    # Each worker owns its own SiloClient/session. Catalogue pagination stays
-    # ordered on the primary client, while independent per-item work (artwork
-    # HTTP requests and series season/episode lookups) overlaps in the pool.
+    # SiloKodiConnect-inspired fingerprint sync: catalog cards are cheap;
+    # only fetch full item metadata when its non-state fields changed. For TV,
+    # use the episode catalogue instead of issuing season/episode requests for
+    # every show on every sync.
     worker_cfg = dict(client.cfg)
     worker_identity = (
         str(worker_cfg.get("server") or client.base or ""),
@@ -676,8 +677,7 @@ def sync_current_profile(client, monitor=None, progress=None):
 
     def worker_client():
         cached = getattr(_SYNC_LOCAL, "client", None)
-        cached_identity = getattr(_SYNC_LOCAL, "identity", None)
-        if cached is None or cached_identity != worker_identity:
+        if cached is None or getattr(_SYNC_LOCAL, "identity", None) != worker_identity:
             if cached is not None:
                 try:
                     cached.session.close()
@@ -690,29 +690,51 @@ def sync_current_profile(client, monitor=None, progress=None):
             _SYNC_LOCAL.client = cached
             _SYNC_LOCAL.identity = worker_identity
         else:
-            # Refresh the settings snapshot between syncs without sharing the
-            # requests.Session with the main/plugin thread.
             cached.cfg.clear()
             cached.cfg.update(worker_cfg)
         return cached
 
-    def process_item(item, library_id, library_segment):
-        """Generate one movie or series into task-local result sets."""
-        media_type = _media_type(item)
-        content_id = _content_id(item)
-        result = {
-            "files": set(),
-            "art_refs": {},
-            "refresh_paths": set(),
-            "touched": set(),
-            "movies": 0,
-            "shows": 0,
-            "episodes": 0,
+    def fingerprint(card):
+        # Signed artwork URLs rotate; strip query strings so that rotation does
+        # not force every item to be downloaded and rewritten again.
+        state_fields = {
+            "position_seconds", "progress_updated_at", "user_state", "sort_metrics",
+            "user_data", "badges", "upcoming_event", "search_diagnostics",
         }
+        url_suffixes = ("_url", "_urls")
+        stable = {}
+        for key, value in (card or {}).items():
+            if key in state_fields:
+                continue
+            if key.endswith(url_suffixes):
+                if isinstance(value, list):
+                    value = [v.split("?", 1)[0] if isinstance(v, str) else v for v in value]
+                elif isinstance(value, str):
+                    value = value.split("?", 1)[0]
+            stable[key] = value
+        payload = json.dumps(stable, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+    def state_fingerprint(card):
+        return "1" if bool(
+            card.get("watched") or card.get("is_watched") or
+            card.get("play_count") or card.get("playcount") or
+            (card.get("user_state") or {}).get("watched")
+            if isinstance(card.get("user_state"), dict)
+            else card.get("watched") or card.get("is_watched") or
+                 card.get("play_count") or card.get("playcount")
+        ) else "0"
+
+    def process_item(item, library_id, library_segment):
+        result = {
+            "files": set(), "art_refs": {}, "refresh_paths": set(),
+            "touched": set(), "movies": 0, "shows": 0, "episodes": 0,
+        }
+        content_id = _content_id(item)
         if not content_id:
             return result
-
         item_client = worker_client()
+        media_type = _media_type(item)
         target_movies = _join(movies_root, scope_key, library_segment)
         target_shows = _join(shows_root, scope_key, library_segment)
 
@@ -724,41 +746,39 @@ def sync_current_profile(client, monitor=None, progress=None):
             ):
                 result["movies"] = 1
                 result["touched"].add("Movies")
-            return result
-
-        if media_type not in ("series", "tvshow", "show"):
-            return result
-
-        if _write_entry(
-            item_client, item, library_id, target_shows, "show",
-            old_art_refs, result["art_refs"], result["files"],
-            result["refresh_paths"], previous_files,
-        ):
-            result["shows"] = 1
-            result["touched"].add("TV Shows")
-
-        series_folder = _join(target_shows, "show_" + _short_hash(content_id))
-        for season in item_client.seasons(content_id, library_id=str(library_id)) or []:
-            season_number = season.get("season_number", season.get("number", 0))
+        elif media_type in ("series", "tvshow", "show"):
+            if _write_entry(
+                item_client, item, library_id, target_shows, "show",
+                old_art_refs, result["art_refs"], result["files"],
+                result["refresh_paths"], previous_files,
+            ):
+                result["shows"] = 1
+                result["touched"].add("TV Shows")
+        elif media_type in ("episode", "episodic"):
+            series_id = (
+                item.get("series_id") or item.get("parent_id") or
+                item.get("show_id") or item.get("series", {}).get("content_id")
+                if isinstance(item.get("series"), dict)
+                else item.get("series_id") or item.get("parent_id") or item.get("show_id")
+            )
+            season_number = item.get("season_number", item.get("season", 0))
             try:
                 season_number = int(season_number or 0)
             except (TypeError, ValueError):
                 season_number = 0
-            episodes = item_client.episodes(
-                content_id, season_number, library_id=str(library_id)
-            ) or []
-            for episode in episodes:
+            if series_id:
+                series_folder = _join(
+                    target_shows, "show_" + _short_hash(str(series_id))
+                )
                 if _write_episode(
-                    item_client, episode, item, str(library_id), series_folder,
-                    season_number, old_art_refs, result["art_refs"], result["files"],
-                    result["refresh_paths"], previous_files,
+                    item_client, item, {"content_id": series_id}, library_id,
+                    series_folder, season_number, old_art_refs,
+                    result["art_refs"], result["files"], result["refresh_paths"],
+                    previous_files,
                 ):
-                    result["episodes"] += 1
+                    result["episodes"] = 1
                     result["touched"].add("TV Shows")
         return result
-
-    sync_counts = {"movies": 0, "shows": 0, "episodes": 0}
-    pending_futures = set()
 
     def consume_future(future):
         result = future.result()
@@ -766,68 +786,109 @@ def sync_current_profile(client, monitor=None, progress=None):
         new_art_refs.update(result["art_refs"])
         refresh_paths.update(result["refresh_paths"])
         touched.update(result["touched"])
-        for key in sync_counts:
+        for key in ("movies", "shows", "episodes"):
             sync_counts[key] += result[key]
+
+    sync_counts = {"movies": 0, "shows": 0, "episodes": 0}
+    pending_futures = set()
+    seen_ids = set()
+    seen_by_library = {}
+    old_by_id = {
+        str(entry.get("content_id")): entry
+        for entry in (previous.get("items") or [])
+        if entry.get("content_id")
+    }
 
     try:
         libraries = client.libraries()
         if progress:
             progress(3, "Found %d Silo libraries" % len(libraries))
         library_total = max(1, len(libraries))
-
-        # Queue work while paging the catalogue. Back-pressure bounds both
-        # memory and the number of outstanding HTTP/artwork operations.
         with ThreadPoolExecutor(max_workers=MAX_SYNC_WORKERS) as executor:
             for library_index, library in enumerate(libraries):
                 if progress:
                     progress(
                         3 + int(80 * library_index / library_total),
-                        "Queueing library %d of %d: %s"
+                        "Scanning library %d of %d: %s"
                         % (
-                            library_index + 1,
-                            len(libraries),
+                            library_index + 1, len(libraries),
                             library.get("name") or library.get("title") or "Library",
                         ),
                     )
-                library_id = library.get("id") or library.get("library_id")
-                library_name = str(library.get("name") or library.get("title") or "Library")
-                if library_id in (None, ""):
+                library_id = str(library.get("id") or library.get("library_id") or "")
+                if not library_id:
                     continue
+                library_name = str(library.get("name") or library.get("title") or "Library")
                 library_segment = _safe_component(library_name, "Library") + "_" + _short_hash(library_id, 6)
-                cursor = None
+                seen_by_library[library_id] = set()
 
-                while True:
-                    items, cursor = client.catalog_page(
-                        str(library_id), cursor=cursor, limit=200
-                    )
-                    for item in items or []:
-                        if not _content_id(item):
-                            continue
-                        if _media_type(item) not in (
-                            "movie", "video", "series", "tvshow", "show"
-                        ):
-                            continue
-                        pending_futures.add(
-                            executor.submit(
-                                process_item, item, str(library_id), library_segment
+                # Typed catalogue passes reduce the number of detail requests.
+                # If this server build rejects type filtering, fall back to its
+                # unfiltered catalogue and preserve the previous sync behaviour.
+                for requested_type in ("movie", "series", "episode"):
+                    cursor = None
+                    while True:
+                        try:
+                            items, cursor = client.catalog_page(
+                                library_id, cursor=cursor, limit=200,
+                                media_type=requested_type,
                             )
-                        )
-
-                        while len(pending_futures) >= MAX_PENDING_ITEMS:
-                            done, pending_futures = wait(
-                                pending_futures,
-                                return_when=FIRST_COMPLETED,
+                        except Exception as exc:
+                            if requested_type != "movie":
+                                raise
+                            log(
+                                "Typed catalogue filter unavailable; using unfiltered scan: %s" % exc,
+                                xbmc.LOGWARNING,
                             )
-                            for completed in done:
-                                consume_future(completed)
+                            cursor = None
+                            while True:
+                                items, cursor = client.catalog_page(
+                                    library_id, cursor=cursor, limit=200
+                                )
+                                for item in items or []:
+                                    content_id = _content_id(item)
+                                    if not content_id:
+                                        continue
+                                    seen_ids.add(content_id)
+                                    seen_by_library[library_id].add(content_id)
+                                    current_fp = fingerprint(item)
+                                    prior = old_by_id.get(content_id) or {}
+                                    if prior.get("fingerprint") == current_fp and prior.get("library_id") == library_id:
+                                        continue
+                                    pending_futures.add(executor.submit(process_item, item, library_id, library_segment))
+                                    while len(pending_futures) >= MAX_PENDING_ITEMS:
+                                        done, pending_futures = wait(pending_futures, return_when=FIRST_COMPLETED)
+                                        for completed in done:
+                                            consume_future(completed)
+                                if not cursor:
+                                    break
+                            break
 
-                    if not cursor:
-                        break
+                        for item in items or []:
+                            content_id = _content_id(item)
+                            if not content_id:
+                                continue
+                            seen_ids.add(content_id)
+                            seen_by_library[library_id].add(content_id)
+                            current_fp = fingerprint(item)
+                            prior = old_by_id.get(content_id) or {}
+                            if prior.get("fingerprint") == current_fp and prior.get("library_id") == library_id:
+                                continue
+                            pending_futures.add(
+                                executor.submit(process_item, item, library_id, library_segment)
+                            )
+                            while len(pending_futures) >= MAX_PENDING_ITEMS:
+                                done, pending_futures = wait(
+                                    pending_futures, return_when=FIRST_COMPLETED
+                                )
+                                for completed in done:
+                                    consume_future(completed)
+                        if not cursor:
+                            break
 
             while pending_futures:
                 done, pending_futures = wait(
-                    pending_futures,
-                    return_when=FIRST_COMPLETED,
+                    pending_futures, return_when=FIRST_COMPLETED
                 )
                 for completed in done:
                     consume_future(completed)
@@ -835,9 +896,18 @@ def sync_current_profile(client, monitor=None, progress=None):
         movie_count = sync_counts["movies"]
         show_count = sync_counts["shows"]
         episode_count = sync_counts["episodes"]
+        # Preserve the IDs seen in this catalogue scan for safe stale cleanup.
+        current_items = []
+        for library_id, ids in seen_by_library.items():
+            for content_id in ids:
+                current_items.append({
+                    "content_id": content_id,
+                    "library_id": library_id,
+                    "fingerprint": None,
+                })
+        # Filled below from catalogue fingerprints as cards are encountered.
+        seen_ids = set(seen_ids)
     except Exception:
-        # An incomplete API traversal or worker failure must never prune files,
-        # because missing results could otherwise look like a mass deletion.
         raise
 
     if progress:
