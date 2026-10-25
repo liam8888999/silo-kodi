@@ -16,6 +16,11 @@
     <setting id="auto_skip_credits" type="bool" label="Automatically skip credits" default="false" />
   </category>
 
+  <category label="Kodi Library">
+    <setting id="native_library_enabled" type="bool" label="Continuously sync Silo into Kodi video library" default="false" />
+    <setting id="native_library_interval_minutes" type="slider" label="Library sync interval (minutes)" default="60" range="15,15,1440" option="int" />
+  </category>
+
   <category label="Advanced">
     <setting id="use_kodi_resume_cache" type="bool" label="Use Kodi cached resume positions (Not recommended)" default="false" />
   </category>

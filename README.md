@@ -33,6 +33,25 @@ https://liam8888999.github.io/silo-kodi/
 * Browse large libraries with automatic API pagination rather than manually navigating page numbers.
 * Inspect alternate file versions before playback, including available media/quality details.
 
+### Native Kodi library integration (experimental)
+
+An optional background service exports Silo movies and TV episodes into Kodi's native video library using generated `.strm` and `.nfo` files. Artwork is referenced remotely rather than downloaded into the library folder. For protected artwork, the add-on runs a loopback-only HTTP proxy that adds the current Silo authentication headers; credentials and short-lived tokens are not written into NFO files. Playback still routes through Silo's normal add-on playback action.
+
+You can choose **Set Up Kodi Library** from the add-on's main menu after enabling it in **Add-on settings → Kodi Library**. This creates the managed folders, automatically registers them as Kodi video sources using the same `sources.xml` approach as the Netflix add-on, then attempts an immediate synchronisation. If an existing `sources.xml` needs to be changed, the add-on saves a one-time backup beside it as `sources.xml.silo.bak`; it only adds the two Silo paths and does not remove existing sources.
+
+To enable it:
+
+1. Sign in to Silo in the add-on and open **Add-on settings → Kodi Library**.
+2. Enable **Continuously sync Silo into Kodi video library** and choose a refresh interval.
+3. Select **Set Up Kodi Library** in the add-on's main menu.
+4. If this is the first setup, restart Kodi so the new sources are loaded.
+5. In Kodi's Videos → Files view, edit each Silo source once: set **Silo Movies** to content type **Movies**, and **Silo TV Shows** to **TV Shows**. For both, select **Local information only** as the information provider. The generated local NFO files supply the metadata.
+6. Run **Set Up Kodi Library** again if a scan is pending, or allow the background service to pick it up.
+
+The service periodically checks the active server/profile, updates changed metadata and remote artwork references, and removes only files recorded in its own sync manifest. Artwork is fetched by Kodi on demand and cached by Kodi separately; the generated library no longer stores poster, fanart, or episode-thumbnail files. The loopback artwork proxy must be running on the same device as Kodi, and protected artwork requires the matching Silo server/profile to be selected and signed in. Separate server/profile scopes are kept under the managed folders. The opt-in integration does not write directly to Kodi's database and does not use PVR recordings.
+
+**Limitations:** Kodi must be restarted after its source list is first changed, and the content type/information provider must be selected once per source in Kodi. Kodi does not expose a supported JSON-RPC API for creating sources or configuring their content providers. The integration depends on the Silo API exposing complete library/season/episode listings and should be tested on a backup Kodi profile before merging.
+
 ### Playback
 
 * Play media through Kodi using Silo's playback API, including server-planned direct play and transcoding.
