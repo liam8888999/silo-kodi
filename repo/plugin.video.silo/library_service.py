@@ -6,6 +6,7 @@ import xbmc
 import xbmcaddon
 
 from resources.lib.silo import SiloClient, log
+from resources.lib.artwork_proxy import start_artwork_proxy
 from resources.lib.library_sync import (
     LibrarySyncDisabled,
     sync_current_profile,
@@ -37,6 +38,9 @@ def _interval_seconds():
 
 def run():
     monitor = xbmc.Monitor()
+    # Keep the authenticated artwork endpoint alive for Kodi's native video
+    # library, even between catalogue syncs (and when sync is paused).
+    start_artwork_proxy()
     last_sync = 0
     last_enabled = _enabled()
     last_interval = _interval_seconds()
