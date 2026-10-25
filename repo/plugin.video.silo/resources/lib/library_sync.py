@@ -22,6 +22,7 @@ import xbmcgui
 import xbmcvfs
 
 from resources.lib.silo import SiloClient, log
+from resources.lib.artwork_proxy import make_artwork_url, start_artwork_proxy
 
 
 ADDON_ID = "plugin.video.silo"
@@ -282,17 +283,20 @@ def _nfo(item, tag, content_id, artwork=None, extra=""):
         runtime = int(round(runtime / 60.0))
 
     art = artwork or {}
+    # When artwork is explicitly supplied, it has already been checked for a
+    # safe direct URL or converted to the authenticated local proxy. Do not
+    # fall back to a raw API URL that might contain a short-lived credential.
     thumbs = ""
     if art.get("poster"):
         thumbs += _xml_tag("thumb", art["poster"])
-    else:
+    elif artwork is None:
         poster = _value(item, "poster_url", "poster", "image", "artwork", "thumbnail")
         if poster:
             thumbs += _xml_tag("thumb", poster)
     fanart = ""
     if art.get("fanart"):
         fanart = "<fanart>%s</fanart>" % _xml_tag("thumb", art["fanart"])
-    else:
+    elif artwork is None:
         backdrop = _value(item, "backdrop_url", "backdrop", "fanart_url", "fanart")
         if backdrop:
             fanart = "<fanart>%s</fanart>" % _xml_tag("thumb", backdrop)
@@ -425,19 +429,17 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
         return False
 
     _ensure_dir(folder)
+    # Store URLs, not image files. Same-server artwork is served by the
+    # authenticated loopback proxy; safe public CDN URLs remain remote.
+    art["poster"] = make_artwork_url(
+        _art_url(item, "poster"), client.base,
+        client.cfg.get("username"), client.cfg.get("profile_id")
+    )
+    art["fanart"] = make_artwork_url(
+        _art_url(item, "fanart"), client.base,
+        client.cfg.get("username"), client.cfg.get("profile_id")
+    )
     art_root = MEDIA_ROOT
-    art_poster = _download_art(
-        client, _art_url(item, "poster"), folder, "poster",
-        old_art_refs, new_art_refs, files, previous_files
-    )
-    if art_poster:
-        art["poster"] = art_poster
-    art_fanart = _download_art(
-        client, _art_url(item, "fanart"), folder, "fanart",
-        old_art_refs, new_art_refs, files, previous_files
-    )
-    if art_fanart:
-        art["fanart"] = art_fanart
 
     if item_kind == "movie":
         strm_path = _join(folder, filename + ".strm")
@@ -481,12 +483,10 @@ def _write_episode(client, episode, series, library_id, series_folder,
     nfo_path = _join(season_folder, filename + ".nfo")
 
     art = {}
-    poster = _download_art(
-        client, _art_url(episode, "poster"), season_folder, "thumb_" + item_hash,
-        old_art_refs, new_art_refs, files, previous_files
+    art["poster"] = make_artwork_url(
+        _art_url(episode, "poster"), client.base,
+        client.cfg.get("username"), client.cfg.get("profile_id")
     )
-    if poster:
-        art["poster"] = poster
 
     extra = (
         _xml_tag("season", season_number)
@@ -830,6 +830,9 @@ def sync_current_profile(client, monitor=None, progress=None):
             "episodes": 0,
         }
     paths = ensure_library_directories()
+    # The persistent Kodi service normally owns the proxy. Starting it here
+    # also supports manual setup when the service has not started yet.
+    start_artwork_proxy()
     root = paths["root"]
     movies_root = paths["movies"]
     shows_root = paths["tvshows"]
@@ -922,7 +925,8 @@ def sync_current_profile(client, monitor=None, progress=None):
 
     def card_fingerprint(card):
         payload = json.dumps(
-            stable_value(card), sort_keys=True, separators=(",", ":"), default=str
+            {"artwork_mode": 2, "card": stable_value(card)},
+            sort_keys=True, separators=(",", ":"), default=str
         )
         return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
@@ -949,15 +953,8 @@ def sync_current_profile(client, monitor=None, progress=None):
             if name.endswith((".strm", ".nfo")):
                 if not xbmcvfs.exists(_join(root, relative)):
                     return False
-        if _art_url(card, "poster") or _art_url(card, "fanart"):
-            images = [
-                relative for relative in tracked
-                if str(relative).lower().endswith(
-                    (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
-                )
-            ]
-            if not images or not any(xbmcvfs.exists(_join(root, path)) for path in images):
-                return False
+        # Artwork is remote; NFO/STRM existence is sufficient. Local image
+        # files from older versions are pruned by manifest reconciliation.
         return True
 
     def item_needs_write(identity, library_id, media_type, fingerprint, card):
