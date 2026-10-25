@@ -12,6 +12,14 @@
     <description lang="en_GB">Native Silo client for Kodi.</description>
     <platform>all</platform>
     <license>GPL-3.0-or-later</license>
-    <news>Added configurable intro, recap and credits skipping plus saved multi-server switching.</news>
+    <news>*** V1.1.20 ***
+* Add saved multi-server switching and reconnection
+* Add intro, recap and credits skipping with configurable auto-skip
+* Show the current server and profile in the Kodi menu
+* Allow cancelling a profile switch by keeping the current profile
+
+*** V1.0.9***
+* Add transcode support
+* Add adaptive quality switching</news>
   </extension>
 </addon>
