@@ -1453,20 +1453,37 @@ class SiloClient:
 
     # ----------------------------------------------------------- profiles
 
-    # Load household profiles and remember the selected profile.
-    def select_profile(self):
+    def profiles(self):
+        """Return profiles visible to the signed-in account."""
         data = self._json(
             "GET",
             "/api/v2/profiles",
             need_profile=False,
-        )
+        ) or {}
+        items = data.get("items", [])
+        return items if isinstance(items, list) else []
 
-        profiles = (data or {}).get("items", [])
+    def current_profile_name(self):
+        """Resolve the active profile ID to the name shown in Kodi."""
+        current_id = str(
+            _setting("profile_id") or self.cfg.get("profile_id") or ""
+        ).strip()
+        if not current_id:
+            return ""
+        for profile in self.profiles():
+            if str(profile.get("id") or "").strip() == current_id:
+                return str(profile.get("name") or "").strip()
+        return ""
+
+    # Load household profiles and remember the selected profile. During an
+    # explicit profile switch, selecting the already-active profile cancels.
+    def select_profile(self, cancel_if_current=False):
+        profiles = self.profiles()
 
         if not profiles:
             raise SiloError("This account has no profiles")
 
-        requested_name = str(
+        requested_name = "" if cancel_if_current else str(
             getattr(self, "_requested_profile_name", "")
             or self.cfg.get("profile_name", "")
             or ""
@@ -1496,18 +1513,43 @@ class SiloClient:
             # A real profile-selection dialog needs to be visible to the user,
             # so temporarily close the login spinner while Kodi displays it.
             _hide_login_loading()
+            current_id = str(
+                _setting("profile_id") or self.cfg.get("profile_id") or ""
+            ).strip()
+            labels = []
+            for profile in profiles:
+                name = str(profile.get("name") or "Profile")
+                if current_id and str(profile.get("id") or "").strip() == current_id:
+                    name += " (current)"
+                labels.append(name)
 
             idx = xbmcgui.Dialog().select(
                 "Who's watching?",
-                [p.get("name", "Profile") for p in profiles],
+                labels,
             )
 
             if idx < 0:
+                if cancel_if_current and current_id:
+                    # Closing the chooser is the same as keeping the active
+                    # profile. Do not turn an intentional cancel into an error.
+                    return False
                 raise SiloError("No profile selected")
 
             chosen = profiles[idx]
+            dialog_shown = True
 
-            # Resume the existing login spinner once profile selection is done.
+        if (
+            cancel_if_current
+            and str(chosen.get("id") or "").strip()
+            and str(chosen.get("id") or "").strip()
+            == str(_setting("profile_id") or self.cfg.get("profile_id") or "").strip()
+        ):
+            # The user chose the current profile; treat it as cancelling the
+            # switch. Do not clear/re-request the PIN token or refresh the UI.
+            return False
+
+        if len(profiles) > 1 and not requested_name:
+            # Resume the existing login spinner only for a real profile change.
             _show_login_loading()
 
         self.cfg["profile_id"] = str(chosen["id"])
@@ -1529,6 +1571,8 @@ class SiloClient:
                 self.verify_profile(chosen["id"])
             finally:
                 _show_login_loading()
+
+        return True
 
     # Verify a PIN-locked profile and store its temporary verification token.
     def verify_profile(self, profile_id):
