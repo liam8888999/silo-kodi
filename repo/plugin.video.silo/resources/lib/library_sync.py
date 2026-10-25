@@ -718,11 +718,11 @@ def ensure_kodi_video_sources():
 
         temporary_path = sources_xml_path + ".silo.tmp"
         try:
-            serialized = b"\\n".join(
+            serialized = b"\n".join(
                 line for line in document.toprettyxml(
                     indent="  ", encoding="utf-8"
                 ).splitlines() if line.strip()
-            ) + b"\\n"
+            ) + b"\n"
             with open(temporary_path, "wb") as stream:
                 stream.write(serialized)
                 stream.flush()
