@@ -23,6 +23,7 @@ HOST = "127.0.0.1"
 PORT = 17653
 BASE_URL = "http://%s:%d" % (HOST, PORT)
 MAX_ART_BYTES = 20 * 1024 * 1024
+SIGNED_ARTWORK_PREFIX = "/api/v2/artwork/"
 
 _SERVER = None
 _SERVER_LOCK = threading.Lock()
@@ -45,10 +46,19 @@ def _normalise_server(value):
     )
 
 
-def _clean_query(query):
+def _clean_query(query, allow_silo_artwork_signature=False):
+    """Remove credentials while preserving Silo's required local-art signature.
+
+    The Silo artwork route is a signed capability URL: exp+sig are required
+    upstream, but account/API credentials must never be copied into NFO URLs.
+    """
     pairs = parse_qsl(query, keep_blank_values=True)
-    safe = [(key, value) for key, value in pairs
-            if key.lower() not in _SECRET_QUERY_KEYS]
+    safe = [
+        (key, value)
+        for key, value in pairs
+        if key.lower() not in _SECRET_QUERY_KEYS
+        or (allow_silo_artwork_signature and key.lower() == "sig")
+    ]
     return urlencode(safe, doseq=True)
 
 
@@ -108,7 +118,10 @@ def make_artwork_url(source, server, username, profile_id):
         "username": str(username or ""),
         "profile_id": str(profile_id or ""),
         "path": path,
-        "query": _clean_query(query),
+        "query": _clean_query(
+            query,
+            allow_silo_artwork_signature=path.startswith(SIGNED_ARTWORK_PREFIX),
+        ),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     token = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -132,8 +145,12 @@ def _decode_payload(token):
         raise ValueError("Invalid artwork path")
     # URLs must not carry credentials; the proxy adds the current Silo headers.
     query = str(payload.get("query") or "")
-    if any(key.lower() in _SECRET_QUERY_KEYS
-           for key, _ in parse_qsl(query, keep_blank_values=True)):
+    allow_silo_artwork_signature = path.startswith(SIGNED_ARTWORK_PREFIX)
+    if any(
+        key.lower() in _SECRET_QUERY_KEYS
+        and not (allow_silo_artwork_signature and key.lower() == "sig")
+        for key, _ in parse_qsl(query, keep_blank_values=True)
+    ):
         raise ValueError("Artwork URL contains a credential")
     return payload, path + (("?" + query) if query else "")
 
@@ -218,9 +235,14 @@ class _ArtworkHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            # Keep exp/sig in request params, not in the path string, because
+            # SiloClient logs paths when an upstream request fails.
+            target = urlsplit(target_path)
+            target_params = parse_qsl(target.query, keep_blank_values=True)
             response = client._send(
                 "GET",
-                target_path,
+                target.path,
+                params=target_params,
                 timeout=25,
                 extra_headers={
                     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
@@ -243,7 +265,19 @@ class _ArtworkHandler(BaseHTTPRequestHandler):
             # contains no access token.
             self._send(200, content_type, data, send_body, "public, max-age=3600")
         except Exception as exc:
-            log("Native library artwork proxy request failed: %s" % type(exc).__name__, xbmc.LOGDEBUG)
+            status = getattr(exc, "status_code", None)
+            if status is not None:
+                log(
+                    "Native library artwork proxy upstream HTTP %s (%s)"
+                    % (status, type(exc).__name__),
+                    xbmc.LOGWARNING,
+                )
+            else:
+                log(
+                    "Native library artwork proxy request failed: %s"
+                    % type(exc).__name__,
+                    xbmc.LOGDEBUG,
+                )
             self._send(502, "text/plain; charset=utf-8", b"artwork unavailable", send_body)
 
 
