@@ -6,7 +6,10 @@ import xbmc
 import xbmcaddon
 
 from resources.lib.silo import SiloClient, log
-from resources.lib.library_sync import sync_current_profile, ensure_library_directories
+from resources.lib.library_sync import (
+    LibrarySyncDisabled,
+    sync_current_profile,
+)
 
 
 ADDON = xbmcaddon.Addon()
@@ -35,39 +38,49 @@ def _interval_seconds():
 def run():
     monitor = xbmc.Monitor()
     last_sync = 0
-    log("Native library integration service started", xbmc.LOGINFO)
-    try:
-        ensure_library_directories()
-    except Exception as exc:
-        log("Unable to create native library folders: %s" % exc, xbmc.LOGERROR)
+    last_enabled = _enabled()
+    last_interval = _interval_seconds()
+    log("Native library integration service started (enabled=%s)" % last_enabled, xbmc.LOGINFO)
 
     while not monitor.abortRequested():
-        if not _enabled():
-            if monitor.waitForAbort(10):
-                break
-            continue
-
+        enabled = _enabled()
         interval = _interval_seconds()
-        if time.time() - last_sync >= interval:
+
+        # Enabling the feature or changing its schedule requests an immediate
+        # sync. Disabling it never deletes files; it only stops future work.
+        setting_changed = enabled != last_enabled or interval != last_interval
+        if enabled and (not last_enabled or interval != last_interval):
+            last_sync = 0
+            log("Native library settings changed; requesting immediate sync", xbmc.LOGINFO)
+
+        last_enabled = enabled
+        last_interval = interval
+
+        if enabled and time.time() - last_sync >= interval:
             try:
                 log("Native library sync starting", xbmc.LOGINFO)
                 client = SiloClient()
-                # Do not trigger interactive login prompts from a background
-                # service. Sync only when a saved authenticated session exists.
+                # Never trigger an interactive login from a background service.
                 if client.base and (
                     client.cfg.get("token") or client.cfg.get("refresh_token")
                 ):
                     stats = sync_current_profile(client, monitor=monitor)
                     log("Native library sync finished: %s" % stats, xbmc.LOGINFO)
                 else:
-                    log("Native library sync skipped: no saved Silo session. server=%r username=%r" % (client.base, client.cfg.get("username")), xbmc.LOGWARNING)
+                    log(
+                        "Native library sync skipped: no saved Silo session. server=%r username=%r"
+                        % (client.base, client.cfg.get("username")),
+                        xbmc.LOGWARNING,
+                    )
+            except LibrarySyncDisabled:
+                log("Native library sync stopped because the setting was disabled", xbmc.LOGINFO)
             except Exception as exc:
                 log("Native library sync failed; existing Kodi entries were kept: %s" % exc, xbmc.LOGERROR)
             last_sync = time.time()
 
-        # Sleep in short intervals so Kodi can stop the service promptly.
-        remaining = max(1, interval - (time.time() - last_sync))
-        if monitor.waitForAbort(min(10, remaining)):
+        # Poll settings promptly so enabling starts a sync without waiting for
+        # the previous interval. Also lets Kodi stop the service promptly.
+        if monitor.waitForAbort(2):
             break
 
     log("Native library integration service stopped", xbmc.LOGINFO)
