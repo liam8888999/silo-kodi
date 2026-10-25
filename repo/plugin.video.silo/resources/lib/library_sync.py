@@ -35,8 +35,42 @@ def _join(root, *parts):
 
 
 def _ensure_dir(path):
+    if xbmcvfs.exists(path):
+        return True
+    xbmcvfs.mkdirs(path)
     if not xbmcvfs.exists(path):
-        xbmcvfs.mkdirs(path)
+        raise IOError("Kodi could not create directory: %s" % path)
+    return True
+
+
+def native_library_paths(special=True):
+    """Return the managed folder paths in Kodi-special or local form."""
+    if special:
+        root = MEDIA_ROOT
+        return {
+            "root": root,
+            "movies": root.rstrip("/") + "/Movies",
+            "tvshows": root.rstrip("/") + "/TV Shows",
+        }
+    root = _translated(MEDIA_ROOT)
+    return {
+        "root": root,
+        "movies": _join(root, "Movies"),
+        "tvshows": _join(root, "TV Shows"),
+    }
+
+
+def ensure_library_directories():
+    """Create the managed directories, even when no account is signed in."""
+    paths = native_library_paths(special=False)
+    for path in paths.values():
+        _ensure_dir(path)
+    log(
+        "Native library folders ready: Movies=%s; TV Shows=%s"
+        % (paths["movies"], paths["tvshows"]),
+        xbmc.LOGINFO,
+    )
+    return paths
 
 
 def _read_text(path):
@@ -237,7 +271,8 @@ def _image_extension(content_type):
     }.get(content_type, ".jpg")
 
 
-def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, files):
+def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, files,
+                  previous_files=None):
     """Download artwork once, refreshing it if its stable URL changes."""
     if not source:
         return ""
@@ -248,11 +283,12 @@ def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, fi
         ref_key = key_prefix + "/" + prefix
         previous = old_art_refs.get(ref_key) or ""
         if previous == canonical:
-            for rel in files:
+            for rel in (previous_files or set()):
                 if rel.startswith(key_prefix + "/" + prefix + "."):
                     candidate = _join(_translated(MEDIA_ROOT), rel.replace("/", os.sep))
                     if xbmcvfs.exists(candidate):
                         new_art_refs[ref_key] = canonical
+                        files.add(rel)
                         return os.path.basename(candidate)
 
         response = client.session.get(
@@ -287,7 +323,8 @@ def _plugin_url(content_id, library_id):
 
 
 def _write_entry(client, item, library_id, base_folder, item_kind,
-                 old_art_refs, new_art_refs, files, refresh_paths):
+                 old_art_refs, new_art_refs, files, refresh_paths,
+                 previous_files=None):
     content_id = _content_id(item)
     if not content_id:
         return False
@@ -312,13 +349,13 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
     art_root = _translated(MEDIA_ROOT)
     art_poster = _download_art(
         client, _art_url(item, "poster"), folder, "poster",
-        old_art_refs, new_art_refs, files
+        old_art_refs, new_art_refs, files, previous_files
     )
     if art_poster:
         art["poster"] = art_poster
     art_fanart = _download_art(
         client, _art_url(item, "fanart"), folder, "fanart",
-        old_art_refs, new_art_refs, files
+        old_art_refs, new_art_refs, files, previous_files
     )
     if art_fanart:
         art["fanart"] = art_fanart
@@ -343,7 +380,8 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
 
 
 def _write_episode(client, episode, series, library_id, series_folder,
-                  season_number, old_art_refs, new_art_refs, files, refresh_paths):
+                  season_number, old_art_refs, new_art_refs, files, refresh_paths,
+                  previous_files=None):
     content_id = _content_id(episode)
     if not content_id:
         return False
@@ -366,7 +404,7 @@ def _write_episode(client, episode, series, library_id, series_folder,
     art = {}
     poster = _download_art(
         client, _art_url(episode, "poster"), season_folder, "thumb_" + item_hash,
-        old_art_refs, new_art_refs, files
+        old_art_refs, new_art_refs, files, previous_files
     )
     if poster:
         art["poster"] = poster
@@ -526,16 +564,27 @@ def _refresh_changed_nfo(paths):
                 _json_rpc("VideoLibrary.RefreshEpisode", {"episodeid": ep.get("episodeid"), "ignorenfo": False})
 
 
-def sync_current_profile(client, monitor=None):
-    """Sync active Silo libraries to persistent STRM/NFO files. Return stats."""
-    if not client.base or not (client.cfg.get("token") or client.cfg.get("refresh_token")):
-        return {"skipped": "not signed in", "movies": 0, "episodes": 0}
+def sync_current_profile(client, monitor=None, progress=None):
+    """Sync active Silo libraries to persistent STRM/NFO files. Return stats.
 
-    root = _translated(MEDIA_ROOT)
-    movies_root = _join(root, "Movies")
-    shows_root = _join(root, "TV Shows")
-    _ensure_dir(movies_root)
-    _ensure_dir(shows_root)
+    Directories are created before authentication is checked so users can
+    configure Kodi's video sources as part of first-time setup.
+    """
+    paths = ensure_library_directories()
+    root = paths["root"]
+    movies_root = paths["movies"]
+    shows_root = paths["tvshows"]
+    if not client.base or not (client.cfg.get("token") or client.cfg.get("refresh_token")):
+        return {
+            "skipped": "not signed in",
+            "movies": 0,
+            "shows": 0,
+            "episodes": 0,
+            "paths": native_library_paths(special=True),
+        }
+
+    if progress:
+        progress(0, "Connecting to Silo…")
     profile_id = str(client.cfg.get("profile_id") or "")
     server = str(client.cfg.get("server") or client.base)
     username = str(client.cfg.get("username") or "")
@@ -555,7 +604,20 @@ def sync_current_profile(client, monitor=None):
 
     try:
         libraries = client.libraries()
-        for library in libraries:
+        if progress:
+            progress(3, "Found %d Silo libraries" % len(libraries))
+        library_total = max(1, len(libraries))
+        for library_index, library in enumerate(libraries):
+            if progress:
+                progress(
+                    3 + int(88 * library_index / library_total),
+                    "Syncing library %d of %d: %s"
+                    % (
+                        library_index + 1,
+                        len(libraries),
+                        library.get("name") or library.get("title") or "Library",
+                    ),
+                )
             library_id = library.get("id") or library.get("library_id")
             library_name = str(library.get("name") or library.get("title") or "Library")
             if library_id in (None, ""):
@@ -575,7 +637,8 @@ def sync_current_profile(client, monitor=None):
                         before = len(files)
                         _write_entry(
                             client, item, str(library_id), target, "movie",
-                            old_art_refs, new_art_refs, files, refresh_paths
+                            old_art_refs, new_art_refs, files, refresh_paths,
+                            previous_files,
                         )
                         movie_count += 1
                         touched.add("Movies")
@@ -583,7 +646,8 @@ def sync_current_profile(client, monitor=None):
                         target = _join(shows_root, scope_key, library_segment)
                         if _write_entry(
                             client, item, str(library_id), target, "show",
-                            old_art_refs, new_art_refs, files, refresh_paths
+                            old_art_refs, new_art_refs, files, refresh_paths,
+                            previous_files,
                         ):
                             show_count += 1
                             touched.add("TV Shows")
@@ -598,7 +662,8 @@ def sync_current_profile(client, monitor=None):
                             for episode in client.episodes(content_id, season_number, library_id=str(library_id)) or []:
                                 if _write_episode(
                                     client, episode, item, str(library_id), series_folder,
-                                    season_number, old_art_refs, new_art_refs, files, refresh_paths
+                                    season_number, old_art_refs, new_art_refs, files, refresh_paths,
+                                    previous_files,
                                 ):
                                     episode_count += 1
                                     touched.add("TV Shows")
@@ -609,6 +674,8 @@ def sync_current_profile(client, monitor=None):
         # partial response could otherwise look like a mass deletion.
         raise
 
+    if progress:
+        progress(94, "Reconciling removed entries…")
     removals = _remove_stale(root, previous_files, files)
     if removals:
         touched.update("Movies" if path.startswith("Movies/") else "TV Shows" for path in removals)
@@ -627,6 +694,8 @@ def sync_current_profile(client, monitor=None):
             scan_started = True
             pending.discard(category)
 
+    if progress:
+        progress(97, "Saving sync state…")
     _write_text(
         manifest_path,
         json.dumps({
@@ -655,6 +724,8 @@ def sync_current_profile(client, monitor=None):
         _wait_for_scan(monitor)
         _refresh_changed_nfo(refresh_paths)
 
+    if progress:
+        progress(100, "Library sync completed")
     return {
         "movies": movie_count,
         "shows": show_count,
