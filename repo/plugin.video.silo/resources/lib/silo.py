@@ -1529,6 +1529,10 @@ class SiloClient:
             )
 
             if idx < 0:
+                if cancel_if_current and current_id:
+                    # Closing the chooser is the same as keeping the active
+                    # profile. Do not turn an intentional cancel into an error.
+                    return False
                 raise SiloError("No profile selected")
 
             chosen = profiles[idx]
