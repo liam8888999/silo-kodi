@@ -25,7 +25,7 @@ from resources.lib.silo import SiloClient, log
 
 ADDON_ID = "plugin.video.silo"
 MEDIA_ROOT = "special://profile/addon_data/plugin.video.silo/native-library"
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 1
 MAX_ART_BYTES = 20 * 1024 * 1024
 MAX_SYNC_WORKERS = 8
 MAX_PENDING_ITEMS = 32
@@ -1066,9 +1066,6 @@ def sync_current_profile(client, monitor=None, progress=None):
         "shows": show_count,
         "episodes": episode_count,
         "removed": len(removals),
-        "changed_movies": changed_counts["movie"],
-        "changed_shows": changed_counts["series"],
-        "changed_episodes": changed_counts["episodes"],
         "scanned": scan_started,
         "pending_scan": sorted(pending),
     }
