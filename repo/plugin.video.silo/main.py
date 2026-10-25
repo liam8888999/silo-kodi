@@ -10097,9 +10097,7 @@ def router(client):
             log("Manual native library sync failed: %s" % exc, xbmc.LOGERROR)
             xbmcgui.Dialog().ok(
                 "Silo Kodi Library",
-                "Could not synchronise the Silo catalogue.",
-                str(exc),
-                "Check the Kodi log for details.",
+                "Could not synchronise the Silo catalogue: %s" % str(exc),
             )
             return
         finally:
