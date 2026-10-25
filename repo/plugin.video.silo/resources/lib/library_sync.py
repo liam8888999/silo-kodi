@@ -799,11 +799,10 @@ def ensure_kodi_video_sources():
         "backup": backup_path,
     }
 
-def _scan_category(path, remove_missing=False, monitor=None):
+def _scan_category(path, monitor=None):
     _require_enabled()
     # Kodi exposes one video-library scanner. Do not enqueue another directory
-    # scan while one is already active; repeated VideoLibrary.Scan calls can
-    # cause Kodi to revisit the same intermediate folders over and over.
+    # scan while one is already active.
     if xbmc.getCondVisibility("Library.IsScanningVideo"):
         _wait_for_scan(monitor)
         if monitor is not None and monitor.abortRequested():
@@ -812,12 +811,9 @@ def _scan_category(path, remove_missing=False, monitor=None):
             log("Deferring native-library scan because Kodi's current scan did not finish: %s" % path, xbmc.LOGWARNING)
             return False
 
-    if remove_missing:
-        # Limit cleanup to the add-on-owned source path. Never run a whole-library
-        # clean, which could remove unrelated network/offline media.
-        translated = _translated(path)
-        escaped = translated.replace('"', '\\"')
-        xbmc.executebuiltin('CleanLibrary(video, "%s")' % escaped)
+    # Kodi's CleanLibrary built-in does not support a directory argument.
+    # Stale add-on files are reconciled on disk; do not trigger a whole-library
+    # clean as a side effect of a category scan.
     result = _json_rpc(
         "VideoLibrary.Scan",
         {"directory": _translated(path), "showdialogs": False},
@@ -825,13 +821,24 @@ def _scan_category(path, remove_missing=False, monitor=None):
     return result is not None
 
 
-def _wait_for_scan(monitor=None, timeout=300):
+def _wait_for_scan(monitor=None, timeout=300, wait_for_start=False, start_timeout=8):
+    """Wait for Kodi's global scanner, optionally observing its start."""
     monitor = monitor or xbmc.Monitor()
     started = time.time()
-    while not monitor.abortRequested() and time.time() - started < timeout:
-        if not xbmc.getCondVisibility("Library.IsScanningVideo"):
+    scan_seen = False
+    while not monitor.abortRequested():
+        scanning = bool(xbmc.getCondVisibility("Library.IsScanningVideo"))
+        if scanning:
+            scan_seen = True
+        elif scan_seen or not wait_for_start:
             return True
-        if monitor.waitForAbort(2):
+        elif time.time() - started >= start_timeout:
+            # Some no-op scans finish before Kodi exposes the scanning condition.
+            log("Kodi did not report a video scan starting within %ds" % start_timeout, xbmc.LOGDEBUG)
+            return True
+        if time.time() - started >= timeout:
+            return not scanning
+        if monitor.waitForAbort(0.25 if wait_for_start and not scan_seen else 2):
             return False
     return not xbmc.getCondVisibility("Library.IsScanningVideo")
 
