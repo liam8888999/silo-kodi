@@ -17,6 +17,7 @@ from urllib.parse import urlencode, urlsplit
 from xml.sax.saxutils import escape
 
 import xbmc
+import xbmcaddon
 import xbmcgui
 import xbmcvfs
 
@@ -30,6 +31,22 @@ MAX_ART_BYTES = 20 * 1024 * 1024
 MAX_SYNC_WORKERS = 8
 MAX_PENDING_ITEMS = 32
 _SYNC_LOCAL = threading.local()
+ADDON = xbmcaddon.Addon()
+
+
+class LibrarySyncDisabled(Exception):
+    """Raised when native library integration is disabled during a sync."""
+
+
+def _integration_enabled():
+    return str(ADDON.getSetting("native_library_enabled") or "").strip().lower() in (
+        "true", "1", "yes"
+    )
+
+
+def _require_enabled():
+    if not _integration_enabled():
+        raise LibrarySyncDisabled("Native Kodi library integration is disabled.")
 
 
 def _translated(path):
@@ -73,6 +90,7 @@ def _relative_to_root(path, root=None):
 
 def _ensure_dir(path):
     """Create folders via Kodi VFS using the special:// path."""
+    _require_enabled()
     path = str(path or "")
     if not path:
         raise IOError("Kodi library folder path is empty")
@@ -118,7 +136,8 @@ def native_library_paths(special=True):
 
 
 def ensure_library_directories():
-    """Create managed folders through Kodi VFS, even before login."""
+    """Create managed folders through Kodi VFS only when integration is enabled."""
+    _require_enabled()
     paths = native_library_paths(special=True)
     for path in paths.values():
         _ensure_dir(path)
@@ -145,6 +164,7 @@ def _read_text(path):
 
 
 def _write_text(path, value):
+    _require_enabled()
     parent = _dirname(path)
     _ensure_dir(parent)
     old = _read_text(path)
@@ -161,6 +181,7 @@ def _write_text(path, value):
 
 
 def _write_bytes(path, value):
+    _require_enabled()
     parent = _dirname(path)
     _ensure_dir(parent)
     handle = None
@@ -333,6 +354,7 @@ def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, fi
     """Download artwork once, refreshing it if its stable URL changes."""
     if not source:
         return ""
+    _require_enabled()
     try:
         absolute = client.abs_url(source)
         canonical = _canonical_url(absolute)
@@ -503,8 +525,10 @@ def _relative_safe(path):
 
 
 def _remove_stale(root, previous_files, current_files):
+    _require_enabled()
     removed = []
     for relative in set(previous_files or []) - set(current_files or []):
+        _require_enabled()
         if not _relative_safe(relative):
             continue
         # Only remove generated, known file types and known image names.
@@ -558,6 +582,7 @@ def video_source_exists(path):
 
 
 def _scan_category(path, remove_missing=False):
+    _require_enabled()
     if remove_missing:
         # Limit cleanup to the add-on-owned source path. Never run a whole-library
         # clean, which could remove unrelated network/offline media.
@@ -582,6 +607,7 @@ def _wait_for_scan(monitor, timeout=300):
 
 def _refresh_changed_nfo(paths):
     """Refresh existing entries from modified local NFO files after scanning."""
+    _require_enabled()
     paths = set(os.path.normcase(os.path.normpath(_translated(p))) for p in paths or [])
     if not paths:
         return
@@ -627,11 +653,14 @@ def _refresh_changed_nfo(paths):
 
 
 def sync_current_profile(client, monitor=None, progress=None):
-    """Sync active Silo libraries to persistent STRM/NFO files. Return stats.
-
-    Directories are created before authentication is checked so users can
-    configure Kodi's video sources as part of first-time setup.
-    """
+    """Sync active Silo libraries only while the feature is enabled."""
+    if not _integration_enabled():
+        return {
+            "skipped": "disabled",
+            "movies": 0,
+            "shows": 0,
+            "episodes": 0,
+        }
     paths = ensure_library_directories()
     root = paths["root"]
     movies_root = paths["movies"]
@@ -788,6 +817,7 @@ def sync_current_profile(client, monitor=None, progress=None):
         }
 
     def process_item(item, library_id, library_segment, media_type, fingerprint):
+        _require_enabled()
         content_id = _content_id(item)
         identity = item_identity(library_id, content_id)
         item_files, item_refs, item_refresh = set(), {}, set()
@@ -810,6 +840,7 @@ def sync_current_profile(client, monitor=None, progress=None):
 
     def process_episode_group(library_id, library_segment, series_id, season_number, summaries):
         """Fetch a changed season once; write just its new/changed episodes."""
+        _require_enabled()
         item_client = worker_client()
         details = item_client.episodes(
             str(series_id), int(season_number), library_id=str(library_id)
@@ -872,6 +903,7 @@ def sync_current_profile(client, monitor=None, progress=None):
                 consume_future(future)
 
     try:
+        _require_enabled()
         libraries = client.libraries()
         if progress:
             progress(3, "Found %d Silo libraries" % len(libraries))
@@ -898,8 +930,10 @@ def sync_current_profile(client, monitor=None, progress=None):
                 changed_series_by_library[library_id] = set()
 
                 for requested_type in ("movie", "series", "episode"):
+                    _require_enabled()
                     cursor = None
                     while True:
+                        _require_enabled()
                         page_items, cursor = client.catalog_page(
                             library_id, cursor=cursor, limit=200,
                             media_type=requested_type,
@@ -1008,6 +1042,7 @@ def sync_current_profile(client, monitor=None, progress=None):
         # Never prune after any failed typed catalogue page or worker operation.
         raise
 
+    _require_enabled()
     if progress:
         progress(94, "Reconciling removed entries…")
     removals = _remove_stale(root, previous_files, files)
@@ -1028,6 +1063,7 @@ def sync_current_profile(client, monitor=None, progress=None):
             scan_started = True
             pending.discard(category)
 
+    _require_enabled()
     if progress:
         progress(97, "Saving sync state…")
     _write_text(
@@ -1046,7 +1082,7 @@ def sync_current_profile(client, monitor=None, progress=None):
         }, indent=2, sort_keys=True),
     )
 
-    if touched and pending and not xbmcvfs.exists(_join(root, ".source-reminder-shown")):
+    if _integration_enabled() and touched and pending and not xbmcvfs.exists(_join(root, ".source-reminder-shown")):
         xbmcgui.Dialog().notification(
             "Silo library integration",
             "Add the generated Movies and TV Shows folders as Kodi video sources to finish setup.",
