@@ -35,7 +35,9 @@ https://liam8888999.github.io/silo-kodi/
 
 ### Native Kodi library integration (experimental)
 
-An optional background service can export Silo movies and TV episodes into Kodi's native video library using generated `.strm` and local `.nfo` files. It periodically checks the active server/profile, updates generated metadata and artwork, and removes only files recorded in its own sync manifest.
+An optional background service can export Silo movies and TV episodes into Kodi's native video library using generated `.strm` and local `.nfo` files.
+
+You can also choose **Set Up Kodi Library** from the add-on's main menu. This creates the managed folders even if you are not currently signed in, then attempts an immediate synchronisation and reports the number of exported movies, shows and episodes. It detects whether the two folders are already registered as Kodi video sources and lists any paths that still need to be added. The service logs startup, missing-session and sync failures in the Kodi log. It periodically checks the active server/profile, updates generated metadata and artwork, and removes only files recorded in its own sync manifest.
 
 To enable it:
 
