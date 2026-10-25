@@ -581,6 +581,174 @@ def video_source_exists(path):
     return _is_video_source(path)
 
 
+
+def ensure_kodi_video_sources():
+    """Register Silo's managed folders as Kodi video sources, Netflix-style.
+
+    Kodi has no supported JSON-RPC method for creating video sources. The
+    Netflix add-on uses sources.xml for this setup step. Keep a one-time
+    backup before editing an existing file, and only add our own missing paths.
+    """
+    _require_enabled()
+    from xml.dom import minidom
+    import shutil
+
+    paths = native_library_paths(special=False)
+    expected = (
+        ("Silo Movies", paths["movies"]),
+        ("Silo TV Shows", paths["tvshows"]),
+    )
+    sources_xml_path = _translated("special://userdata/sources.xml")
+    sources_xml_exists = os.path.isfile(sources_xml_path)
+
+    if sources_xml_exists:
+        try:
+            document = minidom.parse(sources_xml_path)
+        except Exception as exc:
+            raise IOError(
+                'Could not read Kodi sources.xml. It was not modified; '
+                'check the Kodi userdata sources.xml file. Details: %s' % exc
+            )
+        root = document.documentElement
+        if root is None or root.tagName != "sources":
+            raise IOError("Kodi sources.xml has an unexpected XML root; it was not modified.")
+    else:
+        document = minidom.Document()
+        root = document.createElement("sources")
+        document.appendChild(root)
+        for section_name in ("programs", "video", "music", "pictures", "files"):
+            section = document.createElement(section_name)
+            default = document.createElement("default")
+            default.setAttribute("pathversion", "1")
+            section.appendChild(default)
+            root.appendChild(section)
+
+    def direct_child(parent, tag_name):
+        for child in parent.childNodes:
+            if child.nodeType == 1 and child.tagName == tag_name:
+                return child
+        return None
+
+    video_node = direct_child(root, "video")
+    if video_node is None:
+        video_node = document.createElement("video")
+        default = document.createElement("default")
+        default.setAttribute("pathversion", "1")
+        video_node.appendChild(default)
+        root.appendChild(video_node)
+
+    def child_text(parent, tag_name):
+        nodes = parent.getElementsByTagName(tag_name)
+        if not nodes:
+            return ""
+        return "".join(
+            child.data for child in nodes[0].childNodes
+            if child.nodeType in (3, 4)
+        ).strip()
+
+    def normalised_path(path):
+        value = str(path or "").strip()
+        if value.startswith("special://"):
+            value = _translated(value)
+        try:
+            value = xbmcvfs.makeLegalFilename(value)
+        except Exception:
+            pass
+        return os.path.normcase(os.path.normpath(value)).rstrip("\\\\/")
+
+    source_nodes = [
+        child for child in video_node.childNodes
+        if child.nodeType == 1 and child.tagName == "source"
+    ]
+    existing_paths = {}
+    existing_names = set()
+    for source_node in source_nodes:
+        name = child_text(source_node, "name")
+        if name:
+            existing_names.add(name.casefold())
+        source_path = child_text(source_node, "path")
+        if source_path:
+            existing_paths[normalised_path(source_path)] = name
+
+    added = []
+    already_present = []
+    for preferred_name, source_path in expected:
+        legal_path = xbmcvfs.makeLegalFilename(_translated(source_path))
+        path_key = normalised_path(legal_path)
+        if path_key in existing_paths:
+            already_present.append({
+                "name": existing_paths[path_key] or preferred_name,
+                "path": legal_path,
+            })
+            continue
+
+        source_name = preferred_name
+        suffix = 2
+        while source_name.casefold() in existing_names:
+            source_name = "%s (%d)" % (preferred_name, suffix)
+            suffix += 1
+
+        source_node = document.createElement("source")
+        name_node = document.createElement("name")
+        name_node.appendChild(document.createTextNode(source_name))
+        source_node.appendChild(name_node)
+
+        path_node = document.createElement("path")
+        path_node.setAttribute("pathversion", "1")
+        path_node.appendChild(document.createTextNode(legal_path))
+        source_node.appendChild(path_node)
+
+        sharing_node = document.createElement("allowsharing")
+        sharing_node.appendChild(document.createTextNode("true"))
+        source_node.appendChild(sharing_node)
+        video_node.appendChild(source_node)
+
+        existing_paths[path_key] = source_name
+        existing_names.add(source_name.casefold())
+        added.append({"name": source_name, "path": legal_path})
+
+    backup_path = ""
+    if added:
+        # Preserve the user's pre-existing source configuration before replacing
+        # it. Never overwrite an earlier backup.
+        if sources_xml_exists:
+            backup_path = sources_xml_path + ".silo.bak"
+            if not os.path.exists(backup_path):
+                shutil.copy2(sources_xml_path, backup_path)
+
+        temporary_path = sources_xml_path + ".silo.tmp"
+        try:
+            serialized = b"\\n".join(
+                line for line in document.toprettyxml(
+                    indent="  ", encoding="utf-8"
+                ).splitlines() if line.strip()
+            ) + b"\\n"
+            with open(temporary_path, "wb") as stream:
+                stream.write(serialized)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, sources_xml_path)
+        except Exception:
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except Exception:
+                pass
+            raise
+
+        log(
+            "Registered Silo Kodi video source(s): %s"
+            % ", ".join(item["name"] for item in added),
+            xbmc.LOGINFO,
+        )
+
+    return {
+        "added": added,
+        "existing": already_present,
+        "sources_xml": sources_xml_path,
+        "backup": backup_path,
+    }
+
 def _scan_category(path, remove_missing=False):
     _require_enabled()
     if remove_missing:
