@@ -8,6 +8,7 @@ Local information only selected as their content provider.
 import hashlib
 import json
 import os
+import posixpath
 import re
 import time
 from urllib.parse import urlencode, urlsplit
@@ -30,43 +31,94 @@ def _translated(path):
     return xbmcvfs.translatePath(path)
 
 
+def _is_special(path):
+    return str(path or "").startswith("special://")
+
+
 def _join(root, *parts):
+    """Join components without corrupting Kodi special paths."""
+    if _is_special(root):
+        value = str(root).rstrip("/")
+        for part in parts:
+            value += "/" + str(part).replace("\\", "/").strip("/")
+        return value
     return os.path.join(root, *parts)
 
 
+def _dirname(path):
+    return posixpath.dirname(path) if _is_special(path) else os.path.dirname(path)
+
+
+def _basename(path):
+    return posixpath.basename(str(path).replace("\\", "/"))
+
+
+def _relative_to_root(path, root=None):
+    root = root or MEDIA_ROOT
+    value = str(path or "").replace("\\", "/")
+    base = str(root or "").replace("\\", "/").rstrip("/")
+    if value.startswith(base + "/"):
+        return value[len(base) + 1:]
+
+    native_root = _translated(base).replace("\\", "/").rstrip("/")
+    if value.startswith(native_root + "/"):
+        return value[len(native_root) + 1:]
+    raise ValueError("Path is outside the managed library root: %s" % path)
+
+
 def _ensure_dir(path):
+    """Create folders via Kodi VFS using the special:// path."""
+    path = str(path or "")
+    if not path:
+        raise IOError("Kodi library folder path is empty")
     if xbmcvfs.exists(path):
         return True
-    xbmcvfs.mkdirs(path)
-    if not xbmcvfs.exists(path):
+
+    vfs_error = None
+    try:
+        xbmcvfs.mkdirs(path)
+    except Exception as exc:
+        vfs_error = exc
+
+    if xbmcvfs.exists(path):
+        return True
+
+    native_path = _translated(path) if _is_special(path) else path
+    try:
+        os.makedirs(native_path, exist_ok=True)
+    except Exception as exc:
+        raise IOError(
+            "Could not create Kodi library directory %s (VFS: %s; filesystem: %s)"
+            % (path, vfs_error or "no error reported", exc)
+        )
+    if not xbmcvfs.exists(path) and not os.path.isdir(native_path):
         raise IOError("Kodi could not create directory: %s" % path)
     return True
 
 
 def native_library_paths(special=True):
-    """Return the managed folder paths in Kodi-special or local form."""
+    """Return managed library folders; special:// is the canonical form."""
+    root = MEDIA_ROOT if special else _translated(MEDIA_ROOT)
     if special:
-        root = MEDIA_ROOT
         return {
             "root": root,
             "movies": root.rstrip("/") + "/Movies",
             "tvshows": root.rstrip("/") + "/TV Shows",
         }
-    root = _translated(MEDIA_ROOT)
     return {
         "root": root,
-        "movies": _join(root, "Movies"),
-        "tvshows": _join(root, "TV Shows"),
+        "movies": os.path.join(root, "Movies"),
+        "tvshows": os.path.join(root, "TV Shows"),
     }
 
 
 def ensure_library_directories():
-    """Create the managed directories, even when no account is signed in."""
-    paths = native_library_paths(special=False)
+    """Create managed folders through Kodi VFS, even before login."""
+    paths = native_library_paths(special=True)
     for path in paths.values():
         _ensure_dir(path)
     log(
-        "Native library folders ready: Movies=%s; TV Shows=%s"
+        "Native library folders ready via Kodi VFS: Movies=%s; TV Shows=%s"
         % (paths["movies"], paths["tvshows"]),
         xbmc.LOGINFO,
     )
@@ -88,7 +140,7 @@ def _read_text(path):
 
 
 def _write_text(path, value):
-    parent = os.path.dirname(path)
+    parent = _dirname(path)
     _ensure_dir(parent)
     old = _read_text(path)
     if old == value:
@@ -104,7 +156,7 @@ def _write_text(path, value):
 
 
 def _write_bytes(path, value):
-    parent = os.path.dirname(path)
+    parent = _dirname(path)
     _ensure_dir(parent)
     handle = None
     try:
@@ -279,17 +331,18 @@ def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, fi
     try:
         absolute = client.abs_url(source)
         canonical = _canonical_url(absolute)
-        key_prefix = os.path.relpath(folder, _translated(MEDIA_ROOT)).replace("\\", "/")
+        key_prefix = _relative_to_root(folder)
         ref_key = key_prefix + "/" + prefix
         previous = old_art_refs.get(ref_key) or ""
         if previous == canonical:
             for rel in (previous_files or set()):
                 if rel.startswith(key_prefix + "/" + prefix + "."):
-                    candidate = _join(_translated(MEDIA_ROOT), rel.replace("/", os.sep))
+                    candidate = _join(MEDIA_ROOT, rel)
                     if xbmcvfs.exists(candidate):
                         new_art_refs[ref_key] = canonical
                         files.add(rel)
-                        return os.path.basename(candidate)
+                        files.add(rel)
+                        return _basename(candidate)
 
         response = client.session.get(
             absolute,
@@ -304,10 +357,10 @@ def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, fi
         extension = _image_extension(response.headers.get("Content-Type"))
         path = _join(folder, prefix + extension)
         _write_bytes(path, data)
-        rel = os.path.relpath(path, _translated(MEDIA_ROOT)).replace("\\", "/")
+        rel = _relative_to_root(path)
         files.add(rel)
         new_art_refs[ref_key] = canonical
-        return os.path.basename(path)
+        return _basename(path)
     except Exception as exc:
         log("Native library artwork download failed: %s" % exc, xbmc.LOGDEBUG)
         return ""
@@ -346,7 +399,7 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
         return False
 
     _ensure_dir(folder)
-    art_root = _translated(MEDIA_ROOT)
+    art_root = MEDIA_ROOT
     art_poster = _download_art(
         client, _art_url(item, "poster"), folder, "poster",
         old_art_refs, new_art_refs, files, previous_files
@@ -368,7 +421,7 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
         for path, value in ((strm_path, uri), (nfo_path, nfo)):
             if _write_text(path, value):
                 refresh_paths.add(path)
-            files.add(os.path.relpath(path, art_root).replace("\\", "/"))
+            files.add(_relative_to_root(path, art_root))
     else:
         nfo_path = _join(folder, "tvshow.nfo")
         nfo = _nfo(item, nfo_tag, content_id, art)
@@ -421,9 +474,9 @@ def _write_episode(client, episode, series, library_id, series_folder,
         refresh_paths.add(strm_path)
     if _write_text(nfo_path, nfo):
         refresh_paths.add(nfo_path)
-    root = _translated(MEDIA_ROOT)
-    files.add(os.path.relpath(strm_path, root).replace("\\", "/"))
-    files.add(os.path.relpath(nfo_path, root).replace("\\", "/"))
+    root = MEDIA_ROOT
+    files.add(_relative_to_root(strm_path, root))
+    files.add(_relative_to_root(nfo_path, root))
     return True
 
 
@@ -451,7 +504,7 @@ def _remove_stale(root, previous_files, current_files):
         if not _relative_safe(relative):
             continue
         # Only remove generated, known file types and known image names.
-        name = os.path.basename(relative).lower()
+        name = posixpath.basename(relative.replace("\\", "/")).lower()
         allowed = (
             name.endswith((".strm", ".nfo", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"))
             and (name.startswith(("movie_", "show_", "s", "poster.", "fanart.", "thumb_"))
@@ -459,7 +512,7 @@ def _remove_stale(root, previous_files, current_files):
         )
         if not allowed:
             continue
-        full_path = _join(root, *relative.split("/"))
+        full_path = _join(root, relative)
         if xbmcvfs.exists(full_path) and xbmcvfs.delete(full_path):
             removed.append(relative)
     return removed
@@ -525,7 +578,7 @@ def _wait_for_scan(monitor, timeout=300):
 
 def _refresh_changed_nfo(paths):
     """Refresh existing entries from modified local NFO files after scanning."""
-    paths = set(os.path.normcase(os.path.normpath(p)) for p in paths or [])
+    paths = set(os.path.normcase(os.path.normpath(_translated(p))) for p in paths or [])
     if not paths:
         return
 
