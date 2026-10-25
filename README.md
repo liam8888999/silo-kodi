@@ -2,6 +2,8 @@
 
 A community-developed Kodi client compatible with [Silo Server](https://github.com/Silo-Server/silo-server).
 
+<p align="center"><img src="repo/plugin.video.silo/resources/icon.png" alt="Media Bridge for Kodi icon" width="192"></p>
+
 **Independent community project:** this add-on is not affiliated with, endorsed by, sponsored by, or an official product of Silo Media L.L.C. or the Kodi Foundation. **No media, streams, or subscriptions are included or supplied.** You must configure access to your own Silo Server and provide your own media access.
 
 ---
