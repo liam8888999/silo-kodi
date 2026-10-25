@@ -6,7 +6,7 @@ import xbmc
 import xbmcaddon
 
 from resources.lib.silo import SiloClient, log
-from resources.lib.library_sync import sync_current_profile
+from resources.lib.library_sync import sync_current_profile, ensure_library_directories
 
 
 ADDON = xbmcaddon.Addon()
@@ -36,6 +36,10 @@ def run():
     monitor = xbmc.Monitor()
     last_sync = 0
     log("Native library integration service started", xbmc.LOGINFO)
+    try:
+        ensure_library_directories()
+    except Exception as exc:
+        log("Unable to create native library folders: %s" % exc, xbmc.LOGERROR)
 
     while not monitor.abortRequested():
         if not _enabled():
@@ -46,6 +50,7 @@ def run():
         interval = _interval_seconds()
         if time.time() - last_sync >= interval:
             try:
+                log("Native library sync starting", xbmc.LOGINFO)
                 client = SiloClient()
                 # Do not trigger interactive login prompts from a background
                 # service. Sync only when a saved authenticated session exists.
@@ -55,9 +60,9 @@ def run():
                     stats = sync_current_profile(client, monitor=monitor)
                     log("Native library sync finished: %s" % stats, xbmc.LOGINFO)
                 else:
-                    log("Native library sync skipped: sign in through the Silo add-on first", xbmc.LOGDEBUG)
+                    log("Native library sync skipped: no saved Silo session. server=%r username=%r" % (client.base, client.cfg.get("username")), xbmc.LOGWARNING)
             except Exception as exc:
-                log("Native library sync failed; existing Kodi entries were kept: %s" % exc, xbmc.LOGWARNING)
+                log("Native library sync failed; existing Kodi entries were kept: %s" % exc, xbmc.LOGERROR)
             last_sync = time.time()
 
         # Sleep in short intervals so Kodi can stop the service promptly.
