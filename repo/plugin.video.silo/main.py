@@ -6072,17 +6072,22 @@ def list_root(client, page=None):
             xbmcplugin.endOfDirectory(HANDLE)
             return
 
-    native_library_item = xbmcgui.ListItem(label="Set Up Kodi Library")
-    native_library_item.setArt({"icon": "DefaultAddonVideo.png"})
-    native_library_item.setInfo("video", {
-        "plot": "Create and synchronise Silo movies and TV episodes in Kodi's native video library."
-    })
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        build_url(action="native_library_setup"),
-        native_library_item,
-        False,
-    )
+    # Keep setup out of the normal add-on menu unless continuous native
+    # library integration is enabled in settings.
+    if str(ADDON.getSetting("native_library_enabled") or "").strip().lower() in (
+        "true", "1", "yes"
+    ):
+        native_library_item = xbmcgui.ListItem(label="Set Up Kodi Library")
+        native_library_item.setArt({"icon": "DefaultAddonVideo.png"})
+        native_library_item.setInfo("video", {
+            "plot": "Create and synchronise Silo movies and TV episodes in Kodi's native video library."
+        })
+        xbmcplugin.addDirectoryItem(
+            HANDLE,
+            build_url(action="native_library_setup"),
+            native_library_item,
+            False,
+        )
 
     search_item = xbmcgui.ListItem(label="Search")
     xbmcplugin.addDirectoryItem(
@@ -10063,6 +10068,14 @@ def router(client):
         return
 
     if action == "native_library_setup":
+        if str(ADDON.getSetting("native_library_enabled") or "").strip().lower() not in (
+            "true", "1", "yes"
+        ):
+            xbmcgui.Dialog().ok(
+                "Silo Kodi Library",
+                "Enable continuous Kodi library synchronisation in add-on settings first."
+            )
+            return
         from resources.lib.library_sync import (
             ensure_library_directories,
             native_library_paths,
