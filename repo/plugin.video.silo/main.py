@@ -10077,14 +10077,24 @@ def router(client):
             )
             return
         from resources.lib.library_sync import (
+            ensure_kodi_video_sources,
             ensure_library_directories,
             native_library_paths,
             sync_current_profile,
-            video_source_exists,
         )
-        from urllib.parse import quote
 
         paths = ensure_library_directories()
+        try:
+            source_setup = ensure_kodi_video_sources()
+        except Exception as exc:
+            log("Could not register Silo video sources: %s" % exc, xbmc.LOGERROR)
+            xbmcgui.Dialog().ok(
+                "Silo Kodi Library",
+                "Could not register the Silo folders in Kodi's sources.xml. "
+                "The file was not replaced if it could not be read. Error: %s" % str(exc),
+            )
+            return
+
         progress = xbmcgui.DialogProgress()
         progress.create("Silo Kodi Library", "Preparing native library folders…")
         try:
@@ -10093,7 +10103,6 @@ def router(client):
                 progress=lambda percent, message: progress.update(percent, message),
             )
         except Exception as exc:
-            progress.close()
             log("Manual native library sync failed: %s" % exc, xbmc.LOGERROR)
             xbmcgui.Dialog().ok(
                 "Silo Kodi Library",
@@ -10107,19 +10116,22 @@ def router(client):
                 pass
 
         paths = native_library_paths(special=True)
-        missing = []
-        for label, path in (("Movies", paths["movies"]), ("TV Shows", paths["tvshows"])):
-            if not video_source_exists(path):
-                missing.append((label, path))
-
+        source_added = source_setup.get("added") or []
         if stats.get("skipped"):
-            xbmcgui.Dialog().ok(
-                "Silo Kodi Library",
-                "The folders were created, but no media was exported.",
+            details = [
+                "The Silo folders are ready, but no media was exported.",
                 "Sign in to Silo in the add-on, select a profile, then run Set Up Kodi Library again.",
+                "",
                 "Movies: " + paths["movies"],
                 "TV Shows: " + paths["tvshows"],
-            )
+            ]
+            if source_added:
+                details.extend([
+                    "",
+                    "Kodi video sources were added automatically.",
+                    "Restart Kodi to load the new sources, then configure each source as described below.",
+                ])
+            xbmcgui.Dialog().ok("Silo Kodi Library", "\n".join(details))
             return
 
         details = [
@@ -10131,18 +10143,32 @@ def router(client):
             "Movies folder: " + paths["movies"],
             "TV Shows folder: " + paths["tvshows"],
         ]
-        if missing:
+        if source_added:
             details.extend([
                 "",
-                "Next, add each missing folder as a Kodi video source and choose",
-                "'Local information only' as the content provider.",
+                "Added Kodi video sources automatically: "
+                + ", ".join(item["name"] for item in source_added),
+                "Restart Kodi to load the new sources.",
             ])
-            for label, path in missing:
-                details.append(label + ": " + path)
-        elif stats.get("pending_scan"):
-            details.extend(["", "Pending Kodi scan: " + ", ".join(stats["pending_scan"])])
         else:
-            details.extend(["", "Both folders are already configured as Kodi video sources."])
+            details.extend([
+                "",
+                "The Silo folders are already registered as Kodi video sources.",
+            ])
+        details.extend([
+            "",
+            "One-time Kodi setup after restart:",
+            "• Edit Silo Movies: content = Movies; information provider = Local information only.",
+            "• Edit Silo TV Shows: content = TV Shows; information provider = Local information only.",
+            "Kodi will then scan the local NFO metadata. Run Set Up Kodi Library again if a scan is still pending.",
+        ])
+        if source_setup.get("backup"):
+            details.extend([
+                "",
+                "Original source configuration backed up to: " + source_setup["backup"],
+            ])
+        if stats.get("pending_scan"):
+            details.extend(["", "Pending Kodi scan: " + ", ".join(stats["pending_scan"])])
         xbmcgui.Dialog().ok("Silo Kodi Library", "\n".join(details))
         return
 
