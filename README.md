@@ -1,8 +1,10 @@
-# Silo for Kodi
+# Silo Media Server client for Kodi
 
-A Kodi add-on for browsing and playing media from a [Silo Server](https://github.com/Silo-Server/silo-server) instance.
+A community-developed Kodi client compatible with [Silo Server](https://github.com/Silo-Server/silo-server).
 
-Silo acts as the media server, while this add-on provides a Kodi interface for accessing the media available through it.
+<p align="center"><img src="repo/plugin.video.silo/resources/icon.png" alt="Media Bridge for Kodi icon" width="192"></p>
+
+**Independent community project:** this add-on is not affiliated with, endorsed by, sponsored by, or an official product of Silo Media L.L.C. or the Kodi Foundation. **No media, streams, or subscriptions are included or supplied.** You must configure access to your own Silo Server and provide your own media access.
 
 ---
 
@@ -22,20 +24,106 @@ https://liam8888999.github.io/silo-kodi/
 
 ## ✨ Features
 
-* 🎬 Browse movies and TV shows through Silo
-* 📺 Browse TV series and episodes
-* ▶️ Play media directly through Kodi
-* 🔌 Connect to a Silo Server instance
-* 🌐 Access media from your Silo Server directly through Kodi
-*  Supports searching the library using requests directly to the server so you can quickly find your favourites
-*  Transcode Support
-*  Adaptive quality switching if you have a bad network connection or something cant be played
-*  Option to only allow direct plays from the server (always preferred over transcoding anyway)
-*  Automatically send watch progress back to the server (updated roughly every 5 seconds for those curious ones)
-*  Supports the terminate stream button on the server and will stop playing when that signal is recieved (usually within a couple of seconds)
-*  Automatically makes kodi reflect resume points on your server incase you go off and start using another client when you come back and click to play on the video it may offer a different time to resume from (quite annoyingly kodi caches it so i cant change this) but it will in the background jump to wherever your server reports you are up to
-  
----
+### Libraries, browsing and discovery
+
+* Browse movies, TV series, seasons and episodes from your Silo libraries.
+* Search your library, including people, and browse person-related media where supported by the server.
+* Browse Silo Home sections and Discover recommendations.
+* View personal lists including Watchlist, Favourites and history, and access personal collections.
+* Browse large libraries with automatic API pagination rather than manually navigating page numbers.
+* Inspect alternate file versions before playback, including available media/quality details.
+
+### Playback
+
+* Play media through Kodi using Silo's playback API, including server-planned direct play and transcoding.
+* Adaptive quality switching uses the quality options published by Silo Server and can step down when sustained buffering is detected.
+* Optional **Only allow direct play** setting disables adaptive quality switching and rejects playback plans that require transcoding or HLS adaptation.
+* Report Kodi playback progress to Silo Server approximately every five seconds, so progress is shared with other clients.
+* Use the latest server-side resume position with Kodi's native Resume / Start from beginning prompt.
+* Report playback capabilities to Silo Server, including supported video/audio and display HDR details where Kodi exposes them, to help the server plan playback.
+* Skip available intro, recap and credits segments. You can choose prompts or enable automatic skipping separately for intros, recaps and credits in the add-on settings.
+* Support server-side playback termination, which stops the active Kodi stream when Silo Server revokes or terminates its session.
+
+### Accounts, profiles and connectivity
+
+* Sign in using a username/password or device code when supported by the server.
+* Switch between PIN-protected profiles; the active profile is shown in the root menu, and closing the profile chooser keeps the current profile.
+* Save multiple Silo servers/accounts, switch between them, and reconnect after logging out without re-entering saved account details.
+* Show a server's custom name in the server switcher when available, falling back to its URL for the default server name.
+* Join an existing Silo Watch Party and synchronise playback with the room.
+
+## 📝 Changelog
+
+The release history below records the features and fixes introduced in the versions for which notes are available. Some older releases are omitted because no notes were supplied for them.
+
+*** V1.1.20 ***
+* Add support for adding/removing items from Favourites and Watchlist, and marking items watched/unwatched on the server (native Kodi buttons may still appear)
+* Improve episode metadata
+* Add a "View parent item" context-menu option where applicable, such as opening a show's root from an episode in Continue Watching
+* Add directory images where available
+* Add a Discover section
+* Add preliminary support for skipping credits
+* Add multi-server support
+
+*** V1.1.10 ***
+* Add login by device code
+
+*** V1.1.9 ***
+* Add detailed information to the version picker
+
+*** V1.1.8 ***
+* Support removal of direct-play availability by the server while retaining the add-on's direct-play-only setting
+* Improve support for HDR content
+
+*** V1.1.6 ***
+* Reduce unnecessary adaptive quality switching
+* Stop identifying the add-on as a Jellyfin app in the server activity dashboard
+
+*** V1.1.5 ***
+* Group library contents by letter
+* Optimise API usage to improve responsiveness
+* Improve session refresh to reduce unexpected logouts and repeated password prompts
+
+*** V1.1.1 ***
+* Fix "library not found" playback errors for Home category items
+* Add an option to use Kodi's cached resume position (disabled by default)
+* Add Your Stuff: Favourites, Watchlist, Collections and History
+* Add view-only Watch Party support
+
+*** V1.1.0 ***
+* Add Home categories such as Continue Watching, Recently Released and Recommended
+* Add an option to combine similar Home categories across libraries
+* Show banner artwork instead of a text title in the player
+
+*** V1.0.12 ***
+* When Kodi requests Resume but the server has no resume position, start at 0.1 seconds
+* When Kodi has no resume point but the server does, automatically resume from the server position
+* Use server watched states in Search, matching library views
+* Add episode counts and season artwork to show libraries and Search
+* Improve metadata and add episode numbers when a skin does not already display them
+
+*** V1.0.11 ***
+* Fix playback position when the server no longer has a resume point, returning to the beginning instead of using Kodi's stale resume point
+
+*** V1.0.10 ***
+* Prevent adaptive quality from rapidly switching up and down; find a suitable quality and prefer direct play
+* Add a setting to always use direct play from the server
+* Respect stream-termination requests from the server
+
+*** V1.0.9 ***
+* Add transcoding support (the author noted this had not been personally tested at the time)
+* Add adaptive quality switching
+
+*** V1.0.8 ***
+* Show TV shows in Search
+* Add a login loading indicator
+
+*** V1.0.7 ***
+* Add extra metadata, with information intended to be sourced from the server
+* Sync resume points in both directions: check the server when playback starts and update Kodi if the server position changed since the item was loaded
+* Add Search
+* Add configurable settings (an additional login may be required after upgrading from an older version)
+* Add artwork for libraries
 
 ## 📋 Requirements
 
@@ -183,6 +271,8 @@ http://192.168.1.100:8080
 
 Replace this with the address and port of your own Silo Server.
 
+**Important:** Use the Silo app/API URL, not the server's Jellyfin-compatibility URL.
+
 ### Local Silo installation
 
 If Silo Server is running on the same device as Kodi, you may be able to use:
@@ -199,7 +289,7 @@ For example:
 http://192.168.1.50:8080
 ```
 
-You will then need to put in your username and password
+Follow the sign-in prompts. Depending on the server, you can sign in with a device code or a username and password, then choose your profile and enter its PIN if prompted.
 
 ---
 

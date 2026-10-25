@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.silo" name="Silo Media Server" version="1.1.20" provider-name="liam8888999">
+<addon id="plugin.video.silo" name="Silo Media Server client for Kodi" version="1.1.20" provider-name="liam8888999">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
     <import addon="script.module.requests" version="2.31.0"/>
@@ -8,10 +8,21 @@
     <provides>video</provides>
   </extension>
   <extension point="xbmc.addon.metadata">
-    <summary lang="en_GB">Browse and play videos from a Silo server</summary>
-    <description lang="en_GB">Native Silo client for Kodi.</description>
+    <summary lang="en_GB">Community-developed Kodi client compatible with Silo Server</summary>
+    <description lang="en_GB">Independently maintained community client for browsing and playing media served by a Silo Server configured by the user.</description>
+    <assets>
+      <icon>resources/icon.png</icon>
+    </assets>
+    <disclaimer lang="en_GB">No media, streams, or subscriptions are included or supplied by this add-on. You must configure access to your own Silo Server. This is an independent community project; it is not affiliated with, endorsed by, sponsored by, or an official product of Silo Media L.L.C. or the Kodi Foundation.</disclaimer>
     <platform>all</platform>
     <license>GPL-3.0-or-later</license>
-    <news>Added configurable intro, recap and credits skipping plus saved multi-server switching.</news>
+    <news>V1.1.20
+* Add support for adding/removing items from Favourites and Watchlist, and marking items watched/unwatched on the server
+* Improve episode metadata
+* Add a "View parent item" context-menu option where applicable
+* Add directory images where available
+* Add a Discover section
+* Add preliminary support for skipping credits
+* Add multi-server support</news>
   </extension>
 </addon>
