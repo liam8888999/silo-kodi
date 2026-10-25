@@ -495,6 +495,11 @@ def _is_video_source(path):
     return any(_same_path(source.get("file", ""), path) for source in sources if source.get("file"))
 
 
+def video_source_exists(path):
+    """Public helper used by the setup UI to detect a registered video source."""
+    return _is_video_source(path)
+
+
 def _scan_category(path, remove_missing=False):
     if remove_missing:
         # Limit cleanup to the add-on-owned source path. Never run a whole-library
