@@ -1955,8 +1955,12 @@ class SiloClient:
     # Silo's current API documents a maximum catalog page size of 200, so use
     # that maximum to reduce the number of HTTP round trips for large libraries.
     def catalog_page(self, library_id, cursor=None, limit=200,
-                     name_prefix=None, sort=None, seek=None):
-        """Return one Silo catalog page and its continuation cursor."""
+                     name_prefix=None, sort=None, seek=None, media_type=None):
+        """Return one Silo catalog page and its continuation cursor.
+
+        media_type optionally restricts results to movie, series, or episode cards.
+        This avoids season-by-season reads when syncing a large native library.
+        """
         limit = max(1, min(int(limit or 200), 200))
 
         params = {
@@ -1966,6 +1970,8 @@ class SiloClient:
             "image_size": "medium",
         }
 
+        if media_type:
+            params["type"] = str(media_type)
         if name_prefix:
             params["name_prefix"] = str(name_prefix)
         if sort:
