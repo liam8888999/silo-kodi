@@ -835,7 +835,9 @@ def sync_current_profile(client, monitor=None, progress=None):
                                    fingerprint, item_files, item_refs)] if written else [],
             "refresh_paths": item_refresh,
             "touched": {"Movies" if media_type == "movie" else "TV Shows"} if written else set(),
-            "changed": {media_type: 1} if written else {},
+            "changed": (
+                {"movies": 1} if media_type == "movie" else {"shows": 1}
+            ) if written else {},
         }
 
     def process_episode_group(library_id, library_segment, series_id, season_number, summaries):
