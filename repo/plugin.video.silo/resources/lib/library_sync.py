@@ -805,11 +805,8 @@ def _scan_category(path, remove_missing=False, monitor=None):
     # scan while one is already active; repeated VideoLibrary.Scan calls can
     # cause Kodi to revisit the same intermediate folders over and over.
     if xbmc.getCondVisibility("Library.IsScanningVideo"):
-        if monitor is None:
-            log("Skipping native-library scan because Kodi is already scanning: %s" % path, xbmc.LOGINFO)
-            return False
         _wait_for_scan(monitor)
-        if monitor.abortRequested():
+        if monitor is not None and monitor.abortRequested():
             return False
         if xbmc.getCondVisibility("Library.IsScanningVideo"):
             log("Deferring native-library scan because Kodi's current scan did not finish: %s" % path, xbmc.LOGWARNING)
@@ -828,7 +825,8 @@ def _scan_category(path, remove_missing=False, monitor=None):
     return result is not None
 
 
-def _wait_for_scan(monitor, timeout=300):
+def _wait_for_scan(monitor=None, timeout=300):
+    monitor = monitor or xbmc.Monitor()
     started = time.time()
     while not monitor.abortRequested() and time.time() - started < timeout:
         if not xbmc.getCondVisibility("Library.IsScanningVideo"):
@@ -1302,7 +1300,7 @@ def sync_current_profile(client, monitor=None, progress=None):
         # second scan immediately after the first request can cause overlapping
         # scans of the same source tree. Keep the category pending if Kodi does
         # not finish the previous scan in time.
-        if scan_started and monitor is not None:
+        if scan_started:
             if not _wait_for_scan(monitor):
                 break
         if _scan_category(
@@ -1312,7 +1310,7 @@ def sync_current_profile(client, monitor=None, progress=None):
         ):
             scan_started = True
             pending.discard(category)
-            if monitor is not None and not _wait_for_scan(monitor):
+            if not _wait_for_scan(monitor):
                 break
 
     _require_enabled()
@@ -1343,7 +1341,7 @@ def sync_current_profile(client, monitor=None, progress=None):
         )
         _write_text(_join(root, ".source-reminder-shown"), "shown")
 
-    if scan_started and monitor is not None:
+    if scan_started:
         _wait_for_scan(monitor)
         _refresh_changed_nfo(refresh_paths)
 
