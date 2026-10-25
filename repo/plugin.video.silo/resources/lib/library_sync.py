@@ -843,11 +843,62 @@ def _wait_for_scan(monitor=None, timeout=300, wait_for_start=False, start_timeou
     return not xbmc.getCondVisibility("Library.IsScanningVideo")
 
 
-def _refresh_changed_nfo(paths):
-    """Refresh existing entries from modified local NFO files after scanning."""
+def _refresh_changed_nfo(paths, previous_files=None):
+    """Refresh only previously indexed items whose existing NFO changed.
+
+    On a first import every generated STRM/NFO is new. Refreshing each item
+    individually after VideoLibrary.Scan creates thousands of separate Kodi
+    scanner jobs and looks like a continuous scan loop. A targeted refresh is
+    only necessary for an NFO already tracked by the previous sync manifest.
+    """
     _require_enabled()
-    paths = set(os.path.normcase(os.path.normpath(_translated(p))) for p in paths or [])
-    if not paths:
+
+    def normalise(path):
+        return os.path.normcase(os.path.normpath(_translated(path)))
+
+    # Build the pre-sync set of paths that Kodi could already have indexed.
+    # Files written for the first time (or moved by a managed-layout migration)
+    # are deliberately excluded; the normal source scan imports those.
+    previous_paths = set()
+    for relative in previous_files or []:
+        relative = str(relative or "").replace("\\", "/")
+        if not _relative_safe(relative):
+            continue
+        previous_paths.add(normalise(_join(MEDIA_ROOT, relative)))
+
+    changed_paths = set(normalise(path) for path in paths or [])
+    changed_nfos = {
+        path for path in changed_paths
+        if os.path.splitext(path)[1].lower() == ".nfo"
+        and path in previous_paths
+    }
+    if not changed_nfos:
+        return
+
+    changed_movie_files = set()
+    changed_show_dirs = set()
+    changed_episode_files = set()
+    for nfo_path in changed_nfos:
+        name = os.path.basename(nfo_path).lower()
+        relative = _relative_to_root(nfo_path, MEDIA_ROOT).replace("\\", "/")
+        category = relative.split("/", 1)[0]
+        if name == "tvshow.nfo":
+            if category == "TV Shows":
+                changed_show_dirs.add(normalise(os.path.dirname(nfo_path)))
+            continue
+
+        # Kodi indexes each .strm, not its sibling .nfo. Resolve the NFO to
+        # the corresponding STRM and make sure that STRM also existed before
+        # this sync before refreshing it.
+        strm_path = os.path.splitext(nfo_path)[0] + ".strm"
+        if strm_path not in previous_paths:
+            continue
+        if category == "Movies":
+            changed_movie_files.add(strm_path)
+        elif category == "TV Shows":
+            changed_episode_files.add(strm_path)
+
+    if not (changed_movie_files or changed_show_dirs or changed_episode_files):
         return
 
     def pages(method, result_key, params):
@@ -867,27 +918,44 @@ def _refresh_changed_nfo(paths):
             if start >= total or len(items) < 500:
                 break
 
-    for item in pages("VideoLibrary.GetMovies", "movies", {"properties": ["file", "title"]}):
-        file_path = item.get("file")
-        if file_path and os.path.normcase(os.path.normpath(file_path)) in paths:
-            _json_rpc("VideoLibrary.RefreshMovie", {"movieid": item.get("movieid"), "ignorenfo": False})
+    if changed_movie_files:
+        for item in pages("VideoLibrary.GetMovies", "movies", {"properties": ["file", "title"]}):
+            file_path = item.get("file")
+            if file_path and normalise(file_path) in changed_movie_files:
+                _json_rpc(
+                    "VideoLibrary.RefreshMovie",
+                    {"movieid": item.get("movieid"), "ignorenfo": False},
+                )
 
-    for show in pages("VideoLibrary.GetTVShows", "tvshows", {"properties": ["file", "title"]}):
-        show_path = show.get("file")
-        if show_path and os.path.normcase(os.path.normpath(show_path)) in paths:
-            _json_rpc("VideoLibrary.RefreshTVShow", {"tvshowid": show.get("tvshowid"), "ignorenfo": False, "refreshepisodes": False})
+    if changed_show_dirs:
+        for show in pages("VideoLibrary.GetTVShows", "tvshows", {"properties": ["file", "title"]}):
+            show_path = show.get("file")
+            if show_path and normalise(show_path) in changed_show_dirs:
+                _json_rpc(
+                    "VideoLibrary.RefreshTVShow",
+                    {
+                        "tvshowid": show.get("tvshowid"),
+                        "ignorenfo": False,
+                        "refreshepisodes": False,
+                    },
+                )
 
-    episode_paths = {p for p in paths if os.path.splitext(p)[1].lower() == ".nfo"}
-    if not episode_paths:
-        return
-    for show in pages("VideoLibrary.GetTVShows", "tvshows", {"properties": ["title"]}):
-        show_id = show.get("tvshowid")
-        if show_id is None:
-            continue
-        for ep in pages("VideoLibrary.GetEpisodes", "episodes", {"tvshowid": show_id, "properties": ["file", "title"]}):
-            file_path = ep.get("file")
-            if file_path and os.path.normcase(os.path.normpath(file_path)) in episode_paths:
-                _json_rpc("VideoLibrary.RefreshEpisode", {"episodeid": ep.get("episodeid"), "ignorenfo": False})
+    if changed_episode_files:
+        for show in pages("VideoLibrary.GetTVShows", "tvshows", {"properties": ["title"]}):
+            show_id = show.get("tvshowid")
+            if show_id is None:
+                continue
+            for episode in pages(
+                "VideoLibrary.GetEpisodes",
+                "episodes",
+                {"tvshowid": show_id, "properties": ["file", "title"]},
+            ):
+                file_path = episode.get("file")
+                if file_path and normalise(file_path) in changed_episode_files:
+                    _json_rpc(
+                        "VideoLibrary.RefreshEpisode",
+                        {"episodeid": episode.get("episodeid"), "ignorenfo": False},
+                    )
 
 
 def sync_current_profile(client, monitor=None, progress=None):
@@ -1355,7 +1423,7 @@ def sync_current_profile(client, monitor=None, progress=None):
 
     if scan_started:
         _wait_for_scan(monitor)
-        _refresh_changed_nfo(refresh_paths)
+        _refresh_changed_nfo(refresh_paths, previous_files)
 
     if progress:
         progress(100, "Library sync completed")
