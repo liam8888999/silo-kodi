@@ -79,11 +79,14 @@ def make_artwork_url(source, server, username, profile_id):
     parsed_source = urlsplit(source)
     if parsed_source.scheme.lower() in ("http", "https") and parsed_source.netloc:
         server_parts = urlsplit(server)
-        if (parsed_source.scheme.lower(), parsed_source.netloc.lower()) != (
-            server_parts.scheme.lower(), server_parts.netloc.lower()
-        ):
+        if parsed_source.netloc.lower() != server_parts.netloc.lower():
             return _safe_direct_url(source)
         path = parsed_source.path or "/"
+        # Preserve a server installed under a URL path prefix: _send() joins
+        # API paths to client.base, so remove that prefix before encoding.
+        server_prefix = server_parts.path.rstrip("/")
+        if server_prefix and (path == server_prefix or path.startswith(server_prefix + "/")):
+            path = path[len(server_prefix):] or "/"
         query = parsed_source.query
     elif source.startswith("//"):
         # Protocol-relative URLs are not safe to treat as authenticated routes.
