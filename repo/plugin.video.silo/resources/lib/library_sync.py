@@ -995,8 +995,14 @@ def sync_current_profile(client, monitor=None, progress=None):
             }
         if isinstance(value, list):
             return [stable_value(v, key) for v in value]
-        if isinstance(value, str) and (key.endswith("_url") or key.endswith("_urls")):
-            return value.split("?", 1)[0]
+        if isinstance(value, str):
+            # Artwork URLs may appear under aliases such as poster/image too;
+            # signed query strings can rotate without the artwork changing.
+            if (
+                key.endswith("_url") or key.endswith("_urls")
+                or value.lower().startswith(("http://", "https://", "/api/"))
+            ):
+                return value.split("?", 1)[0]
         return value
 
     def card_fingerprint(card):
@@ -1076,7 +1082,9 @@ def sync_current_profile(client, monitor=None, progress=None):
             "entries": [make_entry(identity, library_id, content_id, media_type,
                                    fingerprint, item_files, item_refs)] if written else [],
             "refresh_paths": item_refresh,
-            "touched": {"Movies" if media_type == "movie" else "TV Shows"} if written else set(),
+            # A rescan is needed only when the generated STRM/NFO changed.
+            "touched": {"Movies" if media_type == "movie" else "TV Shows"}
+            if written and item_refresh else set(),
             "changed": (
                 {"movies": 1} if media_type == "movie" else {"shows": 1}
             ) if written else {},
@@ -1119,7 +1127,8 @@ def sync_current_profile(client, monitor=None, progress=None):
                 summary["fingerprint"], item_files, item_refs,
             ))
             item_refresh.update(refresh)
-            touched.add("TV Shows")
+            if refresh:
+                touched.add("TV Shows")
 
         return {
             "entries": entries,
@@ -1296,8 +1305,6 @@ def sync_current_profile(client, monitor=None, progress=None):
     old_pending = set(previous.get("needs_scan") or [])
     pending = old_pending | touched
     scan_started = False
-    clean_categories = set("Movies" if p.startswith("Movies/") else "TV Shows" for p in removals)
-
     for category, path in (("Movies", movies_root), ("TV Shows", shows_root)):
         if category not in pending:
             continue
@@ -1310,14 +1317,12 @@ def sync_current_profile(client, monitor=None, progress=None):
         if scan_started:
             if not _wait_for_scan(monitor):
                 break
-        if _scan_category(
-            path,
-            remove_missing=(category in clean_categories),
-            monitor=monitor,
-        ):
+        if _scan_category(path, monitor=monitor):
             scan_started = True
             pending.discard(category)
-            if not _wait_for_scan(monitor):
+            # VideoLibrary.Scan is asynchronous; wait until Kodi actually
+            # reports scanning before treating the request as complete.
+            if not _wait_for_scan(monitor, wait_for_start=True):
                 break
 
     _require_enabled()
