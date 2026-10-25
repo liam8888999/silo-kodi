@@ -33,6 +33,23 @@ https://liam8888999.github.io/silo-kodi/
 * Browse large libraries with automatic API pagination rather than manually navigating page numbers.
 * Inspect alternate file versions before playback, including available media/quality details.
 
+### Native Kodi library integration (experimental)
+
+An optional background service can export Silo movies and TV episodes into Kodi's native video library using generated `.strm` and local `.nfo` files. It periodically checks the active server/profile, updates generated metadata and artwork, and removes only files recorded in its own sync manifest.
+
+To enable it:
+
+1. Sign in to Silo in the add-on and open **Add-on settings → Kodi Library**.
+2. Enable **Continuously sync Silo into Kodi video library** and choose a refresh interval.
+3. Add these generated folders as Kodi video sources, choosing **Local information only** as the content provider:
+   - Movies: `special://profile/addon_data/plugin.video.silo/native-library/Movies`
+   - TV Shows: `special://profile/addon_data/plugin.video.silo/native-library/TV Shows`
+4. Let Kodi scan the sources. The service retries pending scans once the sources exist.
+
+The feature is opt-in. The generated STRM entries route playback through this add-on, so Silo's playback, resume, progress and server-side permissions remain in use. Separate server/profile scopes are kept under the managed folders.
+
+**Limitations:** Kodi sources must be added manually; this add-on does not modify Kodi's sources configuration. The integration depends on the Silo API exposing complete library/season/episode listings. It is experimental and should be tested against a backup of the Kodi profile first.
+
 ### Playback
 
 * Play media through Kodi using Silo's playback API, including server-planned direct play and transcoding.
