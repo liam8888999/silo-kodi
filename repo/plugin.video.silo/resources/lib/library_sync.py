@@ -799,8 +799,22 @@ def ensure_kodi_video_sources():
         "backup": backup_path,
     }
 
-def _scan_category(path, remove_missing=False):
+def _scan_category(path, remove_missing=False, monitor=None):
     _require_enabled()
+    # Kodi exposes one video-library scanner. Do not enqueue another directory
+    # scan while one is already active; repeated VideoLibrary.Scan calls can
+    # cause Kodi to revisit the same intermediate folders over and over.
+    if xbmc.getCondVisibility("Library.IsScanningVideo"):
+        if monitor is None:
+            log("Skipping native-library scan because Kodi is already scanning: %s" % path, xbmc.LOGINFO)
+            return False
+        _wait_for_scan(monitor)
+        if monitor.abortRequested():
+            return False
+        if xbmc.getCondVisibility("Library.IsScanningVideo"):
+            log("Deferring native-library scan because Kodi's current scan did not finish: %s" % path, xbmc.LOGWARNING)
+            return False
+
     if remove_missing:
         # Limit cleanup to the add-on-owned source path. Never run a whole-library
         # clean, which could remove unrelated network/offline media.
@@ -818,9 +832,10 @@ def _wait_for_scan(monitor, timeout=300):
     started = time.time()
     while not monitor.abortRequested() and time.time() - started < timeout:
         if not xbmc.getCondVisibility("Library.IsScanningVideo"):
-            return
+            return True
         if monitor.waitForAbort(2):
-            return
+            return False
+    return not xbmc.getCondVisibility("Library.IsScanningVideo")
 
 
 def _refresh_changed_nfo(paths):
@@ -1283,9 +1298,22 @@ def sync_current_profile(client, monitor=None, progress=None):
             continue
         if not _is_video_source(path):
             continue
-        if _scan_category(path, remove_missing=(category in clean_categories)):
+        # Serialize category scans. Kodi's video scanner is global; issuing a
+        # second scan immediately after the first request can cause overlapping
+        # scans of the same source tree. Keep the category pending if Kodi does
+        # not finish the previous scan in time.
+        if scan_started and monitor is not None:
+            if not _wait_for_scan(monitor):
+                break
+        if _scan_category(
+            path,
+            remove_missing=(category in clean_categories),
+            monitor=monitor,
+        ):
             scan_started = True
             pending.discard(category)
+            if monitor is not None and not _wait_for_scan(monitor):
+                break
 
     _require_enabled()
     if progress:
