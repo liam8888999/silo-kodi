@@ -10050,6 +10050,79 @@ def router(client):
         open_settings(client)
         return
 
+    if action == "native_library_setup":
+        from resources.lib.library_sync import (
+            ensure_library_directories,
+            native_library_paths,
+            sync_current_profile,
+            video_source_exists,
+        )
+        from urllib.parse import quote
+
+        paths = ensure_library_directories()
+        progress = xbmcgui.DialogProgress()
+        progress.create("Silo Kodi Library", "Preparing native library folders…")
+        try:
+            stats = sync_current_profile(
+                client,
+                progress=lambda percent, message: progress.update(percent, message),
+            )
+        except Exception as exc:
+            progress.close()
+            log("Manual native library sync failed: %s" % exc, xbmc.LOGERROR)
+            xbmcgui.Dialog().ok(
+                "Silo Kodi Library",
+                "Could not synchronise the Silo catalogue.",
+                str(exc),
+                "Check the Kodi log for details.",
+            )
+            return
+        finally:
+            try:
+                progress.close()
+            except Exception:
+                pass
+
+        paths = native_library_paths(special=True)
+        missing = []
+        for label, path in (("Movies", paths["movies"]), ("TV Shows", paths["tvshows"])):
+            if not video_source_exists(path):
+                missing.append((label, path))
+
+        if stats.get("skipped"):
+            xbmcgui.Dialog().ok(
+                "Silo Kodi Library",
+                "The folders were created, but no media was exported.",
+                "Sign in to Silo in the add-on, select a profile, then run Set Up Kodi Library again.",
+                "Movies: " + paths["movies"],
+                "TV Shows: " + paths["tvshows"],
+            )
+            return
+
+        details = [
+            "Movies exported: %s" % stats.get("movies", 0),
+            "TV shows exported: %s" % stats.get("shows", 0),
+            "Episodes exported: %s" % stats.get("episodes", 0),
+            "Entries removed: %s" % stats.get("removed", 0),
+            "",
+            "Movies folder: " + paths["movies"],
+            "TV Shows folder: " + paths["tvshows"],
+        ]
+        if missing:
+            details.extend([
+                "",
+                "Next, add each missing folder as a Kodi video source and choose",
+                "'Local information only' as the content provider.",
+            ])
+            for label, path in missing:
+                details.append(label + ": " + path)
+        elif stats.get("pending_scan"):
+            details.extend(["", "Pending Kodi scan: " + ", ".join(stats["pending_scan"])])
+        else:
+            details.extend(["", "Both folders are already configured as Kodi video sources."])
+        xbmcgui.Dialog().ok("Silo Kodi Library", "\n".join(details))
+        return
+
     if action == "servers":
         list_saved_servers(client)
         return
