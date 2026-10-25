@@ -27,7 +27,7 @@ from resources.lib.artwork_proxy import make_artwork_url, start_artwork_proxy
 
 ADDON_ID = "plugin.video.silo"
 MEDIA_ROOT = "special://profile/addon_data/plugin.video.silo/native-library"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 MAX_ART_BYTES = 20 * 1024 * 1024
 MAX_SYNC_WORKERS = 8
 MAX_PENDING_ITEMS = 32
@@ -207,6 +207,22 @@ def _safe_component(value, fallback="item"):
 
 def _short_hash(value, length=12):
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()[:length]
+
+
+def _managed_folder_name(item_kind, scope_key, library_id, content_id):
+    """Return a collision-resistant, Kodi-friendly top-level media folder name.
+
+    Kodi's TV scanner expects each show's tvshow.nfo in a show folder directly
+    under the configured TV Shows source. Namespace the folder name itself
+    instead of introducing scope/library wrapper directories.
+    """
+    prefix = "movie" if item_kind == "movie" else "show"
+    return "%s_%s_%s_%s" % (
+        prefix,
+        str(scope_key or ""),
+        _short_hash(library_id, 6),
+        _short_hash(content_id, 12),
+    )
 
 
 def _content_id(item):
@@ -407,7 +423,7 @@ def _plugin_url(content_id, library_id):
 
 def _write_entry(client, item, library_id, base_folder, item_kind,
                  old_art_refs, new_art_refs, files, refresh_paths,
-                 previous_files=None):
+                 previous_files=None, folder_name=None):
     content_id = _content_id(item)
     if not content_id:
         return False
@@ -418,11 +434,11 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
     folder = base_folder
 
     if item_kind == "movie":
-        folder = _join(base_folder, "movie_" + item_hash)
+        folder = _join(base_folder, folder_name or ("movie_" + item_hash))
         filename = "movie_" + item_hash
         nfo_tag = "movie"
     elif item_kind == "show":
-        folder = _join(base_folder, "show_" + item_hash)
+        folder = _join(base_folder, folder_name or ("show_" + item_hash))
         filename = ""
         nfo_tag = "tvshow"
     else:
@@ -524,6 +540,38 @@ def _relative_safe(path):
     return bool(path and not path.startswith("/") and all(p not in ("", ".", "..") for p in parts))
 
 
+def _remove_empty_generated_directories(root, removed):
+    """Prune empty old layout directories after moving entries to the flat layout.
+
+    Only ancestors of tracked files that this sync actually removed are
+    considered. The two category roots and anything containing untracked files
+    are always preserved.
+    """
+    candidates = set()
+    for relative in removed or []:
+        relative = str(relative or "").replace("\\", "/")
+        if not _relative_safe(relative):
+            continue
+        parts = posixpath.dirname(relative).split("/")
+        if not parts or parts[0] not in ("Movies", "TV Shows"):
+            continue
+        for end in range(2, len(parts) + 1):
+            candidate = "/".join(parts[:end])
+            if _relative_safe(candidate):
+                candidates.add(candidate)
+
+    # Remove deepest folders first so their parents can become empty.
+    for relative in sorted(candidates, key=lambda value: (value.count("/"), len(value)), reverse=True):
+        _require_enabled()
+        path = _join(root, relative)
+        try:
+            directories, files = xbmcvfs.listdir(path)
+            if not directories and not files:
+                xbmcvfs.rmdir(path)
+        except Exception as exc:
+            log("Could not prune empty native-library directory %s: %s" % (relative, exc), xbmc.LOGDEBUG)
+
+
 def _remove_stale(root, previous_files, current_files):
     _require_enabled()
     removed = []
@@ -543,6 +591,8 @@ def _remove_stale(root, previous_files, current_files):
         full_path = _join(root, relative)
         if xbmcvfs.exists(full_path) and xbmcvfs.delete(full_path):
             removed.append(relative)
+    if removed:
+        _remove_empty_generated_directories(root, removed)
     return removed
 
 
@@ -873,7 +923,13 @@ def sync_current_profile(client, monitor=None, progress=None):
         str(worker_cfg.get("username") or ""),
         str(worker_cfg.get("profile_id") or ""),
     )
-    previous_items = previous.get("items") or {}
+    # Manifest v2 changes the directory layout so Kodi sees each movie/show
+    # as a direct child of its configured source. Rebuild v1 entries once;
+    # keep the old file list so stale generated files/directories are pruned.
+    previous_items = (
+        (previous.get("items") or {})
+        if previous.get("version") == MANIFEST_VERSION else {}
+    )
     if not isinstance(previous_items, dict):
         previous_items = {}
 
@@ -986,14 +1042,15 @@ def sync_current_profile(client, monitor=None, progress=None):
         content_id = _content_id(item)
         identity = item_identity(library_id, content_id)
         item_files, item_refs, item_refresh = set(), {}, set()
-        target = _join(
-            movies_root if media_type == "movie" else shows_root,
-            scope_key, library_segment,
+        item_kind = "movie" if media_type == "movie" else "show"
+        target = movies_root if media_type == "movie" else shows_root
+        folder_name = _managed_folder_name(
+            item_kind, scope_key, library_id, content_id
         )
         written = _write_entry(
             worker_client(), item, library_id, target,
-            "movie" if media_type == "movie" else "show",
-            old_art_refs, item_refs, item_files, item_refresh, previous_files,
+            item_kind, old_art_refs, item_refs, item_files, item_refresh,
+            previous_files, folder_name,
         )
         return {
             "entries": [make_entry(identity, library_id, content_id, media_type,
@@ -1017,8 +1074,8 @@ def sync_current_profile(client, monitor=None, progress=None):
         if not series:
             series = {"content_id": str(series_id), "title": ""}
         target = _join(
-            shows_root, scope_key, library_segment,
-            "show_" + _short_hash(str(series_id)),
+            shows_root,
+            _managed_folder_name("show", scope_key, library_id, series_id),
         )
         entries, item_refresh, touched = [], set(), set()
 
