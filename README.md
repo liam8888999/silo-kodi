@@ -1,8 +1,8 @@
-# Silo for Kodi
+# Media Bridge for Kodi
 
-A Kodi add-on for browsing and playing media from a [Silo Server](https://github.com/Silo-Server/silo-server) instance.
+A community-developed Kodi client compatible with [Silo Server](https://github.com/Silo-Server/silo-server).
 
-Silo acts as the media server, while this add-on provides a Kodi interface for accessing the media available through it.
+**Independent community project:** this add-on is not affiliated with, endorsed by, sponsored by, or an official product of Silo Media L.L.C. or the Kodi Foundation. **No media, streams, or subscriptions are included or supplied.** You must configure access to your own Silo Server and provide your own media access.
 
 ---
 
