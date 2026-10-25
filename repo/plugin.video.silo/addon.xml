@@ -11,9 +11,6 @@
     <summary lang="en_GB">Community-developed Kodi client compatible with Silo Server</summary>
     <description lang="en_GB">Independently maintained community client for browsing and playing media served by a Silo Server configured by the user.</description>
     <disclaimer lang="en_GB">No media, streams, or subscriptions are included or supplied by this add-on. You must configure access to your own Silo Server. This is an independent community project; it is not affiliated with, endorsed by, sponsored by, or an official product of Silo Media L.L.C. or the Kodi Foundation.</disclaimer>
-    <assets>
-      <icon>resources/icon.png</icon>
-    </assets>
     <platform>all</platform>
     <license>GPL-3.0-or-later</license>
     <news>V1.1.20
