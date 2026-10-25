@@ -269,6 +269,8 @@ http://192.168.1.100:8080
 
 Replace this with the address and port of your own Silo Server.
 
+**Important:** Use the Silo app/API URL, not the server's Jellyfin-compatibility URL.
+
 ### Local Silo installation
 
 If Silo Server is running on the same device as Kodi, you may be able to use:
