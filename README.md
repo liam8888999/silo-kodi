@@ -1,4 +1,4 @@
-# Media Bridge for Kodi
+# Silo Media Server client for Kodi
 
 A community-developed Kodi client compatible with [Silo Server](https://github.com/Silo-Server/silo-server).
 
