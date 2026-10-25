@@ -12,73 +12,13 @@
     <description lang="en_GB">Native Silo client for Kodi.</description>
     <platform>all</platform>
     <license>GPL-3.0-or-later</license>
-    <news>*** V1.1.20 ***
-* Add support for adding/removing items from Favourites and Watchlist, and marking items watched/unwatched on the server (native Kodi buttons may still appear)
+    <news>V1.1.20
+* Add support for adding/removing items from Favourites and Watchlist, and marking items watched/unwatched on the server
 * Improve episode metadata
-* Add a "View parent item" context-menu option where applicable, such as opening a show's root from an episode in Continue Watching
+* Add a "View parent item" context-menu option where applicable
 * Add directory images where available
 * Add a Discover section
 * Add preliminary support for skipping credits
-* Add multi-server support
-
-*** V1.1.10 ***
-* Add login by device code
-
-*** V1.1.9 ***
-* Add detailed information to the version picker
-
-*** V1.1.8 ***
-* Support removal of direct-play availability by the server while retaining the add-on's direct-play-only setting
-* Improve support for HDR content
-
-*** V1.1.6 ***
-* Reduce unnecessary adaptive quality switching
-* Stop identifying the add-on as a Jellyfin app in the server activity dashboard
-
-*** V1.1.5 ***
-* Group library contents by letter
-* Optimise API usage to improve responsiveness
-* Improve session refresh to reduce unexpected logouts and repeated password prompts
-
-*** V1.1.1 ***
-* Fix "library not found" playback errors for Home category items
-* Add an option to use Kodi's cached resume position (disabled by default)
-* Add Your Stuff: Favourites, Watchlist, Collections and History
-* Add view-only Watch Party support
-
-*** V1.1.0 ***
-* Add Home categories such as Continue Watching, Recently Released and Recommended
-* Add an option to combine similar Home categories across libraries
-* Show banner artwork instead of a text title in the player
-
-*** V1.0.12 ***
-* When Kodi requests Resume but the server has no resume position, start at 0.1 seconds
-* When Kodi has no resume point but the server does, automatically resume from the server position
-* Use server watched states in Search, matching library views
-* Add episode counts and season artwork to show libraries and Search
-* Improve metadata and add episode numbers when a skin does not already display them
-
-*** V1.0.11 ***
-* Fix playback position when the server no longer has a resume point, returning to the beginning instead of using Kodi's stale resume point
-
-*** V1.0.10 ***
-* Prevent adaptive quality from rapidly switching up and down; find a suitable quality and prefer direct play
-* Add a setting to always use direct play from the server
-* Respect stream-termination requests from the server
-
-*** V1.0.9 ***
-* Add transcoding support (the author noted this had not been personally tested at the time)
-* Add adaptive quality switching
-
-*** V1.0.8 ***
-* Show TV shows in Search
-* Add a login loading indicator
-
-*** V1.0.7 ***
-* Add extra metadata, with information intended to be sourced from the server
-* Sync resume points in both directions: check the server when playback starts and update Kodi if the server position changed since the item was loaded
-* Add Search
-* Add configurable settings (an additional login may be required after upgrading from an older version)
-* Add artwork for libraries</news>
+* Add multi-server support</news>
   </extension>
 </addon>
