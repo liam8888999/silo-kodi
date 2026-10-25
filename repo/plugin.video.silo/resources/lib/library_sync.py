@@ -8,6 +8,8 @@ Local information only selected as their content provider.
 import hashlib
 import json
 import os
+import threading
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import posixpath
 import re
 import time
@@ -18,13 +20,16 @@ import xbmc
 import xbmcgui
 import xbmcvfs
 
-from resources.lib.silo import log
+from resources.lib.silo import SiloClient, log
 
 
 ADDON_ID = "plugin.video.silo"
 MEDIA_ROOT = "special://profile/addon_data/plugin.video.silo/native-library"
 MANIFEST_VERSION = 1
 MAX_ART_BYTES = 20 * 1024 * 1024
+MAX_SYNC_WORKERS = 8
+MAX_PENDING_ITEMS = 32
+_SYNC_LOCAL = threading.local()
 
 
 def _translated(path):
@@ -341,7 +346,6 @@ def _download_art(client, source, folder, prefix, old_art_refs, new_art_refs, fi
                     if xbmcvfs.exists(candidate):
                         new_art_refs[ref_key] = canonical
                         files.add(rel)
-                        files.add(rel)
                         return _basename(candidate)
 
         response = client.session.get(
@@ -427,7 +431,7 @@ def _write_entry(client, item, library_id, base_folder, item_kind,
         nfo = _nfo(item, nfo_tag, content_id, art)
         if _write_text(nfo_path, nfo):
             refresh_paths.add(nfo_path)
-        files.add(os.path.relpath(nfo_path, art_root).replace("\\", "/"))
+        files.add(_relative_to_root(nfo_path, art_root))
 
     return True
 
@@ -660,76 +664,180 @@ def sync_current_profile(client, monitor=None, progress=None):
     touched = set()
     removals = []
 
+    # Each worker owns its own SiloClient/session. Catalogue pagination stays
+    # ordered on the primary client, while independent per-item work (artwork
+    # HTTP requests and series season/episode lookups) overlaps in the pool.
+    worker_cfg = dict(client.cfg)
+    worker_identity = (
+        str(worker_cfg.get("server") or client.base or ""),
+        str(worker_cfg.get("username") or ""),
+        str(worker_cfg.get("profile_id") or ""),
+    )
+
+    def worker_client():
+        cached = getattr(_SYNC_LOCAL, "client", None)
+        cached_identity = getattr(_SYNC_LOCAL, "identity", None)
+        if cached is None or cached_identity != worker_identity:
+            if cached is not None:
+                try:
+                    cached.session.close()
+                except Exception:
+                    pass
+            cached = SiloClient()
+            cached.cfg.clear()
+            cached.cfg.update(worker_cfg)
+            cached._caps = client._caps
+            _SYNC_LOCAL.client = cached
+            _SYNC_LOCAL.identity = worker_identity
+        else:
+            # Refresh the settings snapshot between syncs without sharing the
+            # requests.Session with the main/plugin thread.
+            cached.cfg.clear()
+            cached.cfg.update(worker_cfg)
+        return cached
+
+    def process_item(item, library_id, library_segment):
+        """Generate one movie or series into task-local result sets."""
+        media_type = _media_type(item)
+        content_id = _content_id(item)
+        result = {
+            "files": set(),
+            "art_refs": {},
+            "refresh_paths": set(),
+            "touched": set(),
+            "movies": 0,
+            "shows": 0,
+            "episodes": 0,
+        }
+        if not content_id:
+            return result
+
+        item_client = worker_client()
+        target_movies = _join(movies_root, scope_key, library_segment)
+        target_shows = _join(shows_root, scope_key, library_segment)
+
+        if media_type in ("movie", "video"):
+            if _write_entry(
+                item_client, item, library_id, target_movies, "movie",
+                old_art_refs, result["art_refs"], result["files"],
+                result["refresh_paths"], previous_files,
+            ):
+                result["movies"] = 1
+                result["touched"].add("Movies")
+            return result
+
+        if media_type not in ("series", "tvshow", "show"):
+            return result
+
+        if _write_entry(
+            item_client, item, library_id, target_shows, "show",
+            old_art_refs, result["art_refs"], result["files"],
+            result["refresh_paths"], previous_files,
+        ):
+            result["shows"] = 1
+            result["touched"].add("TV Shows")
+
+        series_folder = _join(target_shows, "show_" + _short_hash(content_id))
+        for season in item_client.seasons(content_id, library_id=str(library_id)) or []:
+            season_number = season.get("season_number", season.get("number", 0))
+            try:
+                season_number = int(season_number or 0)
+            except (TypeError, ValueError):
+                season_number = 0
+            episodes = item_client.episodes(
+                content_id, season_number, library_id=str(library_id)
+            ) or []
+            for episode in episodes:
+                if _write_episode(
+                    item_client, episode, item, str(library_id), series_folder,
+                    season_number, old_art_refs, result["art_refs"], result["files"],
+                    result["refresh_paths"], previous_files,
+                ):
+                    result["episodes"] += 1
+                    result["touched"].add("TV Shows")
+        return result
+
+    sync_counts = {"movies": 0, "shows": 0, "episodes": 0}
+    pending_futures = set()
+
+    def consume_future(future):
+        result = future.result()
+        files.update(result["files"])
+        new_art_refs.update(result["art_refs"])
+        refresh_paths.update(result["refresh_paths"])
+        touched.update(result["touched"])
+        for key in sync_counts:
+            sync_counts[key] += result[key]
+
     try:
         libraries = client.libraries()
         if progress:
             progress(3, "Found %d Silo libraries" % len(libraries))
         library_total = max(1, len(libraries))
-        for library_index, library in enumerate(libraries):
-            if progress:
-                progress(
-                    3 + int(88 * library_index / library_total),
-                    "Syncing library %d of %d: %s"
-                    % (
-                        library_index + 1,
-                        len(libraries),
-                        library.get("name") or library.get("title") or "Library",
-                    ),
-                )
-            library_id = library.get("id") or library.get("library_id")
-            library_name = str(library.get("name") or library.get("title") or "Library")
-            if library_id in (None, ""):
-                continue
-            library_segment = _safe_component(library_name, "Library") + "_" + _short_hash(library_id, 6)
-            cursor = None
-            while True:
-                items, cursor = client.catalog_page(str(library_id), cursor=cursor, limit=200)
-                for item in items or []:
-                    media_type = _media_type(item)
-                    content_id = _content_id(item)
-                    if not content_id:
-                        continue
 
-                    if media_type in ("movie", "video"):
-                        target = _join(movies_root, scope_key, library_segment)
-                        before = len(files)
-                        _write_entry(
-                            client, item, str(library_id), target, "movie",
-                            old_art_refs, new_art_refs, files, refresh_paths,
-                            previous_files,
-                        )
-                        movie_count += 1
-                        touched.add("Movies")
-                    elif media_type in ("series", "tvshow", "show"):
-                        target = _join(shows_root, scope_key, library_segment)
-                        if _write_entry(
-                            client, item, str(library_id), target, "show",
-                            old_art_refs, new_art_refs, files, refresh_paths,
-                            previous_files,
+        # Queue work while paging the catalogue. Back-pressure bounds both
+        # memory and the number of outstanding HTTP/artwork operations.
+        with ThreadPoolExecutor(max_workers=MAX_SYNC_WORKERS) as executor:
+            for library_index, library in enumerate(libraries):
+                if progress:
+                    progress(
+                        3 + int(80 * library_index / library_total),
+                        "Queueing library %d of %d: %s"
+                        % (
+                            library_index + 1,
+                            len(libraries),
+                            library.get("name") or library.get("title") or "Library",
+                        ),
+                    )
+                library_id = library.get("id") or library.get("library_id")
+                library_name = str(library.get("name") or library.get("title") or "Library")
+                if library_id in (None, ""):
+                    continue
+                library_segment = _safe_component(library_name, "Library") + "_" + _short_hash(library_id, 6)
+                cursor = None
+
+                while True:
+                    items, cursor = client.catalog_page(
+                        str(library_id), cursor=cursor, limit=200
+                    )
+                    for item in items or []:
+                        if not _content_id(item):
+                            continue
+                        if _media_type(item) not in (
+                            "movie", "video", "series", "tvshow", "show"
                         ):
-                            show_count += 1
-                            touched.add("TV Shows")
-                        series_hash = _short_hash(content_id)
-                        series_folder = _join(target, "show_" + series_hash)
-                        for season in client.seasons(content_id, library_id=str(library_id)) or []:
-                            season_number = season.get("season_number", season.get("number", 0))
-                            try:
-                                season_number = int(season_number or 0)
-                            except (TypeError, ValueError):
-                                season_number = 0
-                            for episode in client.episodes(content_id, season_number, library_id=str(library_id)) or []:
-                                if _write_episode(
-                                    client, episode, item, str(library_id), series_folder,
-                                    season_number, old_art_refs, new_art_refs, files, refresh_paths,
-                                    previous_files,
-                                ):
-                                    episode_count += 1
-                                    touched.add("TV Shows")
-                if not cursor:
-                    break
+                            continue
+                        pending_futures.add(
+                            executor.submit(
+                                process_item, item, str(library_id), library_segment
+                            )
+                        )
+
+                        while len(pending_futures) >= MAX_PENDING_ITEMS:
+                            done, pending_futures = wait(
+                                pending_futures,
+                                return_when=FIRST_COMPLETED,
+                            )
+                            for completed in done:
+                                consume_future(completed)
+
+                    if not cursor:
+                        break
+
+            while pending_futures:
+                done, pending_futures = wait(
+                    pending_futures,
+                    return_when=FIRST_COMPLETED,
+                )
+                for completed in done:
+                    consume_future(completed)
+
+        movie_count = sync_counts["movies"]
+        show_count = sync_counts["shows"]
+        episode_count = sync_counts["episodes"]
     except Exception:
-        # An incomplete API traversal must never prune files, because an empty
-        # partial response could otherwise look like a mass deletion.
+        # An incomplete API traversal or worker failure must never prune files,
+        # because missing results could otherwise look like a mass deletion.
         raise
 
     if progress:
